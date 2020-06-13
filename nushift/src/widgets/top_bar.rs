@@ -1,5 +1,5 @@
 use druid::{Widget, WidgetExt, LocalizedString, Color};
-use druid::widget::{Flex, Label};
+use druid::widget::{Flex, Label, CrossAxisAlignment};
 
 use crate::RootData;
 
@@ -14,6 +14,7 @@ pub fn build_top_bar() -> impl Widget<RootData> {
     let tab_bar = Flex::row();
 
     Flex::row()
+        .cross_axis_alignment(CrossAxisAlignment::Center)
         .with_flex_child(tab_title, 2.0)
         .with_flex_child(tab_bar, 3.0)
         .fix_height(TOP_BAR_HEIGHT)
