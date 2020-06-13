@@ -2,4 +2,4 @@
 
 nushift = Nushift
 
-demo-hello = Hello
+new-tab = New tab

@@ -1,22 +1,30 @@
-use druid::widget::{Align, Label};
-use druid::{AppLauncher, WindowDesc, Widget, LocalizedString};
+use druid::widget::{Flex};
+use druid::{AppLauncher, WindowDesc, Widget, LocalizedString, Data, Lens};
 
-type RootType = ();
+mod widgets {
+    pub mod top_bar;
+}
+
+#[derive(Clone, Data, Lens)]
+pub struct RootData {
+    number_of_tabs: u32
+}
 
 fn main() {
-    let title = LocalizedString::<RootType>::new("nushift");
-
     let main_window = WindowDesc::new(build_root_widget)
-        .title(title);
+        .title(LocalizedString::new("nushift"));
+
+    let initial_state = RootData {
+        number_of_tabs: 0
+    };
 
     AppLauncher::with_window(main_window)
         .use_simple_logger()
-        .launch(())
+        .launch(initial_state)
         .expect("Launch failed");
 }
 
-fn build_root_widget() -> impl Widget<RootType> {
-    let label = Label::new(LocalizedString::new("demo-hello"));
-
-    Align::centered(label)
+fn build_root_widget() -> impl Widget<RootData> {
+    Flex::column()
+        .with_child(widgets::top_bar::build_top_bar())
 }
