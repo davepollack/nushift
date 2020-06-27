@@ -1,20 +1,11 @@
-use druid::widget::{Flex};
-use druid::{AppLauncher, WindowDesc, Widget, LocalizedString, Data, Lens};
+use druid::widget::Flex;
+use druid::{AppLauncher, WindowDesc, Widget, LocalizedString};
 use std::sync::Arc;
 
-mod widgets {
-    pub mod top_bar;
-}
+mod widgets;
+mod widget_data;
 
-#[derive(Clone, Data, Lens)]
-pub struct RootData {
-    tabs: Arc<Vec<TabData>>
-}
-
-#[derive(Clone, Data, Lens)]
-pub struct TabData {
-    tab_title: String
-}
+use widget_data::{RootData, TabData};
 
 fn main() {
     let main_window = WindowDesc::new(build_root_widget)
@@ -35,5 +26,5 @@ fn main() {
 
 fn build_root_widget() -> impl Widget<RootData> {
     Flex::column()
-        .with_child(widgets::top_bar::build_top_bar())
+        .with_child(widgets::build_top_bar())
 }

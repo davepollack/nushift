@@ -1,7 +1,7 @@
 use druid::{Widget, WidgetExt, LocalizedString, Color};
 use druid::widget::{Flex, Label, CrossAxisAlignment, MainAxisAlignment};
 
-use crate::{RootData, TabData};
+use crate::widget_data::RootData;
 
 const TOP_BAR_HEIGHT: f64 = 30.0;
 const TOP_BAR_HORIZONTAL_PADDING: f64 = 10.0;
