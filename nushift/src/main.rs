@@ -1,5 +1,6 @@
 use druid::widget::{Flex};
 use druid::{AppLauncher, WindowDesc, Widget, LocalizedString, Data, Lens};
+use std::sync::Arc;
 
 mod widgets {
     pub mod top_bar;
@@ -7,7 +8,12 @@ mod widgets {
 
 #[derive(Clone, Data, Lens)]
 pub struct RootData {
-    number_of_tabs: u32
+    tabs: Arc<Vec<TabData>>
+}
+
+#[derive(Clone, Data, Lens)]
+pub struct TabData {
+    tab_title: String
 }
 
 fn main() {
@@ -15,7 +21,10 @@ fn main() {
         .title(LocalizedString::new("nushift"));
 
     let initial_state = RootData {
-        number_of_tabs: 0
+        tabs: Arc::new(vec![
+            TabData { tab_title: "Tab title 1".into() },
+            TabData { tab_title: "Tab title 2".into() },
+        ])
     };
 
     AppLauncher::with_window(main_window)
