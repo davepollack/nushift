@@ -1,5 +1,5 @@
 use druid::widget::Flex;
-use druid::{AppLauncher, WindowDesc, Widget, LocalizedString};
+use druid::{AppLauncher, WindowDesc, Widget, WidgetExt, LocalizedString};
 use std::sync::Arc;
 
 mod widgets;
@@ -25,6 +25,8 @@ fn main() {
 }
 
 fn build_root_widget() -> impl Widget<RootData> {
-    Flex::column()
-        .with_child(widgets::build_top_bar())
+    let root = Flex::column()
+        .with_child(widgets::build_top_bar());
+
+    root.debug_paint_layout()
 }

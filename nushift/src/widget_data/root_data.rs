@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use druid::{Data, Lens};
 
-use crate::widget_data::tabs::{TabData};
+use super::tabs::{TabData};
 
 #[derive(Clone, Data, Lens)]
 pub struct RootData {

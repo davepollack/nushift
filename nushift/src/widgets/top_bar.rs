@@ -2,6 +2,7 @@ use druid::{Widget, WidgetExt, LocalizedString, Color};
 use druid::widget::{Flex, Label, CrossAxisAlignment, MainAxisAlignment};
 
 use crate::widget_data::RootData;
+use super::tab_list::TabList;
 
 const TOP_BAR_HEIGHT: f64 = 30.0;
 const TOP_BAR_HORIZONTAL_PADDING: f64 = 10.0;
@@ -33,17 +34,12 @@ fn build_top_bar_internal<FlexI: FlexTrait>() -> impl Widget<RootData> {
     let tab_title = Label::new(LocalizedString::new("new-tab"))
         .with_text_color(TOP_BAR_TEXT_COLOR);
 
-    let mut tab_bar = FlexI::row()
-        .cross_axis_alignment(CrossAxisAlignment::End);
-
-    // TODO how to use the data?
-    tab_bar.add_child(build_tab());
-    tab_bar.add_child(build_tab());
+    let tab_list = TabList::new().lens(RootData::tabs);
 
     FlexI::row()
         .cross_axis_alignment(CrossAxisAlignment::Center)
         .with_flex_child(tab_title, 2.0)
-        .with_flex_child(tab_bar, 3.0)
+        .with_flex_child(tab_list, 3.0)
         .fix_height(TOP_BAR_HEIGHT)
         .padding((TOP_BAR_HORIZONTAL_PADDING, 0.))
         .background(TOP_BAR_BACKGROUND_COLOR)
