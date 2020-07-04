@@ -1,6 +1,7 @@
 use druid::{Widget, WidgetExt, LocalizedString, Color};
-use druid::widget::{Flex, Label, CrossAxisAlignment, MainAxisAlignment};
+use druid::widget::{Flex, Label, CrossAxisAlignment, FlexParams};
 
+use crate::theme::TEXT_COLOR;
 use crate::widget_data::RootData;
 use super::tab_list::TabList;
 
@@ -8,11 +9,6 @@ const TOP_BAR_HEIGHT: f64 = 30.0;
 const TOP_BAR_HORIZONTAL_PADDING: f64 = 10.0;
 
 const TOP_BAR_BACKGROUND_COLOR: Color = Color::rgb8(0x82, 0xe0, 0xe0);
-const TOP_BAR_TEXT_COLOR: Color = Color::grey8(0x00);
-
-const TAB_BACKGROUND_COLOR: Color = Color::rgb8(0xa1, 0xf0, 0xf0);
-const TAB_HEIGHT: f64 = 20.0;
-const TAB_MAX_WIDTH: f64 = 200.0;
 
 #[cfg(test)]
 use mockall::{automock, predicate::*};
@@ -32,26 +28,20 @@ pub fn build_top_bar() -> impl Widget<RootData> {
 fn build_top_bar_internal<FlexI: FlexTrait>() -> impl Widget<RootData> {
 
     let tab_title = Label::new(LocalizedString::new("new-tab"))
-        .with_text_color(TOP_BAR_TEXT_COLOR);
+        .with_text_color(TEXT_COLOR)
+        .expand_width();
 
-    let tab_list = TabList::new().lens(RootData::tabs);
+    let tab_list = TabList::new()
+        .lens(RootData::tabs)
+        .expand_width();
 
     FlexI::row()
         .cross_axis_alignment(CrossAxisAlignment::Center)
         .with_flex_child(tab_title, 2.0)
-        .with_flex_child(tab_list, 3.0)
+        .with_flex_child(tab_list, FlexParams::new(3.0, CrossAxisAlignment::End))
         .fix_height(TOP_BAR_HEIGHT)
         .padding((TOP_BAR_HORIZONTAL_PADDING, 0.))
         .background(TOP_BAR_BACKGROUND_COLOR)
-}
-
-fn build_tab() -> impl Widget<RootData> {
-    Flex::row()
-        .main_axis_alignment(MainAxisAlignment::SpaceBetween)
-        .with_child(Label::new("Tab title 1"))
-        .with_child(Label::new("x"))
-        .fix_width(TAB_MAX_WIDTH)
-        .fix_height(TAB_HEIGHT)
 }
 
 #[cfg(test)]

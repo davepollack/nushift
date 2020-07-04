@@ -1,10 +1,12 @@
 use druid::widget::Flex;
-use druid::{AppLauncher, WindowDesc, Widget, WidgetExt, LocalizedString};
+use druid::{AppLauncher, WindowDesc, Widget, LocalizedString, Color};
 use std::sync::Arc;
 
+mod theme;
 mod widgets;
 mod widget_data;
 
+use theme::TEXT_COLOR;
 use widget_data::{RootData, TabData};
 
 fn main() {
@@ -20,13 +22,14 @@ fn main() {
 
     AppLauncher::with_window(main_window)
         .use_simple_logger()
+        .configure_env(|env, _| {
+            env.set(TEXT_COLOR, Color::grey8(0x00));
+        })
         .launch(initial_state)
         .expect("Launch failed");
 }
 
 fn build_root_widget() -> impl Widget<RootData> {
-    let root = Flex::column()
-        .with_child(widgets::build_top_bar());
-
-    root.debug_paint_layout()
+    Flex::column()
+        .with_child(widgets::build_top_bar())
 }

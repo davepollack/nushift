@@ -1,17 +1,33 @@
+use druid::widget::prelude::*;
 use druid::{
-    widget::{ListIter, Flex, Label, MainAxisAlignment},
-    // TODO import widget prelude instead of these imports?
-    WidgetPod, Widget, WidgetExt, Env, EventCtx, Event, LifeCycleCtx,
-    LifeCycle, UpdateCtx, LayoutCtx, BoxConstraints, Size, Rect, Point, PaintCtx,
+    widget::{ListIter, Flex, Label, MainAxisAlignment, Container},
+    WidgetPod, Widget, WidgetExt, Point, Rect, Color
 };
 
+use crate::theme::TEXT_COLOR;
 use crate::widget_data::TabData;
 
-const TAB_HEIGHT: f64 = 20.0;
+const TAB_BACKGROUND_COLOR: Color = Color::rgb8(0xa1, 0xf0, 0xf0);
+const TAB_HEIGHT: f64 = 25.0;
 const TAB_MAX_WIDTH: f64 = 200.0;
 
+type Tab = Container<TabData>;
+
+fn build_tab() -> Tab {
+    Flex::row()
+        .main_axis_alignment(MainAxisAlignment::SpaceBetween)
+        .with_child(
+            Label::new(|tab_data: &TabData, _env: &_| {
+                tab_data.tab_title.to_owned()
+            })
+            .with_text_color(TEXT_COLOR)
+        )
+        .with_child(Label::new("x").with_text_color(TEXT_COLOR))
+        .background(TAB_BACKGROUND_COLOR)
+}
+
 pub struct TabList {
-    children: Vec<WidgetPod<TabData, Box<dyn Widget<TabData>>>>,
+    children: Vec<WidgetPod<TabData, Tab>>,
 }
 
 impl TabList {
@@ -24,20 +40,10 @@ impl TabList {
     fn recreate_children(&mut self, data: &impl ListIter<TabData>, _env: &Env) {
         self.children.clear();
         data.for_each(|_, _| {
-            self.children.push(WidgetPod::new(Box::new(build_tab())));
+            self.children.push(WidgetPod::new(build_tab()));
         });
     }
 }
-
-fn build_tab() -> impl Widget<TabData> {
-    Flex::row()
-        .main_axis_alignment(MainAxisAlignment::SpaceBetween)
-        .with_child(Label::new(|tab_data: &TabData, _env: &_| {
-            tab_data.tab_title.to_owned()
-        }))
-        .with_child(Label::new("x"))
-}
-
 
 impl<T: ListIter<TabData>> Widget<T> for TabList {
     fn event(&mut self, ctx: &mut EventCtx, event: &Event, data: &mut T, env: &Env) {
@@ -63,7 +69,7 @@ impl<T: ListIter<TabData>> Widget<T> for TabList {
         });
     }
 
-    fn update(&mut self, ctx: &mut UpdateCtx, old_data: &T, data: &T, env: &Env) {
+    fn update(&mut self, ctx: &mut UpdateCtx, _old_data: &T, data: &T, env: &Env) {
         // Recreate everything. This is not good (FIXME), we should actually send
         // `update` to the children like in widget::List, but doing this for now
         // until we have child tracking.
@@ -92,14 +98,13 @@ impl<T: ListIter<TabData>> Widget<T> for TabList {
             };
 
             let child_bc = BoxConstraints::new(
-                Size::new(tab_width, bc.min().height),
+                Size::new(tab_width, tab_height),
                 Size::new(tab_width, tab_height),
             );
 
             let child_size = child.layout(ctx, &child_bc, child_data, env);
-            let bottom_aligned_origin = Point::new((i as f64) * tab_width, bc.max().height - tab_height);
-            dbg!(bottom_aligned_origin, tab_height, bc.min(), bc.max(), child_size);
-            let rect = Rect::from_origin_size(bottom_aligned_origin, child_size);
+            let origin = Point::new((i as f64) * tab_width, 0.0);
+            let rect = Rect::from_origin_size(origin, child_size);
             child.set_layout_rect(ctx, child_data, env, rect);
             max_height_seen = max_height_seen.max(child_size.height);
         });
