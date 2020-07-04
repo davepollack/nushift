@@ -1,7 +1,6 @@
 use druid::{Widget, WidgetExt, LocalizedString, Color};
 use druid::widget::{Flex, Label, CrossAxisAlignment, FlexParams};
 
-use crate::theme::TEXT_COLOR;
 use crate::widget_data::RootData;
 use super::tab_list::TabList;
 
@@ -9,6 +8,7 @@ const TOP_BAR_HEIGHT: f64 = 30.0;
 const TOP_BAR_HORIZONTAL_PADDING: f64 = 10.0;
 
 const TOP_BAR_BACKGROUND_COLOR: Color = Color::rgb8(0x82, 0xe0, 0xe0);
+const TOP_BAR_TEXT_COLOR: Color = Color::grey8(0x00);
 
 #[cfg(test)]
 use mockall::{automock, predicate::*};
@@ -28,7 +28,6 @@ pub fn build_top_bar() -> impl Widget<RootData> {
 fn build_top_bar_internal<FlexI: FlexTrait>() -> impl Widget<RootData> {
 
     let tab_title = Label::new(LocalizedString::new("new-tab"))
-        .with_text_color(TEXT_COLOR)
         .expand_width();
 
     let tab_list = TabList::new()
@@ -42,6 +41,9 @@ fn build_top_bar_internal<FlexI: FlexTrait>() -> impl Widget<RootData> {
         .fix_height(TOP_BAR_HEIGHT)
         .padding((TOP_BAR_HORIZONTAL_PADDING, 0.))
         .background(TOP_BAR_BACKGROUND_COLOR)
+        .env_scope(|env, _| {
+            env.set(druid::theme::LABEL_COLOR, TOP_BAR_TEXT_COLOR);
+        })
 }
 
 #[cfg(test)]
@@ -49,10 +51,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn build_top_bar_creates_two_flex_rows() {
+    fn build_top_bar_creates_one_flex_row() {
         let ctx = MockFlexTrait::row_context();
         ctx.expect()
-            .times(2)
+            .times(1)
             .returning(|| Flex::row());
         build_top_bar_internal::<MockFlexTrait>();
     }

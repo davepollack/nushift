@@ -4,7 +4,6 @@ use druid::{
     WidgetPod, Widget, WidgetExt, Point, Rect, Color
 };
 
-use crate::theme::TEXT_COLOR;
 use crate::widget_data::TabData;
 
 const TAB_BACKGROUND_COLOR: Color = Color::rgb8(0xa1, 0xf0, 0xf0);
@@ -20,9 +19,8 @@ fn build_tab() -> Tab {
             Label::new(|tab_data: &TabData, _env: &_| {
                 tab_data.tab_title.to_owned()
             })
-            .with_text_color(TEXT_COLOR)
         )
-        .with_child(Label::new("x").with_text_color(TEXT_COLOR))
+        .with_child(Label::new("x"))
         .background(TAB_BACKGROUND_COLOR)
 }
 
