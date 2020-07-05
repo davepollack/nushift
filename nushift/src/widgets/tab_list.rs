@@ -5,6 +5,7 @@ use druid::{
 };
 
 use crate::widget_data::TabData;
+use super::close_button;
 
 const TAB_BACKGROUND_COLOR: Color = Color::rgb8(0xa1, 0xf0, 0xf0);
 const TAB_HEIGHT: f64 = 25.0;
@@ -20,7 +21,8 @@ fn build_tab() -> Tab {
                 tab_data.tab_title.to_owned()
             })
         )
-        .with_child(Label::new("x"))
+        .with_child(close_button::close_button())
+        .padding((3.0, 0.0))
         .background(TAB_BACKGROUND_COLOR)
 }
 

@@ -2,6 +2,7 @@ use druid::widget::Flex;
 use druid::{AppLauncher, WindowDesc, Widget, LocalizedString};
 use std::sync::Arc;
 
+mod theme;
 mod widgets;
 mod widget_data;
 
@@ -26,5 +27,5 @@ fn main() {
 
 fn build_root_widget() -> impl Widget<RootData> {
     Flex::column()
-        .with_child(widgets::build_top_bar())
+        .with_child(widgets::top_bar())
 }

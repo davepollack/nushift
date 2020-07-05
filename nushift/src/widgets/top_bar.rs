@@ -1,6 +1,7 @@
 use druid::{Widget, WidgetExt, LocalizedString, Color};
 use druid::widget::{Flex, Label, CrossAxisAlignment, FlexParams};
 
+use crate::theme::{ICON_COLOR_KEY, TEXT_COLOR, ICON_COLOR};
 use crate::widget_data::RootData;
 use super::tab_list::TabList;
 
@@ -8,7 +9,6 @@ const TOP_BAR_HEIGHT: f64 = 30.0;
 const TOP_BAR_HORIZONTAL_PADDING: f64 = 10.0;
 
 const TOP_BAR_BACKGROUND_COLOR: Color = Color::rgb8(0x82, 0xe0, 0xe0);
-const TOP_BAR_TEXT_COLOR: Color = Color::grey8(0x00);
 
 #[cfg(test)]
 use mockall::{automock, predicate::*};
@@ -21,7 +21,7 @@ impl FlexTrait for Flex<RootData> {
     fn row() -> Flex<RootData> { Flex::row() }
 }
 
-pub fn build_top_bar() -> impl Widget<RootData> {
+pub fn top_bar() -> impl Widget<RootData> {
     build_top_bar_internal::<Flex<RootData>>()
 }
 
@@ -42,7 +42,8 @@ fn build_top_bar_internal<FlexI: FlexTrait>() -> impl Widget<RootData> {
         .padding((TOP_BAR_HORIZONTAL_PADDING, 0.))
         .background(TOP_BAR_BACKGROUND_COLOR)
         .env_scope(|env, _| {
-            env.set(druid::theme::LABEL_COLOR, TOP_BAR_TEXT_COLOR);
+            env.set(druid::theme::LABEL_COLOR, TEXT_COLOR);
+            env.set(ICON_COLOR_KEY, ICON_COLOR);
         })
 }
 
