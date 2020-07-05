@@ -122,3 +122,30 @@ impl<T: ListIter<TabData>> Widget<T> for TabList {
         });
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    #[test]
+    fn tab_list_new_creates_widget_with_empty_vec() {
+        let tab_list = TabList::new();
+        assert!(tab_list.children.is_empty());
+    }
+
+    #[test]
+    fn tab_list_recreate_children_clears_the_vec_and_adds_children() {
+        let mut tab_list = TabList::new();
+        for _ in 0..5 {
+            tab_list.children.push(WidgetPod::new(build_tab()));
+        }
+        let child_datas = Arc::new(
+            vec![TabData { tab_title: "Title 1".into() }, TabData { tab_title: "Title 2".into() }]
+        );
+        tab_list.recreate_children(&child_datas, &Env::default());
+
+        // Data length is 2, so it should clear the 5 widgets we added and only add back 2.
+        assert_eq!(2, tab_list.children.len());
+    }
+}

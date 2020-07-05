@@ -52,7 +52,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn build_top_bar_creates_one_flex_row() {
+    fn top_bar_creates_one_flex_row() {
         let ctx = MockFlexTrait::row_context();
         ctx.expect()
             .times(1)
