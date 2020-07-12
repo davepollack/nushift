@@ -39,12 +39,16 @@ impl ReusableIdPool {
                 pool: Arc::clone(reusable_id_pool),
             })
         } else {
-            let frontier_rc_id = Arc::new(Id {
+            // Panicking if (2^64)-1 IDs are in use, sorry.
+            if pool.frontier == u64::MAX {
+                panic!("Out of IDs");
+            }
+            let frontier_arc_id = Arc::new(Id {
                 id: pool.frontier,
                 pool: Arc::clone(reusable_id_pool),
             });
             pool.frontier += 1;
-            frontier_rc_id
+            frontier_arc_id
         }
     }
 
@@ -86,5 +90,16 @@ mod tests {
         assert_eq!(2, id3.id);
         // FILO, should reuse id2's id. I.e. 1.
         assert_eq!(1, id4.id);
+    }
+
+    #[test]
+    #[should_panic(expected = "Out of IDs")]
+    fn allocate_panics_if_all_ids_are_in_use() {
+        let reusable_id_pool = Arc::new(Mutex::new(ReusableIdPool::new()));
+        {
+            let mut pool = reusable_id_pool.lock().unwrap();
+            pool.frontier = u64::MAX;
+        }
+        ReusableIdPool::allocate(&reusable_id_pool);
     }
 }
