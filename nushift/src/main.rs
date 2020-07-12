@@ -5,6 +5,7 @@ use std::sync::Arc;
 mod theme;
 mod widgets;
 mod widget_data;
+mod reusable_id_pool;
 
 use widget_data::{RootData, TabData};
 
