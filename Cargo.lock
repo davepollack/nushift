@@ -884,7 +884,12 @@ version = "0.1.0"
 dependencies = [
  "druid",
  "mockall",
+ "nushift-core",
 ]
+
+[[package]]
+name = "nushift-core"
+version = "0.1.0"
 
 [[package]]
 name = "objc"

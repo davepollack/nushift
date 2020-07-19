@@ -1,5 +1,3 @@
-// TODO: move into `nushift-core` crate.
-
 // TODO: if making this module a public crate, would be cool to have an
 // `allocate_rc(...) -> Rc<Id>` alternative to `allocate(...) -> Arc<Id>`.
 
@@ -23,6 +21,10 @@ impl Drop for Id {
 }
 
 impl ReusableIdPool {
+    /// Create a new reusable ID pool.
+    ///
+    /// Be sure to wrap the result in an `Arc<Mutex<...>>` like
+    /// `Arc<Mutex<ReusableIdPool>>`.
     pub fn new() -> Self {
         ReusableIdPool {
             frontier: 0,
