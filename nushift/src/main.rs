@@ -3,11 +3,11 @@ use druid::{AppLauncher, WindowDesc, Widget, LocalizedString};
 use std::sync::Arc;
 
 mod theme;
-mod widgets;
-mod widget_data;
+mod widget;
+mod model;
 mod reusable_id_pool;
 
-use widget_data::{RootData, TabData};
+use model::{RootData, TabData};
 
 fn main() {
     let main_window = WindowDesc::new(build_root_widget)
@@ -28,5 +28,5 @@ fn main() {
 
 fn build_root_widget() -> impl Widget<RootData> {
     Flex::column()
-        .with_child(widgets::top_bar())
+        .with_child(widget::top_bar())
 }

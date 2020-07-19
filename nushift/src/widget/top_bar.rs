@@ -2,7 +2,7 @@ use druid::{Widget, WidgetExt, LocalizedString, Color};
 use druid::widget::{Flex, Label, CrossAxisAlignment, FlexParams};
 
 use crate::theme::{ICON_COLOR_KEY, TEXT_COLOR, ICON_COLOR};
-use crate::widget_data::RootData;
+use crate::model::RootData;
 use super::tab_list::TabList;
 
 const TOP_BAR_HEIGHT: f64 = 30.0;

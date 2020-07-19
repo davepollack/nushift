@@ -4,7 +4,7 @@ use druid::{
     WidgetPod, Widget, WidgetExt, Point, Rect, Color
 };
 
-use crate::widget_data::TabData;
+use crate::model::TabData;
 use super::close_button;
 
 const TAB_BACKGROUND_COLOR: Color = Color::rgb8(0xa1, 0xf0, 0xf0);
