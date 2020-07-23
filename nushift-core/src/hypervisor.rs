@@ -20,7 +20,7 @@ impl Hypervisor {
     /// Internally, this generates an ID for the new tab, based on an ID pool
     /// owned by the `Hypervisor`.
     ///
-    /// Returns the newly-created tab's ID.
+    /// The newly-created ID is returned.
     pub fn add_new_tab<S>(&mut self, title: S) -> Arc<Id>
         where S: Into<String>
     {

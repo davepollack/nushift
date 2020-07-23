@@ -18,7 +18,7 @@ fn build_tab() -> Tab {
         .main_axis_alignment(MainAxisAlignment::SpaceBetween)
         .with_child(
             Label::new(|tab_data: &TabData, _env: &_| {
-                tab_data.tab_title.to_owned()
+                tab_data.title.to_owned()
             })
         )
         .with_child(close_button::close_button())
@@ -37,7 +37,11 @@ impl TabList {
 
     /// This recreates all children, which is not the greatest, but doing it for
     /// now until we have child tracking.
-    fn recreate_children(&mut self, data: &impl ListIter<TabData>, _env: &Env) {
+    ///
+    /// For now I'm making `T` completely generic (it probably shouldn't be. It
+    /// probably should just be `TabData`) just so I can unit test
+    /// `recreate_children`.
+    fn recreate_children<T>(&mut self, data: &impl ListIter<T>, _env: &Env) {
         self.children.clear();
         data.for_each(|_, _| {
             self.children.push(WidgetPod::new(build_tab()));
@@ -141,7 +145,7 @@ mod tests {
             tab_list.children.push(WidgetPod::new(build_tab()));
         }
         let child_datas = Arc::new(
-            vec![TabData { tab_title: "Title 1".into() }, TabData { tab_title: "Title 2".into() }]
+            vec![(), ()]
         );
         tab_list.recreate_children(&child_datas, &Env::default());
 

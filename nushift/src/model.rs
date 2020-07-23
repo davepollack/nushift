@@ -1,5 +1,5 @@
 mod root_data;
-mod tabs;
+mod tab_data;
 
 pub use root_data::RootData;
-pub use tabs::TabData;
+pub use tab_data::TabData;
