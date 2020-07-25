@@ -10,6 +10,3 @@ edition = "2018"
 nushift-core = { path = "../nushift-core" }
 
 druid = "0.6.0"
-
-[dev-dependencies]
-mockall = "0.7.1"

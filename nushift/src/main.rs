@@ -9,7 +9,7 @@ mod model;
 
 use model::{RootData, TabData};
 
-const INITIAL_TAB_TITLE: &str = "Tab title 1";
+const INITIAL_TAB_TITLE: &str = "New tab";
 
 fn main() {
     let main_window = WindowDesc::new(build_root_widget)
@@ -20,8 +20,9 @@ fn main() {
 
     let initial_state = RootData {
         tabs: Arc::new(vec![
-            TabData { id: tab_id, title: INITIAL_TAB_TITLE.into() },
-        ])
+            TabData { id: Arc::clone(&tab_id), title: INITIAL_TAB_TITLE.into() },
+        ]),
+        currently_selected_tab_id: Arc::clone(&tab_id)
     };
 
     AppLauncher::with_window(main_window)
