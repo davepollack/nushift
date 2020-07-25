@@ -3,7 +3,7 @@ use druid::widget::{Flex, Label, CrossAxisAlignment, FlexParams, SizedBox};
 use std::sync::Arc;
 
 use crate::theme::{TEXT_COLOR, THIN_STROKE_ICON_COLOR_KEY, THIN_STROKE_ICON_COLOR, THICK_STROKE_ICON_COLOR_KEY, THICK_STROKE_ICON_COLOR};
-use crate::model::{TabData, RootData};
+use crate::model::RootData;
 use super::{value, tab, button};
 
 const TOP_BAR_BACKGROUND_COLOR: Color = Color::rgb8(0x82, 0xe0, 0xe0);
@@ -11,12 +11,12 @@ const TOP_BAR_BACKGROUND_COLOR: Color = Color::rgb8(0x82, 0xe0, 0xe0);
 pub fn top_bar() -> impl Widget<RootData> {
 
     let main_title = Label::new(|root_data: &RootData, _env: &_| {
-        let id_comparator = |tab_data: &&TabData| {
-            Arc::ptr_eq(&tab_data.id, &root_data.currently_selected_tab_id)
-        };
-        match root_data.tabs.iter().find(id_comparator) {
-            Some(tab_data) => tab_data.title.to_owned(),
-            None => String::new(), // *Shrug* Invalid state?
+        match &root_data.currently_selected_tab_id {
+            Some(id) => match root_data.tabs.iter().find(|tab_data| Arc::ptr_eq(&tab_data.id, &id)) {
+                Some(tab_data) => tab_data.title.to_owned(),
+                None => String::new(),
+            }
+            None => String::new()
         }
     }).expand_width();
 

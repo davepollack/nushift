@@ -12,21 +12,17 @@ const TAB_MAX_WIDTH: f64 = 200.0;
 
 type Tab = Container<TabData>;
 
-pub fn tab_list() -> TabList {
-    TabList::new()
-}
-
 fn tab() -> Tab {
     Flex::row()
         .main_axis_alignment(MainAxisAlignment::SpaceBetween)
-        .with_child(
-            Label::new(|tab_data: &TabData, _env: &_| {
-                tab_data.title.to_owned()
-            })
-        )
+        .with_child(Label::new(|tab_data: &TabData, _env: &_| tab_data.title.to_owned()))
         .with_child(button::close_button())
         .padding((value::TAB_HORIZONTAL_PADDING, 0.0))
         .background(TAB_BACKGROUND_COLOR)
+}
+
+pub fn tab_list() -> TabList {
+    TabList::new()
 }
 
 pub struct TabList {

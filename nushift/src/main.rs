@@ -1,29 +1,27 @@
-use druid::widget::Flex;
 use druid::{AppLauncher, WindowDesc, Widget, LocalizedString};
-use std::sync::Arc;
+use druid::im::vector;
+use druid::widget::Flex;
+use std::sync::{Mutex, Arc};
 use nushift_core::Hypervisor;
 
 mod theme;
 mod widget;
 mod model;
 
-use model::{RootData, TabData};
-
-const INITIAL_TAB_TITLE: &str = "New tab";
+use model::RootData;
 
 fn main() {
     let main_window = WindowDesc::new(build_root_widget)
         .title(LocalizedString::new("nushift"));
 
-    let mut hypervisor = Hypervisor::new();
-    let tab_id = hypervisor.add_new_tab(INITIAL_TAB_TITLE);
+    let hypervisor = Arc::new(Mutex::new(Hypervisor::new()));
 
-    let initial_state = RootData {
-        tabs: Arc::new(vec![
-            TabData { id: Arc::clone(&tab_id), title: INITIAL_TAB_TITLE.into() },
-        ]),
-        currently_selected_tab_id: Arc::clone(&tab_id)
+    let mut initial_state = RootData {
+        tabs: vector![],
+        currently_selected_tab_id: None,
+        hypervisor,
     };
+    initial_state.add_new_tab();
 
     AppLauncher::with_window(main_window)
         .use_simple_logger()

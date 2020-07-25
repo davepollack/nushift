@@ -50,9 +50,7 @@ pub fn close_button<T: Data>() -> impl Widget<T> {
         ctx.stroke(path, &env.get(THIN_STROKE_ICON_COLOR_KEY), 1.5);
     });
 
-    SizedBox::new(
-        Padding::new(5.0, cross)
-    )
+    SizedBox::new(Padding::new(5.0, cross))
         .width(17.0)
         .height(17.0)
         .background(hover_background())
