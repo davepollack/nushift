@@ -5,15 +5,18 @@ use druid::{
 };
 
 use crate::model::TabData;
-use super::close_button;
+use super::{value, button};
 
 const TAB_BACKGROUND_COLOR: Color = Color::rgb8(0xa1, 0xf0, 0xf0);
-const TAB_HEIGHT: f64 = 25.0;
 const TAB_MAX_WIDTH: f64 = 200.0;
 
 type Tab = Container<TabData>;
 
-fn build_tab() -> Tab {
+pub fn tab_list() -> TabList {
+    TabList::new()
+}
+
+fn tab() -> Tab {
     Flex::row()
         .main_axis_alignment(MainAxisAlignment::SpaceBetween)
         .with_child(
@@ -21,8 +24,8 @@ fn build_tab() -> Tab {
                 tab_data.title.to_owned()
             })
         )
-        .with_child(close_button::close_button())
-        .padding((3.0, 0.0))
+        .with_child(button::close_button())
+        .padding((value::TAB_HORIZONTAL_PADDING, 0.0))
         .background(TAB_BACKGROUND_COLOR)
 }
 
@@ -31,7 +34,7 @@ pub struct TabList {
 }
 
 impl TabList {
-    pub fn new() -> Self {
+    fn new() -> Self {
         TabList { children: Vec::new() }
     }
 
@@ -44,7 +47,7 @@ impl TabList {
     fn recreate_children<T>(&mut self, data: &impl ListIter<T>, _env: &Env) {
         self.children.clear();
         data.for_each(|_, _| {
-            self.children.push(WidgetPod::new(build_tab()));
+            self.children.push(WidgetPod::new(tab()));
         });
     }
 }
@@ -89,7 +92,7 @@ impl<T: ListIter<TabData>> Widget<T> for TabList {
         } else {
             TAB_MAX_WIDTH
         };
-        let tab_height = TAB_HEIGHT.min(bc.max().height);
+        let tab_height = value::TAB_HEIGHT.min(bc.max().height);
 
         let mut children = self.children.iter_mut();
         let mut max_height_seen = bc.min().height;
@@ -142,7 +145,7 @@ mod tests {
     fn tab_list_recreate_children_clears_the_vec_and_adds_children() {
         let mut tab_list = TabList::new();
         for _ in 0..5 {
-            tab_list.children.push(WidgetPod::new(build_tab()));
+            tab_list.children.push(WidgetPod::new(tab()));
         }
         let child_datas = Arc::new(
             vec![(), ()]

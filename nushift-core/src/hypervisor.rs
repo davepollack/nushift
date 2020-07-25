@@ -51,6 +51,8 @@ impl Hypervisor {
 
 struct Tab {
     id: Arc<Id>,
+    // TODO remove the below suppression when `title` is used
+    #[allow(dead_code)]
     title: String,
 }
 
