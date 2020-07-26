@@ -1,6 +1,6 @@
 use druid::widget::prelude::*;
 use druid::{widget::{Painter, SizedBox, Padding}, kurbo::BezPath, Color, Point, WidgetExt, Data};
-use crate::theme::{THICK_STROKE_ICON_COLOR_KEY, THIN_STROKE_ICON_COLOR_KEY};
+use crate::{model::RootData, theme::{THICK_STROKE_ICON_COLOR_KEY, THIN_STROKE_ICON_COLOR_KEY}};
 use super::value::TAB_HEIGHT;
 
 fn hover_background<T>() -> Painter<T> {
@@ -17,8 +17,8 @@ fn hover_background<T>() -> Painter<T> {
     })
 }
 
-pub fn new_tab_button<T: Data>() -> impl Widget<T> {
-    let plus = Painter::new(|ctx, _, env| {
+pub fn new_tab_button() -> impl Widget<RootData> {
+    let plus = Painter::<RootData>::new(|ctx, _, env| {
         let size = ctx.size();
 
         let mut path = BezPath::new();
@@ -34,7 +34,9 @@ pub fn new_tab_button<T: Data>() -> impl Widget<T> {
         .width(TAB_HEIGHT + 5.0)
         .height(TAB_HEIGHT)
         .background(hover_background())
-        .on_click(|_, _, _| { /* TODO */ })
+        .on_click(|_, data, _| {
+            data.add_new_tab();
+        })
 }
 
 pub fn close_button<T: Data>() -> impl Widget<T> {

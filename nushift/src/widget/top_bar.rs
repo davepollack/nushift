@@ -1,5 +1,5 @@
 use druid::{Widget, WidgetExt, Color};
-use druid::widget::{Flex, Label, CrossAxisAlignment, FlexParams, SizedBox};
+use druid::widget::{Flex, Label, CrossAxisAlignment, FlexParams};
 use std::sync::Arc;
 
 use crate::theme::{TEXT_COLOR, THIN_STROKE_ICON_COLOR_KEY, THIN_STROKE_ICON_COLOR, THICK_STROKE_ICON_COLOR_KEY, THICK_STROKE_ICON_COLOR};
@@ -22,8 +22,6 @@ pub fn top_bar() -> impl Widget<RootData> {
 
     let new_tab_button = button::new_tab_button();
 
-    let spacer = SizedBox::empty().width(2.5);
-
     let tab_list = tab::tab_list()
         .lens(RootData::tabs)
         .expand_width();
@@ -32,7 +30,7 @@ pub fn top_bar() -> impl Widget<RootData> {
         .cross_axis_alignment(CrossAxisAlignment::Center)
         .with_flex_child(main_title, 2.0)
         .with_flex_child(new_tab_button, FlexParams::new(0.0, CrossAxisAlignment::End)) // Non-flex, but we want to align it
-        .with_child(spacer)
+        .with_spacer(2.5)
         .with_flex_child(tab_list, FlexParams::new(3.0, CrossAxisAlignment::End))
         .fix_height(value::TOP_BAR_HEIGHT)
         .padding((value::TOP_BAR_HORIZONTAL_PADDING, 0.))
