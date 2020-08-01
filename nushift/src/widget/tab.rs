@@ -1,20 +1,22 @@
 use druid::widget::prelude::*;
 use druid::{
-    widget::{ListIter, Flex, Label, MainAxisAlignment},
+    widget::{ListIter, Flex, Label, MainAxisAlignment, EnvScope, Container},
     WidgetPod, Widget, WidgetExt, Point, Rect, Color,
 };
 use std::cmp::Ordering;
 
-use crate::model::TabData;
+use crate::model::{TabListAndSharedRootData, TabAndSharedRootData};
 use super::{value, button};
 
 const TAB_BACKGROUND_COLOR: Color = Color::rgb8(0xa1, 0xf0, 0xf0);
 const TAB_MAX_WIDTH: f64 = 200.0;
 
-fn tab() -> impl Widget<TabData> {
+type Tab = EnvScope<TabAndSharedRootData, Container<TabAndSharedRootData>>;
+
+fn tab() -> Tab {
     let tab = Flex::row()
         .main_axis_alignment(MainAxisAlignment::SpaceBetween)
-        .with_child(Label::new(|tab_data: &TabData, _env: &_| tab_data.title.to_owned()))
+        .with_child(Label::new(|(_root, tab_data): &TabAndSharedRootData, _env: &_| tab_data.title.to_owned()))
         .with_child(button::close_button())
         .padding((value::TAB_HORIZONTAL_PADDING, 0.0))
         .background(TAB_BACKGROUND_COLOR);
@@ -27,7 +29,7 @@ pub fn tab_list() -> TabList {
 }
 
 pub struct TabList {
-    children: Vec<WidgetPod<TabData, Box<dyn Widget<TabData>>>>,
+    children: Vec<WidgetPod<TabAndSharedRootData, Tab>>,
 }
 
 /// Copy of druid::widget::List, but changed the `layout()` method.
@@ -45,7 +47,7 @@ impl TabList {
             Ordering::Greater => self.children.truncate(data.data_len()),
             Ordering::Less => data.for_each(|_, i| {
                 if i >= len {
-                    self.children.push(WidgetPod::new(Box::new(tab())));
+                    self.children.push(WidgetPod::new(tab()));
                 }
             }),
             Ordering::Equal => (),
@@ -55,8 +57,8 @@ impl TabList {
 }
 
 /// Copy of druid::widget::List, but changed the `layout()` method.
-impl<T: ListIter<TabData>> Widget<T> for TabList {
-    fn event(&mut self, ctx: &mut EventCtx, event: &Event, data: &mut T, env: &Env) {
+impl Widget<TabListAndSharedRootData> for TabList {
+    fn event(&mut self, ctx: &mut EventCtx, event: &Event, data: &mut TabListAndSharedRootData, env: &Env) {
         let mut children = self.children.iter_mut();
         data.for_each_mut(|child_data, _| {
             if let Some(child) = children.next() {
@@ -65,7 +67,7 @@ impl<T: ListIter<TabData>> Widget<T> for TabList {
         });
     }
 
-    fn lifecycle(&mut self, ctx: &mut LifeCycleCtx, event: &LifeCycle, data: &T, env: &Env) {
+    fn lifecycle(&mut self, ctx: &mut LifeCycleCtx, event: &LifeCycle, data: &TabListAndSharedRootData, env: &Env) {
         if let LifeCycle::WidgetAdded = event {
             if self.update_child_count(data, env) {
                 ctx.children_changed();
@@ -80,7 +82,7 @@ impl<T: ListIter<TabData>> Widget<T> for TabList {
         });
     }
 
-    fn update(&mut self, ctx: &mut UpdateCtx, _old_data: &T, data: &T, env: &Env) {
+    fn update(&mut self, ctx: &mut UpdateCtx, _old_data: &TabListAndSharedRootData, data: &TabListAndSharedRootData, env: &Env) {
         let mut children = self.children.iter_mut();
         data.for_each(|child_data, _| {
             if let Some(child) = children.next() {
@@ -93,7 +95,7 @@ impl<T: ListIter<TabData>> Widget<T> for TabList {
         }
     }
 
-    fn layout(&mut self, ctx: &mut LayoutCtx, bc: &BoxConstraints, data: &T, env: &Env) -> Size {
+    fn layout(&mut self, ctx: &mut LayoutCtx, bc: &BoxConstraints, data: &TabListAndSharedRootData, env: &Env) -> Size {
         let tab_width = if data.data_len() == 0 {
             0.0
         } else if TAB_MAX_WIDTH * (data.data_len() as f64) > bc.max().width {
@@ -129,7 +131,7 @@ impl<T: ListIter<TabData>> Widget<T> for TabList {
         my_size
     }
 
-    fn paint(&mut self, ctx: &mut PaintCtx, data: &T, env: &Env) {
+    fn paint(&mut self, ctx: &mut PaintCtx, data: &TabListAndSharedRootData, env: &Env) {
         let mut children = self.children.iter_mut();
         data.for_each(|child_data, _| {
             if let Some(child) = children.next() {

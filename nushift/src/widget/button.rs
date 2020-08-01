@@ -1,6 +1,6 @@
 use druid::widget::prelude::*;
-use druid::{widget::{Painter, SizedBox, Padding}, kurbo::BezPath, Color, Point, WidgetExt, Data};
-use crate::{model::RootData, theme::{THICK_STROKE_ICON_COLOR_KEY, THIN_STROKE_ICON_COLOR_KEY}};
+use druid::{widget::{Painter, SizedBox, Padding}, kurbo::BezPath, Color, Point, WidgetExt};
+use crate::{model::{TabAndSharedRootData, RootData}, theme::{THICK_STROKE_ICON_COLOR_KEY, THIN_STROKE_ICON_COLOR_KEY}};
 use super::value::TAB_HEIGHT;
 
 fn hover_background<T>() -> Painter<T> {
@@ -39,8 +39,8 @@ pub fn new_tab_button() -> impl Widget<RootData> {
         })
 }
 
-pub fn close_button<T: Data>() -> impl Widget<T> {
-    let cross = Painter::new(|ctx, _, env| {
+pub fn close_button() -> impl Widget<TabAndSharedRootData> {
+    let cross = Painter::<TabAndSharedRootData>::new(|ctx, _, env| {
         let size = ctx.size();
 
         let mut path = BezPath::new();
@@ -56,5 +56,8 @@ pub fn close_button<T: Data>() -> impl Widget<T> {
         .width(17.0)
         .height(17.0)
         .background(hover_background())
-        .on_click(|_, _, _| { /* TODO */ })
+        .on_click(|_, data, _| {
+            let (root_data, tab_data) = data;
+            root_data.close_tab(&tab_data.id);
+        })
 }
