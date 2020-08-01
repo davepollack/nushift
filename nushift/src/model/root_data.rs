@@ -47,8 +47,6 @@ impl RootData {
 
         // TODO if last tab, main title should change to "No tabs"
 
-        // TODO tabs should be rendered in right-to-left order.
-
         match (&id_to_remove, &self.currently_selected_tab_id, index_to_remove) {
             // First tab was closed, is currently selected, and there are no tabs left
             (Some(id), Some(currently_selected_tab_id), Some(0)) if Arc::ptr_eq(id, currently_selected_tab_id) && self.tabs.is_empty() => {

@@ -1,27 +1,40 @@
 use druid::widget::prelude::*;
 use druid::{
-    widget::{ListIter, Flex, Label, MainAxisAlignment, EnvScope, Container},
+    widget::{ListIter, Flex, Label, MainAxisAlignment, Container, Painter},
     WidgetPod, Widget, WidgetExt, Point, Rect, Color,
 };
-use std::cmp::Ordering;
+use std::{sync::Arc, cmp::Ordering};
 
 use crate::model::{TabListAndSharedRootData, TabAndSharedRootData};
 use super::{value, button};
 
 const TAB_BACKGROUND_COLOR: Color = Color::rgb8(0xa1, 0xf0, 0xf0);
-const TAB_MAX_WIDTH: f64 = 200.0;
+const TAB_SELECTED_BACKGROUND_COLOR: Color = Color::rgb8(0xdb, 0xfa, 0xfa);
+const TAB_NORMAL_WIDTH: f64 = 200.0;
 
-type Tab = EnvScope<TabAndSharedRootData, Container<TabAndSharedRootData>>;
+type Tab = Container<TabAndSharedRootData>;
 
 fn tab() -> Tab {
+    let selected_or_non_selected_background = Painter::new(|ctx, data: &TabAndSharedRootData, _| {
+        let bounds = ctx.size().to_rect();
+        match &data.0.currently_selected_tab_id {
+            Some(id) if Arc::ptr_eq(id, &data.1.id) => {
+                ctx.fill(bounds, &TAB_SELECTED_BACKGROUND_COLOR);
+            },
+            _ => {
+                ctx.fill(bounds, &TAB_BACKGROUND_COLOR);
+            },
+        }
+    });
+
     let tab = Flex::row()
         .main_axis_alignment(MainAxisAlignment::SpaceBetween)
         .with_child(Label::new(|(_root, tab_data): &TabAndSharedRootData, _env: &_| tab_data.title.to_owned()))
         .with_child(button::close_button())
         .padding((value::TAB_HORIZONTAL_PADDING, 0.0))
-        .background(TAB_BACKGROUND_COLOR);
+        .background(selected_or_non_selected_background);
 
-    tab.debug_paint_layout()
+    tab
 }
 
 pub fn tab_list() -> TabList {
@@ -96,12 +109,14 @@ impl Widget<TabListAndSharedRootData> for TabList {
     }
 
     fn layout(&mut self, ctx: &mut LayoutCtx, bc: &BoxConstraints, data: &TabListAndSharedRootData, env: &Env) -> Size {
-        let tab_width = if data.data_len() == 0 {
+        let len = data.data_len();
+
+        let tab_width = if len == 0 {
             0.0
-        } else if TAB_MAX_WIDTH * (data.data_len() as f64) > bc.max().width {
-            bc.max().width / (data.data_len() as f64)
-        } else {
-            TAB_MAX_WIDTH
+        } else if TAB_NORMAL_WIDTH * (len as f64) > bc.max().width { // If too many tabs, squash them
+            bc.max().width / (len as f64)
+        } else { // Else, the normal width
+            TAB_NORMAL_WIDTH
         };
         let tab_height = value::TAB_HEIGHT.min(bc.max().height);
 
@@ -121,7 +136,8 @@ impl Widget<TabListAndSharedRootData> for TabList {
             );
 
             let child_size = child.layout(ctx, &child_bc, child_data, env);
-            let origin = Point::new((i as f64) * tab_width, 0.0);
+            // Tabs should be rendered right-to-left
+            let origin = Point::new(((len - 1 - i) as f64) * tab_width, 0.0);
             let rect = Rect::from_origin_size(origin, child_size);
             child.set_layout_rect(ctx, child_data, env, rect);
             max_height_seen = max_height_seen.max(child_size.height);

@@ -18,7 +18,7 @@ fn hover_background<T>() -> Painter<T> {
 }
 
 pub fn new_tab_button() -> impl Widget<RootData> {
-    let plus = Painter::<RootData>::new(|ctx, _, env| {
+    let plus = Painter::new(|ctx, _: &RootData, env| {
         let size = ctx.size();
 
         let mut path = BezPath::new();
@@ -40,7 +40,7 @@ pub fn new_tab_button() -> impl Widget<RootData> {
 }
 
 pub fn close_button() -> impl Widget<TabAndSharedRootData> {
-    let cross = Painter::<TabAndSharedRootData>::new(|ctx, _, env| {
+    let cross = Painter::new(|ctx, _: &TabAndSharedRootData, env| {
         let size = ctx.size();
 
         let mut path = BezPath::new();
