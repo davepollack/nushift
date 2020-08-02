@@ -1,6 +1,6 @@
 use druid::widget::prelude::*;
 use druid::{
-    widget::{ListIter, Flex, Label, MainAxisAlignment, Container, Painter},
+    widget::{ListIter, Flex, Label, MainAxisAlignment, Container, Painter, ControllerHost, Click},
     WidgetPod, Widget, WidgetExt, Point, Rect, Color,
 };
 use std::cmp::Ordering;
@@ -10,10 +10,11 @@ use crate::model::{TabListAndSharedRootData, TabAndSharedRootData};
 use super::{value, button};
 
 const TAB_BACKGROUND_COLOR: Color = Color::rgb8(0xa1, 0xf0, 0xf0);
-const TAB_SELECTED_BACKGROUND_COLOR: Color = Color::rgb8(0xdb, 0xfa, 0xfa);
+const TAB_HOVER_BACKGROUND_COLOR: Color = Color::rgb8(0xbd, 0xf5, 0xf5);
+const TAB_SELECTED_BACKGROUND_COLOR: Color = Color::rgb8(0xe9, 0xfc, 0xfc);
 const TAB_NORMAL_WIDTH: f64 = 200.0;
 
-type Tab = Container<TabAndSharedRootData>;
+type Tab = ControllerHost<Container<TabAndSharedRootData>, Click<TabAndSharedRootData>>;
 
 fn tab() -> Tab {
     let selected_or_non_selected_background = Painter::new(|ctx, data: &TabAndSharedRootData, _| {
@@ -23,7 +24,11 @@ fn tab() -> Tab {
                 ctx.fill(bounds, &TAB_SELECTED_BACKGROUND_COLOR);
             },
             _ => {
-                ctx.fill(bounds, &TAB_BACKGROUND_COLOR);
+                if ctx.is_hot() {
+                    ctx.fill(bounds, &TAB_HOVER_BACKGROUND_COLOR);
+                } else {
+                    ctx.fill(bounds, &TAB_BACKGROUND_COLOR);
+                }
             },
         }
     });
@@ -33,7 +38,12 @@ fn tab() -> Tab {
         .with_child(Label::new(|(_root, tab_data): &TabAndSharedRootData, _env: &_| tab_data.title.to_owned()))
         .with_child(button::close_button())
         .padding((value::TAB_HORIZONTAL_PADDING, 0.0))
-        .background(selected_or_non_selected_background);
+        .background(selected_or_non_selected_background)
+        .on_click(|_, _, _| {
+            // Attach `Click` widget to get "hot" tracking and other useful
+            // mouse handling, but don't actually use it for the select handler,
+            // we're going to do that ourselves.
+        });
 
     tab
 }
