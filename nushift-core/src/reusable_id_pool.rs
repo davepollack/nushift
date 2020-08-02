@@ -79,6 +79,8 @@ impl ReusableIdPool {
 mod tests {
     use super::*;
 
+    // TODO test IdEq
+
     #[test]
     fn allocate_creates_ids() {
         let reusable_id_pool = Arc::new(Mutex::new(ReusableIdPool::new()));

@@ -24,7 +24,7 @@ impl Hypervisor {
     pub fn add_new_tab<S>(&mut self, title: S) -> Arc<Id>
         where S: Into<String>
     {
-        let new_tab_id = ReusableIdPool::allocate(&mut self.tabs_reusable_id_pool);
+        let new_tab_id = ReusableIdPool::allocate(&self.tabs_reusable_id_pool);
 
         let new_tab = Tab {
             id: new_tab_id,

@@ -3,8 +3,8 @@ use druid::{
     widget::{ListIter, Flex, Label, MainAxisAlignment, Container, Painter, ControllerHost, Click},
     WidgetPod, Widget, WidgetExt, Point, Rect, Color,
 };
-use std::cmp::Ordering;
-use nushift_core::IdEq;
+use std::{sync::Arc, cmp::Ordering, hash::Hash};
+use nushift_core::{Id, IdEq};
 
 use crate::model::{TabListAndSharedRootData, TabAndSharedRootData};
 use super::{value, button};
@@ -15,6 +15,20 @@ const TAB_SELECTED_BACKGROUND_COLOR: Color = Color::rgb8(0xe9, 0xfc, 0xfc);
 const TAB_NORMAL_WIDTH: f64 = 200.0;
 
 type Tab = ControllerHost<Container<TabAndSharedRootData>, Click<TabAndSharedRootData>>;
+
+struct TabKey(Arc<Id>);
+
+impl PartialEq for TabKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.id_eq(&other.0)
+    }
+}
+impl Eq for TabKey {}
+impl Hash for TabKey {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        Arc::as_ptr(&self.0).hash(state);
+    }
+}
 
 fn tab() -> Tab {
     let selected_or_non_selected_background = Painter::new(|ctx, data: &TabAndSharedRootData, _| {
@@ -89,7 +103,7 @@ impl TabList {
 impl Widget<TabListAndSharedRootData> for TabList {
     fn event(&mut self, ctx: &mut EventCtx, event: &Event, data: &mut TabListAndSharedRootData, env: &Env) {
         let mut children = self.children.iter_mut();
-        data.for_each_mut(|child_data, _| {
+        data.for_each_mut(|child_data: &mut TabAndSharedRootData, _| {
             if let Some(child) = children.next() {
                 child.event(ctx, event, child_data, env);
             }
@@ -179,6 +193,38 @@ impl Widget<TabListAndSharedRootData> for TabList {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{collections::hash_map::DefaultHasher, sync::Mutex, hash::Hasher};
+    use nushift_core::ReusableIdPool;
+
+    fn tab_key_setup() -> (TabKey, TabKey) {
+        let pool = Arc::new(Mutex::new(ReusableIdPool::new()));
+        let id = ReusableIdPool::allocate(&pool);
+        let cloned_arc_id = Arc::clone(&id);
+
+        (TabKey(id), TabKey(cloned_arc_id))
+    }
+
+    #[test]
+    fn tab_key_eq_is_true_for_cloned_arc_id() {
+        let (tab_key_1, tab_key_2) = tab_key_setup();
+
+        assert!(tab_key_1.eq(&tab_key_2));
+    }
+
+    #[test]
+    fn tab_key_hash_is_equal_for_cloned_arc_id() {
+        let (tab_key_1, tab_key_2) = tab_key_setup();
+
+        let mut hasher = DefaultHasher::new();
+        tab_key_1.hash(&mut hasher);
+        let hash_1 = hasher.finish();
+
+        let mut hasher = DefaultHasher::new();
+        tab_key_2.hash(&mut hasher);
+        let hash_2 = hasher.finish();
+
+        assert_eq!(hash_1, hash_2);
+    }
 
     #[test]
     fn tab_list_new_creates_widget_with_empty_vec() {
