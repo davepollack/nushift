@@ -1,5 +1,5 @@
 use std::sync::{Mutex, Arc};
-use crate::reusable_id_pool::{ReusableIdPool, Id};
+use crate::reusable_id_pool::{ReusableIdPool, Id, IdEq};
 
 pub struct Hypervisor {
     tabs: Vec<Tab>,
@@ -40,7 +40,7 @@ impl Hypervisor {
     ///
     /// If the passed-in `tab_id` does not exist, this method does nothing.
     pub fn close_tab(&mut self, tab_id: &Arc<Id>) {
-        match self.tabs.iter().enumerate().find(|(_index, tab)| Arc::ptr_eq(&tab.id, tab_id)) {
+        match self.tabs.iter().enumerate().find(|(_index, tab)| tab.id.id_eq(tab_id)) {
             Some((index, _tab)) => {
                 self.tabs.remove(index);
             }

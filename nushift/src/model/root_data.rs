@@ -1,7 +1,7 @@
 use std::sync::{Mutex, Arc};
 use druid::{Data, Lens};
 use druid::im::Vector;
-use nushift_core::{Hypervisor, Id};
+use nushift_core::{Hypervisor, Id, IdEq};
 
 use super::tab_data::TabData;
 
@@ -34,7 +34,7 @@ impl RootData {
 
         let mut id_to_remove = None;
         let mut index_to_remove = None;
-        match self.tabs.iter().enumerate().find(|(_index, tab)| Arc::ptr_eq(&tab.id, tab_id)) {
+        match self.tabs.iter().enumerate().find(|(_index, tab)| tab.id.id_eq(tab_id)) {
             Some((index, tab)) => {
                 id_to_remove = Some(Arc::clone(&tab.id));
                 index_to_remove = Some(index);
@@ -49,16 +49,16 @@ impl RootData {
 
         match (&id_to_remove, &self.currently_selected_tab_id, index_to_remove) {
             // First tab was closed, is currently selected, and there are no tabs left
-            (Some(id), Some(currently_selected_tab_id), Some(0)) if Arc::ptr_eq(id, currently_selected_tab_id) && self.tabs.is_empty() => {
+            (Some(id), Some(currently_selected_tab_id), Some(0)) if id.id_eq(currently_selected_tab_id) && self.tabs.is_empty() => {
                 self.currently_selected_tab_id = None;
             }
             // First tab was closed, is currently selected, and there are still some tabs left
-            (Some(id), Some(currently_selected_tab_id), Some(0)) if Arc::ptr_eq(id, currently_selected_tab_id) => {
+            (Some(id), Some(currently_selected_tab_id), Some(0)) if id.id_eq(currently_selected_tab_id) => {
                 let first_tab_id = Arc::clone(&self.tabs[0].id);
                 self.currently_selected_tab_id = Some(first_tab_id);
             },
             // Other tab was closed, is currently selected
-            (Some(id), Some(currently_selected_tab_id), Some(index)) if Arc::ptr_eq(id, currently_selected_tab_id) => {
+            (Some(id), Some(currently_selected_tab_id), Some(index)) if id.id_eq(currently_selected_tab_id) => {
                 let previous_tab_id = Arc::clone(&self.tabs[index - 1].id);
                 self.currently_selected_tab_id = Some(previous_tab_id);
             },

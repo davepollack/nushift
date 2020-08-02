@@ -1,6 +1,6 @@
 use druid::{Widget, WidgetExt, Color};
 use druid::{lens, LensExt, widget::{Flex, Label, CrossAxisAlignment, FlexParams}};
-use std::sync::Arc;
+use nushift_core::IdEq;
 
 use crate::theme::{TEXT_COLOR, THIN_STROKE_ICON_COLOR_KEY, THIN_STROKE_ICON_COLOR, THICK_STROKE_ICON_COLOR_KEY, THICK_STROKE_ICON_COLOR};
 use crate::model::{TabListAndSharedRootData, RootData};
@@ -12,7 +12,7 @@ pub fn top_bar() -> impl Widget<RootData> {
 
     let main_title = Label::new(|root_data: &RootData, _env: &_| {
         match &root_data.currently_selected_tab_id {
-            Some(id) => match root_data.tabs.iter().find(|tab_data| Arc::ptr_eq(&tab_data.id, &id)) {
+            Some(id) => match root_data.tabs.iter().find(|tab_data| tab_data.id.id_eq(&id)) {
                 Some(tab_data) => tab_data.title.to_owned(),
                 None => String::new(),
             }

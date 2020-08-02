@@ -3,7 +3,8 @@ use druid::{
     widget::{ListIter, Flex, Label, MainAxisAlignment, Container, Painter},
     WidgetPod, Widget, WidgetExt, Point, Rect, Color,
 };
-use std::{sync::Arc, cmp::Ordering};
+use std::cmp::Ordering;
+use nushift_core::IdEq;
 
 use crate::model::{TabListAndSharedRootData, TabAndSharedRootData};
 use super::{value, button};
@@ -18,7 +19,7 @@ fn tab() -> Tab {
     let selected_or_non_selected_background = Painter::new(|ctx, data: &TabAndSharedRootData, _| {
         let bounds = ctx.size().to_rect();
         match &data.0.currently_selected_tab_id {
-            Some(id) if Arc::ptr_eq(id, &data.1.id) => {
+            Some(id) if id.id_eq(&data.1.id) => {
                 ctx.fill(bounds, &TAB_SELECTED_BACKGROUND_COLOR);
             },
             _ => {
@@ -56,6 +57,11 @@ impl TabList {
     /// Returns `true` if children were added or removed.
     fn update_child_count<T>(&mut self, data: &impl ListIter<T>, _env: &Env) -> bool {
         let len = self.children.len();
+
+        // TODO: BUG: "Hot" state seems to move to the tab to the left when you
+        // close the tab to the right. Pretty sure it's because of this "dumb"
+        // truncation.
+
         match len.cmp(&data.data_len()) {
             Ordering::Greater => self.children.truncate(data.data_len()),
             Ordering::Less => data.for_each(|_, i| {
@@ -96,6 +102,9 @@ impl Widget<TabListAndSharedRootData> for TabList {
     }
 
     fn update(&mut self, ctx: &mut UpdateCtx, _old_data: &TabListAndSharedRootData, data: &TabListAndSharedRootData, env: &Env) {
+        // we send update to children first, before adding or removing children;
+        // this way we avoid sending update to newly added children, at the cost
+        // of potentially updating children that are going to be removed.
         let mut children = self.children.iter_mut();
         data.for_each(|child_data, _| {
             if let Some(child) = children.next() {

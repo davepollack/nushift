@@ -20,6 +20,20 @@ impl Drop for Id {
     }
 }
 
+pub trait IdEq {
+    /// Returns if this ID is the same as the other ID.
+    ///
+    /// When creating a new reference to an ID with `Arc::clone(&id)`, those IDs
+    /// are considered the same.
+    fn id_eq(&self, other: &Arc<Id>) -> bool;
+}
+
+impl IdEq for Arc<Id> {
+    fn id_eq(&self, other: &Arc<Id>) -> bool {
+        Arc::ptr_eq(self, other)
+    }
+}
+
 impl ReusableIdPool {
     /// Create a new reusable ID pool.
     ///
