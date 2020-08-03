@@ -74,21 +74,21 @@ pub fn tab_list() -> TabList {
 /// Based on druid::widget::List, but has more child tracking, and custom
 /// `layout()` method
 pub struct TabList {
-    children: HashMap<TabKey, WidgetPod<TabAndSharedRootData, Tab>>,
+    widget_children: HashMap<TabKey, WidgetPod<TabAndSharedRootData, Tab>>,
 }
 
 impl TabList {
     fn new() -> Self {
-        TabList { children: HashMap::new() }
+        TabList { widget_children: HashMap::new() }
     }
 
     /// When the widget is created or the data changes, create or remove children
     /// as needed.
     ///
     /// Returns `true` if children were added or removed.
-    fn update_child_count(&mut self, data: &TabListAndSharedRootData, _env: &Env) -> bool {
+    fn create_and_remove_widget_children(&mut self, data: &TabListAndSharedRootData, _env: &Env) -> bool {
         let mut is_changed = false;
-        let original_widget_children_len = self.children.len();
+        let original_widget_children_len = self.widget_children.len();
         let original_data_len = data.data_len();
 
         let mut data_ids_set = HashSet::with_capacity(original_data_len);
@@ -97,16 +97,16 @@ impl TabList {
         });
 
         // Wipe all widget children that are no longer in the data
-        self.children.retain(|tab_key: &TabKey, _| data_ids_set.contains(tab_key));
+        self.widget_children.retain(|tab_key: &TabKey, _| data_ids_set.contains(tab_key));
 
-        if self.children.len() != original_widget_children_len {
+        if self.widget_children.len() != original_widget_children_len {
             is_changed = true;
         }
 
         // Add new widget children corresponding to new IDs
         for tab_key in data_ids_set {
-            if !self.children.contains_key(&tab_key) {
-                self.children.insert(tab_key, WidgetPod::new(tab()));
+            if !self.widget_children.contains_key(&tab_key) {
+                self.widget_children.insert(tab_key, WidgetPod::new(tab()));
                 is_changed = true;
             }
         }
@@ -118,22 +118,23 @@ impl TabList {
 impl Widget<TabListAndSharedRootData> for TabList {
     fn event(&mut self, ctx: &mut EventCtx, event: &Event, data: &mut TabListAndSharedRootData, env: &Env) {
         data.for_each_mut(|child_data: &mut TabAndSharedRootData, _| {
-            if let Some(child) = self.children.get_mut(&TabKey::new(&child_data.1.id)) {
-                child.event(ctx, event, child_data, env);
+            if let Some(widget_child) = self.widget_children.get_mut(&TabKey::new(&child_data.1.id)) {
+                widget_child.event(ctx, event, child_data, env);
             }
         });
     }
 
     fn lifecycle(&mut self, ctx: &mut LifeCycleCtx, event: &LifeCycle, data: &TabListAndSharedRootData, env: &Env) {
         if let LifeCycle::WidgetAdded = event {
-            if self.update_child_count(data, env) {
+            let widgets_were_added_or_removed = self.create_and_remove_widget_children(data, env);
+            if widgets_were_added_or_removed {
                 ctx.children_changed();
             }
         }
 
         data.for_each(|child_data, _| {
-            if let Some(child) = self.children.get_mut(&TabKey::new(&child_data.1.id)) {
-                child.lifecycle(ctx, event, child_data, env);
+            if let Some(widget_child) = self.widget_children.get_mut(&TabKey::new(&child_data.1.id)) {
+                widget_child.lifecycle(ctx, event, child_data, env);
             }
         });
     }
@@ -143,12 +144,13 @@ impl Widget<TabListAndSharedRootData> for TabList {
         // this way we avoid sending update to newly added children, at the cost
         // of potentially updating children that are going to be removed.
         data.for_each(|child_data, _| {
-            if let Some(child) = self.children.get_mut(&TabKey::new(&child_data.1.id)) {
-                child.update(ctx, child_data, env);
+            if let Some(widget_child) = self.widget_children.get_mut(&TabKey::new(&child_data.1.id)) {
+                widget_child.update(ctx, child_data, env);
             }
         });
 
-        if self.update_child_count(data, env) {
+        let widgets_were_added_or_removed = self.create_and_remove_widget_children(data, env);
+        if widgets_were_added_or_removed {
             ctx.children_changed();
         }
     }
@@ -167,8 +169,8 @@ impl Widget<TabListAndSharedRootData> for TabList {
 
         let mut max_height_seen = bc.min().height;
         data.for_each(|child_data, i| {
-            let child = match self.children.get_mut(&TabKey::new(&child_data.1.id)) {
-                Some(child) => child,
+            let widget_child = match self.widget_children.get_mut(&TabKey::new(&child_data.1.id)) {
+                Some(widget_child) => widget_child,
                 None => {
                     return;
                 },
@@ -179,12 +181,12 @@ impl Widget<TabListAndSharedRootData> for TabList {
                 Size::new(tab_width, tab_height),
             );
 
-            let child_size = child.layout(ctx, &child_bc, child_data, env);
+            let widget_child_size = widget_child.layout(ctx, &child_bc, child_data, env);
             // Tabs should be rendered right-to-left
             let origin = Point::new(((len - 1 - i) as f64) * tab_width, 0.0);
-            let rect = Rect::from_origin_size(origin, child_size);
-            child.set_layout_rect(ctx, child_data, env, rect);
-            max_height_seen = max_height_seen.max(child_size.height);
+            let rect = Rect::from_origin_size(origin, widget_child_size);
+            widget_child.set_layout_rect(ctx, child_data, env, rect);
+            max_height_seen = max_height_seen.max(widget_child_size.height);
         });
 
         let my_size = Size::new((data.data_len() as f64) * tab_width, max_height_seen);
@@ -193,8 +195,8 @@ impl Widget<TabListAndSharedRootData> for TabList {
 
     fn paint(&mut self, ctx: &mut PaintCtx, data: &TabListAndSharedRootData, env: &Env) {
         data.for_each(|child_data, _| {
-            if let Some(child) = self.children.get_mut(&TabKey::new(&child_data.1.id)) {
-                child.paint(ctx, child_data, env);
+            if let Some(widget_child) = self.widget_children.get_mut(&TabKey::new(&child_data.1.id)) {
+                widget_child.paint(ctx, child_data, env);
             }
         });
     }
@@ -239,6 +241,6 @@ mod tests {
     #[test]
     fn tab_list_new_creates_widget_with_empty_vec() {
         let tab_list = TabList::new();
-        assert!(tab_list.children.is_empty());
+        assert!(tab_list.widget_children.is_empty());
     }
 }
