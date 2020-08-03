@@ -3,7 +3,7 @@ use druid::{
     widget::{ListIter, Flex, Label, MainAxisAlignment, Container, Painter, ControllerHost, Click},
     WidgetPod, Widget, WidgetExt, Point, Rect, Color,
 };
-use std::{sync::Arc, cmp::Ordering, hash::Hash};
+use std::{sync::Arc, hash::Hash, collections::{HashSet, HashMap}};
 use nushift_core::{Id, IdEq};
 
 use crate::model::{TabListAndSharedRootData, TabAndSharedRootData};
@@ -18,6 +18,11 @@ type Tab = ControllerHost<Container<TabAndSharedRootData>, Click<TabAndSharedRoo
 
 struct TabKey(Arc<Id>);
 
+impl TabKey {
+    fn new(id: &Arc<Id>) -> Self {
+        TabKey(Arc::clone(id))
+    }
+}
 impl PartialEq for TabKey {
     fn eq(&self, other: &Self) -> bool {
         self.0.id_eq(&other.0)
@@ -66,45 +71,54 @@ pub fn tab_list() -> TabList {
     TabList::new()
 }
 
+/// Based on druid::widget::List, but has more child tracking, and custom
+/// `layout()` method
 pub struct TabList {
-    children: Vec<WidgetPod<TabAndSharedRootData, Tab>>,
+    children: HashMap<TabKey, WidgetPod<TabAndSharedRootData, Tab>>,
 }
 
-/// Copy of druid::widget::List, but changed the `layout()` method.
 impl TabList {
     fn new() -> Self {
-        TabList { children: Vec::new() }
+        TabList { children: HashMap::new() }
     }
 
-    /// When the widget is created or the data changes, create or remove children as needed
+    /// When the widget is created or the data changes, create or remove children
+    /// as needed.
     ///
     /// Returns `true` if children were added or removed.
-    fn update_child_count<T>(&mut self, data: &impl ListIter<T>, _env: &Env) -> bool {
-        let len = self.children.len();
+    fn update_child_count(&mut self, data: &TabListAndSharedRootData, _env: &Env) -> bool {
+        let mut is_changed = false;
+        let original_widget_children_len = self.children.len();
+        let original_data_len = data.data_len();
 
-        // TODO: BUG: "Hot" state seems to move to the tab to the left when you
-        // close the tab to the right. Pretty sure it's because of this "dumb"
-        // truncation.
+        let mut data_ids_set = HashSet::with_capacity(original_data_len);
+        data.for_each(|child_data, _| {
+            data_ids_set.insert(TabKey::new(&child_data.1.id));
+        });
 
-        match len.cmp(&data.data_len()) {
-            Ordering::Greater => self.children.truncate(data.data_len()),
-            Ordering::Less => data.for_each(|_, i| {
-                if i >= len {
-                    self.children.push(WidgetPod::new(tab()));
-                }
-            }),
-            Ordering::Equal => (),
+        // Wipe all widget children that are no longer in the data
+        self.children.retain(|tab_key: &TabKey, _| data_ids_set.contains(tab_key));
+
+        if self.children.len() != original_widget_children_len {
+            is_changed = true;
         }
-        len != data.data_len()
+
+        // Add new widget children corresponding to new IDs
+        for tab_key in data_ids_set {
+            if !self.children.contains_key(&tab_key) {
+                self.children.insert(tab_key, WidgetPod::new(tab()));
+                is_changed = true;
+            }
+        }
+
+        is_changed
     }
 }
 
-/// Copy of druid::widget::List, but changed the `layout()` method.
 impl Widget<TabListAndSharedRootData> for TabList {
     fn event(&mut self, ctx: &mut EventCtx, event: &Event, data: &mut TabListAndSharedRootData, env: &Env) {
-        let mut children = self.children.iter_mut();
         data.for_each_mut(|child_data: &mut TabAndSharedRootData, _| {
-            if let Some(child) = children.next() {
+            if let Some(child) = self.children.get_mut(&TabKey::new(&child_data.1.id)) {
                 child.event(ctx, event, child_data, env);
             }
         });
@@ -117,9 +131,8 @@ impl Widget<TabListAndSharedRootData> for TabList {
             }
         }
 
-        let mut children = self.children.iter_mut();
         data.for_each(|child_data, _| {
-            if let Some(child) = children.next() {
+            if let Some(child) = self.children.get_mut(&TabKey::new(&child_data.1.id)) {
                 child.lifecycle(ctx, event, child_data, env);
             }
         });
@@ -129,9 +142,8 @@ impl Widget<TabListAndSharedRootData> for TabList {
         // we send update to children first, before adding or removing children;
         // this way we avoid sending update to newly added children, at the cost
         // of potentially updating children that are going to be removed.
-        let mut children = self.children.iter_mut();
         data.for_each(|child_data, _| {
-            if let Some(child) = children.next() {
+            if let Some(child) = self.children.get_mut(&TabKey::new(&child_data.1.id)) {
                 child.update(ctx, child_data, env);
             }
         });
@@ -153,10 +165,9 @@ impl Widget<TabListAndSharedRootData> for TabList {
         };
         let tab_height = value::TAB_HEIGHT.min(bc.max().height);
 
-        let mut children = self.children.iter_mut();
         let mut max_height_seen = bc.min().height;
         data.for_each(|child_data, i| {
-            let child = match children.next() {
+            let child = match self.children.get_mut(&TabKey::new(&child_data.1.id)) {
                 Some(child) => child,
                 None => {
                     return;
@@ -181,9 +192,8 @@ impl Widget<TabListAndSharedRootData> for TabList {
     }
 
     fn paint(&mut self, ctx: &mut PaintCtx, data: &TabListAndSharedRootData, env: &Env) {
-        let mut children = self.children.iter_mut();
         data.for_each(|child_data, _| {
-            if let Some(child) = children.next() {
+            if let Some(child) = self.children.get_mut(&TabKey::new(&child_data.1.id)) {
                 child.paint(ctx, child_data, env);
             }
         });
