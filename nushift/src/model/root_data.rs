@@ -17,7 +17,7 @@ pub struct RootData {
 }
 
 impl RootData {
-    pub fn add_new_tab(&mut self) {
+    pub fn add_new_tab(&mut self) -> Arc<Id> {
         let mut hypervisor = self.hypervisor.lock().unwrap();
         let tab_id = hypervisor.add_new_tab(NEW_TAB_TITLE);
 
@@ -27,6 +27,8 @@ impl RootData {
             id: Arc::clone(&tab_id),
             title: NEW_TAB_TITLE.into()
         });
+
+        Arc::clone(&tab_id)
     }
 
     pub fn close_tab(&mut self, tab_id: &Arc<Id>) {
@@ -84,5 +86,17 @@ pub mod tests {
             currently_selected_tab_id: None,
             hypervisor,
         }
+    }
+
+    #[test]
+    fn add_new_tab_adds_new_and_sets_currently_selected() {
+        let mut root_data = mock();
+
+        let newly_added_tab_id = root_data.add_new_tab();
+
+        assert_eq!(1, root_data.tabs.len());
+        assert!(root_data.tabs[0].id.id_eq(&newly_added_tab_id));
+        assert!(root_data.currently_selected_tab_id.is_some());
+        assert!(root_data.currently_selected_tab_id.unwrap().id_eq(&newly_added_tab_id));
     }
 }

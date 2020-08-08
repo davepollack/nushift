@@ -132,7 +132,7 @@ mod tests {
     }
 
     #[test]
-    fn id_eq_returns_true_if_the_same_id() {
+    fn id_eq_returns_true_if_same_id() {
         let reusable_id_pool = Arc::new(Mutex::new(ReusableIdPool::new()));
 
         let id1 = ReusableIdPool::allocate(&reusable_id_pool);
