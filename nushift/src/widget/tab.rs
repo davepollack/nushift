@@ -16,6 +16,7 @@ const TAB_NORMAL_WIDTH: f64 = 200.0;
 
 type Tab = ControllerHost<Container<TabAndSharedRootData>, Click<TabAndSharedRootData>>;
 
+#[derive(Debug)]
 struct TabKey(Arc<Id>);
 
 impl TabKey {
@@ -208,7 +209,7 @@ mod tests {
     use std::{collections::hash_map::DefaultHasher, sync::Mutex, hash::Hasher};
     use nushift_core::ReusableIdPool;
 
-    fn tab_key_setup() -> (TabKey, TabKey) {
+    fn tab_keys_setup() -> (TabKey, TabKey) {
         let pool = Arc::new(Mutex::new(ReusableIdPool::new()));
         let id = ReusableIdPool::allocate(&pool);
         let cloned_arc_id = Arc::clone(&id);
@@ -218,14 +219,14 @@ mod tests {
 
     #[test]
     fn tab_key_eq_is_true_for_cloned_arc_id() {
-        let (tab_key_1, tab_key_2) = tab_key_setup();
+        let (tab_key_1, tab_key_2) = tab_keys_setup();
 
         assert!(tab_key_1.eq(&tab_key_2));
     }
 
     #[test]
     fn tab_key_hash_is_equal_for_cloned_arc_id() {
-        let (tab_key_1, tab_key_2) = tab_key_setup();
+        let (tab_key_1, tab_key_2) = tab_keys_setup();
 
         let mut hasher = DefaultHasher::new();
         tab_key_1.hash(&mut hasher);
@@ -242,5 +243,46 @@ mod tests {
     fn tab_list_new_creates_widget_with_empty_vec() {
         let tab_list = TabList::new();
         assert!(tab_list.widget_children.is_empty());
+    }
+
+    #[test]
+    fn tab_list_create_and_remove_widget_children() {
+        // Set up TabListAndSharedRootData with 3 tabs.
+        let mut mock_tab_list_and_shared_root_data = crate::model::tab_data::tests::mock_tab_list_and_shared_root_data();
+        let mock_tab_data_2 = crate::model::tab_data::tests::mock();
+        let mock_tab_data_3 = crate::model::tab_data::tests::mock();
+        mock_tab_list_and_shared_root_data.1.push_back(mock_tab_data_2);
+        mock_tab_list_and_shared_root_data.1.push_back(mock_tab_data_3);
+        let env = Env::default();
+
+        // Call create_and_remove_widget_children.
+        let mut tab_list = TabList::new();
+        let mut is_changed = tab_list.create_and_remove_widget_children(&mock_tab_list_and_shared_root_data, &env);
+
+        // It should add three widgets, and report it was changed.
+        assert!(is_changed);
+        assert_eq!(3, tab_list.widget_children.len());
+
+        // Call it again. It should report NOT changed.
+        is_changed = tab_list.create_and_remove_widget_children(&mock_tab_list_and_shared_root_data, &env);
+        assert!(!is_changed);
+        assert_eq!(3, tab_list.widget_children.len());
+
+        // Remove one data element, the corresponding widget should be removed.
+        mock_tab_list_and_shared_root_data.1.remove(1);
+        is_changed = tab_list.create_and_remove_widget_children(&mock_tab_list_and_shared_root_data, &env);
+        assert!(is_changed);
+        assert_eq!(2, tab_list.widget_children.len());
+        let widget_children_keys: HashSet<&TabKey> = tab_list.widget_children.keys().collect();
+        let data_keys_owned: Vec<TabKey> = mock_tab_list_and_shared_root_data.1.iter().map(|tab_data| TabKey::new(&tab_data.id)).collect();
+        let data_keys: HashSet<&TabKey> = data_keys_owned.iter().collect();
+        assert_eq!(widget_children_keys, data_keys);
+
+        // Remove and add a different data element, the length should be the same, BUT it should report it has changed.
+        mock_tab_list_and_shared_root_data.1.remove(1);
+        mock_tab_list_and_shared_root_data.1.push_back(crate::model::tab_data::tests::mock());
+        is_changed = tab_list.create_and_remove_widget_children(&mock_tab_list_and_shared_root_data, &env);
+        assert!(is_changed);
+        assert_eq!(2, tab_list.widget_children.len());
     }
 }

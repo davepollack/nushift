@@ -3,11 +3,13 @@
 
 use std::sync::{Arc, Mutex};
 
+#[derive(Debug)]
 pub struct ReusableIdPool {
     frontier: u64,
     free_list: Vec<u64>,
 }
 
+#[derive(Debug)]
 pub struct Id {
     id: u64,
     pool: Arc<Mutex<ReusableIdPool>>,

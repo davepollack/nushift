@@ -71,3 +71,18 @@ impl RootData {
         }
     }
 }
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+    use druid::im::vector;
+
+    pub fn mock() -> RootData {
+        let hypervisor = Arc::new(Mutex::new(Hypervisor::new()));
+        RootData {
+            tabs: vector![],
+            currently_selected_tab_id: None,
+            hypervisor,
+        }
+    }
+}
