@@ -81,8 +81,6 @@ impl ReusableIdPool {
 mod tests {
     use super::*;
 
-    // TODO test IdEq
-
     #[test]
     fn allocate_creates_ids() {
         let reusable_id_pool = Arc::new(Mutex::new(ReusableIdPool::new()));
@@ -121,5 +119,25 @@ mod tests {
             pool.frontier = u64::MAX;
         }
         ReusableIdPool::allocate(&reusable_id_pool);
+    }
+
+    #[test]
+    fn id_eq_returns_false_if_different_ids() {
+        let reusable_id_pool = Arc::new(Mutex::new(ReusableIdPool::new()));
+
+        let id1 = ReusableIdPool::allocate(&reusable_id_pool);
+        let id2 = ReusableIdPool::allocate(&reusable_id_pool);
+
+        assert!(!id1.id_eq(&id2));
+    }
+
+    #[test]
+    fn id_eq_returns_true_if_the_same_id() {
+        let reusable_id_pool = Arc::new(Mutex::new(ReusableIdPool::new()));
+
+        let id1 = ReusableIdPool::allocate(&reusable_id_pool);
+        let id2 = Arc::clone(&id1);
+
+        assert!(id1.id_eq(&id2));
     }
 }

@@ -20,9 +20,9 @@ pub mod tests {
     use druid::im::vector;
 
     pub fn mock() -> TabData {
-        let pool = Arc::new(Mutex::new(ReusableIdPool::new()));
+        let reusable_id_pool = Arc::new(Mutex::new(ReusableIdPool::new()));
         TabData {
-            id: ReusableIdPool::allocate(&pool),
+            id: ReusableIdPool::allocate(&reusable_id_pool),
             title: "Mock title".into()
         }
     }
