@@ -31,6 +31,10 @@ impl RootData {
         Arc::clone(&tab_id)
     }
 
+    pub fn select_tab(&mut self, tab_id: &Arc<Id>) {
+        self.currently_selected_tab_id = Some(Arc::clone(&tab_id));
+    }
+
     pub fn close_tab(&mut self, tab_id: &Arc<Id>) {
         let mut hypervisor = self.hypervisor.lock().unwrap();
 
@@ -97,6 +101,22 @@ pub mod tests {
         assert_eq!(1, root_data.tabs.len());
         assert!(root_data.tabs[0].id.id_eq(&newly_added_tab_id));
         assert!(root_data.currently_selected_tab_id.is_some());
-        assert!(root_data.currently_selected_tab_id.unwrap().id_eq(&newly_added_tab_id));
+        assert!(root_data.currently_selected_tab_id.as_ref().unwrap().id_eq(&newly_added_tab_id));
     }
+
+    #[test]
+    fn select_tab_selects_tab() {
+        let mut root_data = mock();
+
+        let tab1 = root_data.add_new_tab();
+        let tab2 = root_data.add_new_tab();
+
+        assert!(root_data.currently_selected_tab_id.as_ref().unwrap().id_eq(&tab2));
+
+        root_data.select_tab(&tab1);
+
+        assert!(root_data.currently_selected_tab_id.as_ref().unwrap().id_eq(&tab1));
+    }
+
+    // TODO add tests for close_tab
 }

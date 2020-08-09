@@ -16,7 +16,7 @@ const TAB_NORMAL_WIDTH: f64 = 200.0;
 
 type Tab = ControllerHost<Container<TabAndSharedRootData>, Click<TabAndSharedRootData>>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct TabKey(Arc<Id>);
 
 impl TabKey {
@@ -273,9 +273,8 @@ mod tests {
         is_changed = tab_list.create_and_remove_widget_children(&mock_tab_list_and_shared_root_data, &env);
         assert!(is_changed);
         assert_eq!(2, tab_list.widget_children.len());
-        let widget_children_keys: HashSet<&TabKey> = tab_list.widget_children.keys().collect();
-        let data_keys_owned: Vec<TabKey> = mock_tab_list_and_shared_root_data.1.iter().map(|tab_data| TabKey::new(&tab_data.id)).collect();
-        let data_keys: HashSet<&TabKey> = data_keys_owned.iter().collect();
+        let widget_children_keys: HashSet<TabKey> = tab_list.widget_children.keys().map(|key| key.to_owned()).collect();
+        let data_keys: HashSet<TabKey> = mock_tab_list_and_shared_root_data.1.iter().map(|tab_data| TabKey::new(&tab_data.id)).collect();
         assert_eq!(widget_children_keys, data_keys);
 
         // Remove and add a different data element, the length should be the same, BUT it should report it has changed.
