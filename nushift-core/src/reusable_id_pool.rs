@@ -11,14 +11,14 @@ pub struct ReusableIdPool {
 
 #[derive(Debug)]
 pub struct Id {
-    id: u64,
+    per_pool_id: u64,
     pool: Arc<Mutex<ReusableIdPool>>,
 }
 
 impl Drop for Id {
     fn drop(&mut self) {
         let mut pool = self.pool.lock().unwrap();
-        pool.release(self.id);
+        pool.release(self.per_pool_id);
     }
 }
 
@@ -53,7 +53,7 @@ impl ReusableIdPool {
 
         if !pool.free_list.is_empty() {
             Arc::new(Id {
-                id: pool.free_list.pop().unwrap(),
+                per_pool_id: pool.free_list.pop().unwrap(),
                 pool: Arc::clone(reusable_id_pool),
             })
         } else {
@@ -62,7 +62,7 @@ impl ReusableIdPool {
                 panic!("Out of IDs");
             }
             let frontier_arc_id = Arc::new(Id {
-                id: pool.frontier,
+                per_pool_id: pool.frontier,
                 pool: Arc::clone(reusable_id_pool),
             });
             pool.frontier += 1;
@@ -72,8 +72,8 @@ impl ReusableIdPool {
 
     /// Only called by `Id`'s `Drop`, not available publicly, hence we can ensure
     /// the free list is unique.
-    fn release(&mut self, id: u64) {
-        self.free_list.push(id);
+    fn release(&mut self, per_pool_id: u64) {
+        self.free_list.push(per_pool_id);
     }
 }
 
@@ -88,12 +88,12 @@ mod tests {
         let id1 = ReusableIdPool::allocate(&reusable_id_pool);
         let id2 = ReusableIdPool::allocate(&reusable_id_pool);
 
-        assert_eq!(0, id1.id);
-        assert_eq!(1, id2.id);
+        assert_eq!(0, id1.per_pool_id);
+        assert_eq!(1, id2.per_pool_id);
     }
 
     #[test]
-    fn allocate_reuses_ids_that_have_been_dropped() {
+    fn allocate_reuses_per_pool_ids_that_have_been_dropped() {
         let reusable_id_pool = Arc::new(Mutex::new(ReusableIdPool::new()));
 
         let id1 = ReusableIdPool::allocate(&reusable_id_pool);
@@ -105,14 +105,14 @@ mod tests {
 
         let id4 = ReusableIdPool::allocate(&reusable_id_pool);
 
-        assert_eq!(2, id3.id);
+        assert_eq!(2, id3.per_pool_id);
         // FILO, should reuse id2's id. I.e. 1.
-        assert_eq!(1, id4.id);
+        assert_eq!(1, id4.per_pool_id);
     }
 
     #[test]
     #[should_panic(expected = "Out of IDs")]
-    fn allocate_panics_if_all_ids_are_in_use() {
+    fn allocate_panics_if_all_per_pool_ids_are_in_use() {
         let reusable_id_pool = Arc::new(Mutex::new(ReusableIdPool::new()));
         {
             let mut pool = reusable_id_pool.lock().unwrap();
