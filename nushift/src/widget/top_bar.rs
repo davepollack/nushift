@@ -3,8 +3,8 @@ use druid::{lens, LensExt, widget::{Flex, Label, CrossAxisAlignment, FlexParams}
 use nushift_core::IdEq;
 
 use crate::theme::{TEXT_COLOR, THIN_STROKE_ICON_COLOR_KEY, THIN_STROKE_ICON_COLOR, THICK_STROKE_ICON_COLOR_KEY, THICK_STROKE_ICON_COLOR};
-use crate::model::{TabListAndSharedRootData, RootData};
-use super::{value, tab, button};
+use crate::model::{RootAndVectorTabData, RootData};
+use super::{value, tab_list, button};
 
 const TOP_BAR_BACKGROUND_COLOR: Color = Color::rgb8(0x82, 0xe0, 0xe0);
 
@@ -22,11 +22,11 @@ pub fn top_bar() -> impl Widget<RootData> {
 
     let new_tab_button = button::new_tab_button();
 
-    let tab_list = tab::tab_list()
+    let tab_list = tab_list::tab_list()
         .lens(lens::Id.map(
             // Add root data as shared data, so tabs can call `close_tab()` on the root data
             |root_data: &RootData| (root_data.clone(), root_data.tabs.clone()),
-            |root_data: &mut RootData, new_data: TabListAndSharedRootData| {
+            |root_data: &mut RootData, new_data: RootAndVectorTabData| {
                 *root_data = new_data.0;
             }
         ))
