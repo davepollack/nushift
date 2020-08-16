@@ -1,7 +1,8 @@
 use druid::widget::prelude::*;
 use druid::{widget::{Painter, SizedBox, Padding}, kurbo::BezPath, Color, Point, WidgetExt};
+
 use crate::{model::{RootAndTabData, RootData}, theme::{THICK_STROKE_ICON_COLOR_KEY, THIN_STROKE_ICON_COLOR_KEY}};
-use super::value::TAB_HEIGHT;
+use super::{click_inverse::ClickInverse, value::TAB_HEIGHT};
 
 fn hover_background<T>() -> Painter<T> {
     Painter::new(|ctx, _, _| {
@@ -34,8 +35,8 @@ pub fn new_tab_button() -> impl Widget<RootData> {
         .width(TAB_HEIGHT + 5.0)
         .height(TAB_HEIGHT)
         .background(hover_background())
-        .on_click(|_, data, _| {
-            data.add_new_tab();
+        .on_click(|_, root_data, _| {
+            root_data.add_new_tab();
         })
 }
 
@@ -56,8 +57,7 @@ pub fn close_button() -> impl Widget<RootAndTabData> {
         .width(17.0)
         .height(17.0)
         .background(hover_background())
-        .on_click(|_, data, _| {
-            let (root_data, tab_data) = data;
+        .controller(ClickInverse::new(|_, _, (root_data, tab_data): &mut RootAndTabData, _| {
             root_data.close_tab(&tab_data.id);
-        })
+        }))
 }

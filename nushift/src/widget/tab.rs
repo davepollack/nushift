@@ -1,17 +1,17 @@
 use druid::{
-    widget::{Container, ControllerHost, Click, Painter, Flex, MainAxisAlignment, Label},
-    Color, RenderContext, WidgetExt,
+    widget::{Container, ControllerHost, Painter, Flex, MainAxisAlignment, Label},
+    Color, RenderContext, WidgetExt, MouseButton,
 };
 use nushift_core::IdEq;
 
 use crate::model::RootAndTabData;
-use super::{button, value};
+use super::{button, value, click_inverse::ClickInverse};
 
 const TAB_BACKGROUND_COLOR: Color = Color::rgb8(0xa1, 0xf0, 0xf0);
 const TAB_HOVER_BACKGROUND_COLOR: Color = Color::rgb8(0xbd, 0xf5, 0xf5);
 const TAB_SELECTED_BACKGROUND_COLOR: Color = Color::rgb8(0xe9, 0xfc, 0xfc);
 
-pub type Tab = ControllerHost<Container<RootAndTabData>, Click<RootAndTabData>>;
+pub type Tab = ControllerHost<Container<RootAndTabData>, ClickInverse<RootAndTabData>>;
 
 pub fn tab() -> Tab {
     let selected_or_non_selected_background = Painter::new(|ctx, data: &RootAndTabData, _| {
@@ -36,11 +36,17 @@ pub fn tab() -> Tab {
         .with_child(button::close_button())
         .padding((value::TAB_HORIZONTAL_PADDING, 0.0))
         .background(selected_or_non_selected_background)
-        .on_click(|_ctx, _data, _env| {
-            // Attach `Click` widget to get "hot" tracking and other useful
-            // mouse handling, but don't actually use it for the select handler,
-            // we're going to do that ourselves.
-        });
+        .controller(ClickInverse::new(|_, mouse_event, (root_data, tab_data): &mut RootAndTabData, _| {
+            match mouse_event.button {
+                MouseButton::Left => {
+                    root_data.select_tab(&tab_data.id);
+                },
+                MouseButton::Middle => {
+                    root_data.close_tab(&tab_data.id);
+                },
+                _ => {},
+            };
+        }));
 
     tab
 }
