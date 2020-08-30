@@ -1,9 +1,10 @@
-use druid::widget::prelude::*;
-use druid::{widget::{Painter, SizedBox, Padding}, kurbo::BezPath, Color, Point, WidgetExt};
+use druid::{widget::{Painter, SizedBox, Padding}, kurbo::BezPath, Color, Point, RenderContext, Widget, WidgetExt};
 
-use crate::{model::{RootAndTabData, RootData}, theme::{THICK_STROKE_ICON_COLOR_KEY, THIN_STROKE_ICON_COLOR_KEY}};
-use super::{click_inverse::ClickInverse, value::TAB_HEIGHT};
+use crate::model::RootAndTabData;
+use crate::theme::THIN_STROKE_ICON_COLOR_KEY;
+use crate::widget::click_inverse::ClickInverse;
 
+// TODO delete
 fn hover_background<T>() -> Painter<T> {
     Painter::new(|ctx, _, _| {
         let bounds = ctx.size().to_rect();
@@ -16,28 +17,6 @@ fn hover_background<T>() -> Painter<T> {
             ctx.fill(bounds, &Color::rgba(0., 0., 0., 0.16));
         }
     })
-}
-
-pub fn new_tab_button() -> impl Widget<RootData> {
-    let plus = Painter::new(|ctx, _: &RootData, env| {
-        let size = ctx.size();
-
-        let mut path = BezPath::new();
-        path.move_to((size.width / 2.0, 0.0));
-        path.line_to((size.width / 2.0, size.height));
-        path.move_to((0.0, size.height / 2.0));
-        path.line_to((size.width, size.height / 2.0));
-
-        ctx.stroke(path, &env.get(THICK_STROKE_ICON_COLOR_KEY), 2.0);
-    });
-
-    SizedBox::new(Padding::new((8.0, 5.5), plus))
-        .width(TAB_HEIGHT + 5.0)
-        .height(TAB_HEIGHT)
-        .background(hover_background())
-        .on_click(|_, root_data, _| {
-            root_data.add_new_tab();
-        })
 }
 
 pub fn close_button() -> impl Widget<RootAndTabData> {
