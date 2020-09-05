@@ -27,6 +27,7 @@ pub struct HoverBackground<T> {
     color: KeyOrValue<Color>,
     min_alpha: f64,
     max_alpha: f64,
+    active_color: KeyOrValue<Color>,
     easing_function_in: Box<dyn FnMut(f64) -> f64 + 'static>,
     easing_function_out: Box<dyn FnMut(f64) -> f64 + 'static>,
     duration: f64,
@@ -49,6 +50,7 @@ impl<T: Data> HoverBackground<T> {
         color: impl Into<KeyOrValue<Color>>,
         min_alpha: impl Into<f64>,
         max_alpha: impl Into<f64>,
+        active_color: impl Into<KeyOrValue<Color>>,
         easing_function_in: impl FnMut(f64) -> f64 + 'static,
         easing_function_out: impl FnMut(f64) -> f64 + 'static,
         duration: impl Into<f64>,
@@ -58,6 +60,7 @@ impl<T: Data> HoverBackground<T> {
             color: color.into(),
             min_alpha: min_alpha.into(),
             max_alpha: max_alpha.into(),
+            active_color: active_color.into(),
             easing_function_in: Box::new(easing_function_in),
             easing_function_out: Box::new(easing_function_out),
             duration: duration.into(),
@@ -162,17 +165,21 @@ impl<T: Data> Widget<T> for HoverBackground<T> {
     }
 
     fn paint(&mut self, ctx: &mut PaintCtx, data: &T, env: &Env) {
-        let alpha = match self.transition_state {
-            TransitionState::Transitioning(t, TransitionDirection::Forward) => {
-                self.min_alpha + ((self.easing_function_in)(t) * (self.max_alpha - self.min_alpha))
-            },
-            TransitionState::Transitioning(t, TransitionDirection::Backward) => {
-                self.min_alpha + ((self.easing_function_out)(t) * (self.max_alpha - self.min_alpha))
-            },
-            TransitionState::Stopped(false) => self.min_alpha,
-            TransitionState::Stopped(true) => self.max_alpha,
+        let color = if ctx.is_active() {
+            self.active_color.resolve(env)
+        } else {
+            let alpha = match self.transition_state {
+                TransitionState::Transitioning(t, TransitionDirection::Forward) => {
+                    self.min_alpha + ((self.easing_function_in)(t) * (self.max_alpha - self.min_alpha))
+                },
+                TransitionState::Transitioning(t, TransitionDirection::Backward) => {
+                    self.min_alpha + ((self.easing_function_out)(t) * (self.max_alpha - self.min_alpha))
+                },
+                TransitionState::Stopped(false) => self.min_alpha,
+                TransitionState::Stopped(true) => self.max_alpha,
+            };
+            self.color.resolve(env).with_alpha(alpha)
         };
-        let color = self.color.resolve(env).with_alpha(alpha);
         let bounds = ctx.size().to_rect();
         ctx.fill(bounds, &color);
         self.inner.paint(ctx, data, env);

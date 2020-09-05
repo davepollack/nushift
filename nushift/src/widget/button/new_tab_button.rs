@@ -1,4 +1,4 @@
-use druid::{widget::{Painter, SizedBox, Padding}, kurbo::BezPath, Color, RenderContext, Widget};
+use druid::{widget::{Painter, SizedBox, Padding}, kurbo::BezPath, Color, RenderContext, Widget, WidgetExt};
 
 use crate::model::RootData;
 use crate::theme::THICK_STROKE_ICON_COLOR_KEY;
@@ -18,16 +18,9 @@ pub fn new_tab_button() -> impl Widget<RootData> {
         ctx.stroke(path, &env.get(THICK_STROKE_ICON_COLOR_KEY), 2.0);
     });
 
-    // TODO remove when click/active is working
-    // SizedBox::new(Padding::new((8.0, 5.5), plus))
-    //     .width(TAB_HEIGHT + 5.0)
-    //     .height(TAB_HEIGHT)
-    //     .background(hover_background())
-    //     .on_click(|_, root_data, _| {
-    //         root_data.add_new_tab();
-    //     })
     HoverBackground::new(
         Color::grey(0.0), 0.0, 0.1,
+        Color::grey(0.0).with_alpha(0.16),
         super::hover_transition::default_easing_function(),
         super::hover_transition::default_easing_function(),
         0.07,
@@ -35,4 +28,7 @@ pub fn new_tab_button() -> impl Widget<RootData> {
             .width(TAB_HEIGHT + 5.0)
             .height(TAB_HEIGHT)
     )
+        .on_click(|_, root_data, _| {
+            root_data.add_new_tab();
+        })
 }
