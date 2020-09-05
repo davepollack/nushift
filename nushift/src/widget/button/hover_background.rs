@@ -116,7 +116,7 @@ impl<T: Data> HoverBackground<T> {
         self.transition_state = new_state;
     }
 
-    fn update_animation_state(&mut self, interval_nanoseconds: &u64) -> bool {
+    fn advance_animation(&mut self, interval_nanoseconds: &u64) -> bool {
         let interval_seconds = *interval_nanoseconds as f64 / 1e9;
 
         let (new_state, should_request_anim_frame) = match &self.transition_state {
@@ -165,7 +165,7 @@ impl<T: Data> Widget<T> for HoverBackground<T> {
             LifeCycle::FocusChanged(_) => ctx.request_paint(),
             LifeCycle::AnimFrame(interval) => {
                 ctx.request_paint();
-                let should_request_anim_frame = self.update_animation_state(interval);
+                let should_request_anim_frame = self.advance_animation(interval);
                 if should_request_anim_frame {
                     ctx.request_anim_frame();
                 }
@@ -226,9 +226,7 @@ mod tests {
         fn if_already_forward_then_do_nothing() {
             let mut hover_background = create();
             hover_background.transition_state = TransitionState::Transitioning(0.5, TransitionDirection::Forward);
-
             hover_background.animate_forward();
-
             assert!(matches!(hover_background.transition_state, TransitionState::Transitioning(_, TransitionDirection::Forward)));
         }
 
@@ -236,9 +234,7 @@ mod tests {
         fn if_backward_then_change_to_forward() {
             let mut hover_background = create();
             hover_background.transition_state = TransitionState::Transitioning(0.5, TransitionDirection::Backward);
-
             hover_background.animate_forward();
-
             assert!(matches!(hover_background.transition_state, TransitionState::Transitioning(_, TransitionDirection::Forward)));
         }
 
@@ -246,9 +242,7 @@ mod tests {
         fn if_stopped_at_beginning_then_change_to_forward() {
             let mut hover_background = create();
             hover_background.transition_state = TransitionState::Stopped(false);
-
             hover_background.animate_forward();
-
             assert!(matches!(hover_background.transition_state, TransitionState::Transitioning(_, TransitionDirection::Forward)));
         }
 
@@ -256,9 +250,7 @@ mod tests {
         fn if_stopped_at_end_then_do_nothing() {
             let mut hover_background = create();
             hover_background.transition_state = TransitionState::Stopped(true);
-
             hover_background.animate_forward();
-
             assert!(matches!(hover_background.transition_state, TransitionState::Stopped(true)));
         }
     }
@@ -270,9 +262,7 @@ mod tests {
         fn if_forward_then_change_to_backward() {
             let mut hover_background = create();
             hover_background.transition_state = TransitionState::Transitioning(0.5, TransitionDirection::Forward);
-
             hover_background.animate_backward();
-
             assert!(matches!(hover_background.transition_state, TransitionState::Transitioning(_, TransitionDirection::Backward)));
         }
 
@@ -280,9 +270,7 @@ mod tests {
         fn if_already_backward_then_do_nothing() {
             let mut hover_background = create();
             hover_background.transition_state = TransitionState::Transitioning(0.5, TransitionDirection::Backward);
-
             hover_background.animate_backward();
-
             assert!(matches!(hover_background.transition_state, TransitionState::Transitioning(_, TransitionDirection::Backward)));
         }
 
@@ -290,9 +278,7 @@ mod tests {
         fn if_stopped_at_beginning_then_do_nothing() {
             let mut hover_background = create();
             hover_background.transition_state = TransitionState::Stopped(false);
-
             hover_background.animate_backward();
-
             assert!(matches!(hover_background.transition_state, TransitionState::Stopped(false)));
         }
 
@@ -300,10 +286,82 @@ mod tests {
         fn if_stopped_at_end_then_change_to_backward() {
             let mut hover_background = create();
             hover_background.transition_state = TransitionState::Stopped(true);
-
             hover_background.animate_backward();
-
             assert!(matches!(hover_background.transition_state, TransitionState::Transitioning(_, TransitionDirection::Backward)));
+        }
+    }
+
+    mod advance_animation {
+        use super::*;
+
+        const ADVANCEMENT_AMOUNT_NANOSECONDS: u64 = 35_000_000; // Half of default duration
+
+        #[test]
+        fn if_currently_going_forward_then_advance_further() {
+            let mut hover_background = create();
+            hover_background.transition_state = TransitionState::Transitioning(0.2, TransitionDirection::Forward);
+
+            let should_request_anim_frame = hover_background.advance_animation(&ADVANCEMENT_AMOUNT_NANOSECONDS);
+
+            assert!(match hover_background.transition_state {
+                TransitionState::Transitioning(t, TransitionDirection::Forward) => t > 0.6 && t < 0.8,
+                _ => false,
+            });
+            assert!(should_request_anim_frame);
+        }
+
+        #[test]
+        fn if_currently_going_forward_and_going_over_limit_then_stop() {
+            let mut hover_background = create();
+            hover_background.transition_state = TransitionState::Transitioning(0.8, TransitionDirection::Forward);
+
+            let should_request_anim_frame = hover_background.advance_animation(&ADVANCEMENT_AMOUNT_NANOSECONDS);
+
+            assert!(matches!(hover_background.transition_state, TransitionState::Stopped(true)));
+            assert!(!should_request_anim_frame);
+        }
+
+        #[test]
+        fn if_currently_going_backward_then_advance_further() {
+            let mut hover_background = create();
+            hover_background.transition_state = TransitionState::Transitioning(0.8, TransitionDirection::Backward);
+
+            let should_request_anim_frame = hover_background.advance_animation(&ADVANCEMENT_AMOUNT_NANOSECONDS);
+
+            assert!(match hover_background.transition_state {
+                TransitionState::Transitioning(t, TransitionDirection::Backward) => t > 0.2 && t < 0.4,
+                _ => false,
+            });
+            assert!(should_request_anim_frame);
+        }
+
+        #[test]
+        fn if_currently_going_backward_and_going_over_limit_then_stop() {
+            let mut hover_background = create();
+            hover_background.transition_state = TransitionState::Transitioning(0.2, TransitionDirection::Backward);
+
+            let should_request_anim_frame = hover_background.advance_animation(&ADVANCEMENT_AMOUNT_NANOSECONDS);
+
+            assert!(matches!(hover_background.transition_state, TransitionState::Stopped(false)));
+            assert!(!should_request_anim_frame);
+        }
+
+        #[test]
+        fn if_stopped_then_do_nothing() {
+            let mut hover_background = create();
+            hover_background.transition_state = TransitionState::Stopped(false);
+
+            let mut should_request_anim_frame = hover_background.advance_animation(&ADVANCEMENT_AMOUNT_NANOSECONDS);
+
+            assert!(matches!(hover_background.transition_state, TransitionState::Stopped(false)));
+            assert!(!should_request_anim_frame);
+
+            hover_background.transition_state = TransitionState::Stopped(true);
+
+            should_request_anim_frame = hover_background.advance_animation(&ADVANCEMENT_AMOUNT_NANOSECONDS);
+
+            assert!(matches!(hover_background.transition_state, TransitionState::Stopped(true)));
+            assert!(!should_request_anim_frame);
         }
     }
 }
