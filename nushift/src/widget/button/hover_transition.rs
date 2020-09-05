@@ -14,16 +14,21 @@ enum TransitionState {
     Stopped(bool),
 }
 
-pub fn default_easing_function() -> impl Fn(f64) -> f64 {
-    let default_ease_cubic_bez = CubicBez::new(
-        (0., 0.), (0.25, 0.1), (0.25, 1.0), (1.0, 1.0)
+pub fn ease_out() -> impl Fn(f64) -> f64 {
+    let ease_out_cubic_bez = CubicBez::new(
+        (0., 0.), (0., 0.), (0.58, 1.0), (1.0, 1.0)
     );
-    move |t| default_ease_cubic_bez.eval(t).y
+    move |t| ease_out_cubic_bez.eval(t).y
 }
 
-/// A widget that wraps an inner widget and provides an animating background on
-/// hover.
-pub struct HoverBackground<T> {
+pub fn ease_in() -> impl Fn(f64) -> f64 {
+    let ease_in_cubic_bez = CubicBez::new(
+        (0., 0.), (0.42, 0.), (1.0, 1.0), (1.0, 1.0)
+    );
+    move |t| ease_in_cubic_bez.eval(t).y
+}
+
+pub struct HoverParams {
     color: KeyOrValue<Color>,
     min_alpha: f64,
     max_alpha: f64,
@@ -31,14 +36,10 @@ pub struct HoverBackground<T> {
     easing_function_in: Box<dyn FnMut(f64) -> f64 + 'static>,
     easing_function_out: Box<dyn FnMut(f64) -> f64 + 'static>,
     duration: f64,
-    inner: Box<dyn Widget<T>>,
-
-    transition_state: TransitionState,
 }
 
-impl<T: Data> HoverBackground<T> {
-    /// Create a new widget to provide a hover background, given colour and
-    /// timing information.
+impl HoverParams {
+    /// Create a new `HoverParams` with colour and timing information.
     ///
     /// The `color` argument can be either a concrete `Color`, or a Druid `Key`
     /// resolvable in the `Env`.
@@ -54,7 +55,6 @@ impl<T: Data> HoverBackground<T> {
         easing_function_in: impl FnMut(f64) -> f64 + 'static,
         easing_function_out: impl FnMut(f64) -> f64 + 'static,
         duration: impl Into<f64>,
-        inner: impl Widget<T> + 'static,
     ) -> Self {
         Self {
             color: color.into(),
@@ -64,8 +64,34 @@ impl<T: Data> HoverBackground<T> {
             easing_function_in: Box::new(easing_function_in),
             easing_function_out: Box::new(easing_function_out),
             duration: duration.into(),
-            inner: Box::new(inner),
+        }
+    }
+}
 
+impl Default for HoverParams {
+    fn default() -> Self {
+        HoverParams::new(
+            Color::grey(0.0), 0.0, 0.1,
+            Color::grey(0.0).with_alpha(0.25),
+            ease_out(), ease_in(),
+            0.07,
+        )
+    }
+}
+
+/// A widget that wraps an inner widget and provides an animating background on
+/// hover.
+pub struct HoverBackground<T> {
+    inner: Box<dyn Widget<T>>,
+    params: HoverParams,
+    transition_state: TransitionState,
+}
+
+impl<T: Data> HoverBackground<T> {
+    pub fn new(inner: impl Widget<T> + 'static, params: impl Into<HoverParams>) -> Self {
+        Self {
+            inner: Box::new(inner),
+            params: params.into(),
             transition_state: TransitionState::Stopped(false),
         }
     }
@@ -101,7 +127,7 @@ impl<T: Data> HoverBackground<T> {
 
         let (new_state, should_request_anim_frame) = match &self.transition_state {
             TransitionState::Transitioning(t, TransitionDirection::Forward) => {
-                let new_t = (1.0 as f64).min(t + (interval_seconds / self.duration));
+                let new_t = (1.0 as f64).min(t + (interval_seconds / self.params.duration));
                 if new_t >= 1.0 {
                     (TransitionState::Stopped(true), false)
                 } else {
@@ -109,7 +135,7 @@ impl<T: Data> HoverBackground<T> {
                 }
             },
             TransitionState::Transitioning(t, TransitionDirection::Backward) => {
-                let new_t = (0.0 as f64).max(t - (interval_seconds / self.duration));
+                let new_t = (0.0 as f64).max(t - (interval_seconds / self.params.duration));
                 if new_t <= 0.0 {
                     (TransitionState::Stopped(false), false)
                 } else {
@@ -166,19 +192,19 @@ impl<T: Data> Widget<T> for HoverBackground<T> {
 
     fn paint(&mut self, ctx: &mut PaintCtx, data: &T, env: &Env) {
         let color = if ctx.is_active() {
-            self.active_color.resolve(env)
+            self.params.active_color.resolve(env)
         } else {
             let alpha = match self.transition_state {
                 TransitionState::Transitioning(t, TransitionDirection::Forward) => {
-                    self.min_alpha + ((self.easing_function_in)(t) * (self.max_alpha - self.min_alpha))
+                    self.params.min_alpha + ((self.params.easing_function_in)(t) * (self.params.max_alpha - self.params.min_alpha))
                 },
                 TransitionState::Transitioning(t, TransitionDirection::Backward) => {
-                    self.min_alpha + ((self.easing_function_out)(t) * (self.max_alpha - self.min_alpha))
+                    self.params.min_alpha + ((self.params.easing_function_out)(t) * (self.params.max_alpha - self.params.min_alpha))
                 },
-                TransitionState::Stopped(false) => self.min_alpha,
-                TransitionState::Stopped(true) => self.max_alpha,
+                TransitionState::Stopped(false) => self.params.min_alpha,
+                TransitionState::Stopped(true) => self.params.max_alpha,
             };
-            self.color.resolve(env).with_alpha(alpha)
+            self.params.color.resolve(env).with_alpha(alpha)
         };
         let bounds = ctx.size().to_rect();
         ctx.fill(bounds, &color);

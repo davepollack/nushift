@@ -1,9 +1,9 @@
-use druid::{widget::{Painter, SizedBox, Padding}, kurbo::BezPath, Color, RenderContext, Widget, WidgetExt};
+use druid::{widget::{Painter, SizedBox, Padding}, kurbo::BezPath, RenderContext, Widget, WidgetExt};
 
 use crate::model::RootData;
 use crate::theme::THICK_STROKE_ICON_COLOR_KEY;
 use crate::widget::value::TAB_HEIGHT;
-use super::hover_transition::HoverBackground;
+use super::hover_transition::{HoverParams, HoverBackground};
 
 pub fn new_tab_button() -> impl Widget<RootData> {
     let plus = Painter::new(|ctx, _: &RootData, env| {
@@ -19,14 +19,10 @@ pub fn new_tab_button() -> impl Widget<RootData> {
     });
 
     HoverBackground::new(
-        Color::grey(0.0), 0.0, 0.1,
-        Color::grey(0.0).with_alpha(0.16),
-        super::hover_transition::default_easing_function(),
-        super::hover_transition::default_easing_function(),
-        0.07,
         SizedBox::new(Padding::new((8.0, 5.5), plus))
             .width(TAB_HEIGHT + 5.0)
-            .height(TAB_HEIGHT)
+            .height(TAB_HEIGHT),
+        HoverParams::default(),
     )
         .on_click(|_, root_data, _| {
             root_data.add_new_tab();
