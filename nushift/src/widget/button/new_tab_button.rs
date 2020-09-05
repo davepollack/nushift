@@ -24,7 +24,7 @@ pub fn new_tab_button() -> impl Widget<RootData> {
             .height(TAB_HEIGHT),
         HoverParams::default(),
     )
-        .on_click(|_, root_data, _| {
-            root_data.add_new_tab();
+        .on_click(|_, root_data, env| {
+            root_data.add_new_tab(env);
         })
 }

@@ -1,11 +1,9 @@
 use std::sync::{Mutex, Arc};
-use druid::{Data, Lens};
+use druid::{Data, Env, Lens, LocalizedString};
 use druid::im::Vector;
 use nushift_core::{Hypervisor, Id, IdEq};
 
 use super::tab_data::TabData;
-
-const NEW_TAB_TITLE: &str = "New tab";
 
 #[derive(Clone, Data, Lens)]
 pub struct RootData {
@@ -17,15 +15,17 @@ pub struct RootData {
 }
 
 impl RootData {
-    pub fn add_new_tab(&mut self) -> Arc<Id> {
+    pub fn add_new_tab(&mut self, env: &Env) -> Arc<Id> {
         let mut hypervisor = self.hypervisor.lock().unwrap();
-        let tab_id = hypervisor.add_new_tab(NEW_TAB_TITLE);
+        let mut title = LocalizedString::new("nushift-new-tab");
+        title.resolve(self, env);
+        let tab_id = hypervisor.add_new_tab(title.localized_str());
 
         self.currently_selected_tab_id = Some(Arc::clone(&tab_id));
 
         self.tabs.push_back(TabData {
             id: Arc::clone(&tab_id),
-            title: NEW_TAB_TITLE.into()
+            title: title.localized_str().into(),
         });
 
         Arc::clone(&tab_id)
@@ -95,7 +95,7 @@ pub mod tests {
     fn add_new_tab_adds_new_and_sets_currently_selected() {
         let mut root_data = mock();
 
-        let newly_added_tab_id = root_data.add_new_tab();
+        let newly_added_tab_id = root_data.add_new_tab(&Env::default());
 
         assert_eq!(1, root_data.tabs.len());
         assert!(root_data.tabs[0].id.id_eq(&newly_added_tab_id));
@@ -107,8 +107,8 @@ pub mod tests {
     fn select_tab_selects_tab() {
         let mut root_data = mock();
 
-        let tab1 = root_data.add_new_tab();
-        let tab2 = root_data.add_new_tab();
+        let tab1 = root_data.add_new_tab(&Env::default());
+        let tab2 = root_data.add_new_tab(&Env::default());
 
         assert!(root_data.currently_selected_tab_id.as_ref().unwrap().id_eq(&tab2));
 
@@ -120,7 +120,7 @@ pub mod tests {
     #[test]
     fn close_tab_should_remove_from_tabs_vector() {
         let mut root_data = mock();
-        let tab1 = root_data.add_new_tab();
+        let tab1 = root_data.add_new_tab(&Env::default());
 
         root_data.close_tab(&tab1);
 
@@ -130,7 +130,7 @@ pub mod tests {
     #[test]
     fn close_tab_should_set_currently_selected_to_none_if_no_tabs_left() {
         let mut root_data = mock();
-        let tab1 = root_data.add_new_tab();
+        let tab1 = root_data.add_new_tab(&Env::default());
 
         root_data.close_tab(&tab1);
 
@@ -140,8 +140,8 @@ pub mod tests {
     #[test]
     fn close_tab_should_set_currently_selected_to_next_tab_if_first_tab_was_closed() {
         let mut root_data = mock();
-        let tab1 = root_data.add_new_tab();
-        let tab2 = root_data.add_new_tab();
+        let tab1 = root_data.add_new_tab(&Env::default());
+        let tab2 = root_data.add_new_tab(&Env::default());
         root_data.select_tab(&tab1);
 
         root_data.close_tab(&tab1);
@@ -152,8 +152,8 @@ pub mod tests {
     #[test]
     fn close_tab_should_set_currently_selected_to_previous_tab_if_tab_other_than_first_was_closed() {
         let mut root_data = mock();
-        let tab1 = root_data.add_new_tab();
-        let tab2 = root_data.add_new_tab();
+        let tab1 = root_data.add_new_tab(&Env::default());
+        let tab2 = root_data.add_new_tab(&Env::default());
 
         root_data.close_tab(&tab2);
 
@@ -163,8 +163,8 @@ pub mod tests {
     #[test]
     fn close_tab_should_not_set_currently_selected_if_not_currently_selected_tab_was_closed() {
         let mut root_data = mock();
-        let tab1 = root_data.add_new_tab();
-        let tab2 = root_data.add_new_tab();
+        let tab1 = root_data.add_new_tab(&Env::default());
+        let tab2 = root_data.add_new_tab(&Env::default());
 
         root_data.close_tab(&tab1);
 
@@ -174,8 +174,8 @@ pub mod tests {
     #[test]
     fn close_tab_should_do_nothing_if_other_id_is_passed_in() {
         let mut root_data = mock();
-        let _tab1 = root_data.add_new_tab();
-        let tab2 = root_data.add_new_tab();
+        let _tab1 = root_data.add_new_tab(&Env::default());
+        let tab2 = root_data.add_new_tab(&Env::default());
         let reusable_id_pool = Arc::new(Mutex::new(ReusableIdPool::new()));
         let other_id = ReusableIdPool::allocate(&reusable_id_pool);
 
