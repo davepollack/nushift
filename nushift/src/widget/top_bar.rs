@@ -1,12 +1,10 @@
-use druid::{Widget, WidgetExt, Color};
+use druid::{Widget, WidgetExt};
 use druid::{lens, LensExt, widget::{Flex, Label, CrossAxisAlignment, FlexParams}};
 use nushift_core::IdEq;
 
 use crate::theme::{TEXT_COLOR, THIN_STROKE_ICON_COLOR_KEY, THIN_STROKE_ICON_COLOR, THICK_STROKE_ICON_COLOR_KEY, THICK_STROKE_ICON_COLOR};
 use crate::model::{RootAndVectorTabData, RootData};
 use super::{value, tab_list, button};
-
-const TOP_BAR_BACKGROUND_COLOR: Color = Color::rgb8(0x82, 0xe0, 0xe0);
 
 pub fn top_bar() -> impl Widget<RootData> {
 
@@ -18,7 +16,9 @@ pub fn top_bar() -> impl Widget<RootData> {
             }
             None => String::new()
         }
-    }).expand_width();
+    })
+        .with_text_size(value::TOP_BAR_TEXT_SIZE)
+        .expand_width();
 
     let new_tab_button = button::new_tab_button();
 
@@ -40,7 +40,7 @@ pub fn top_bar() -> impl Widget<RootData> {
         .with_flex_child(tab_list, FlexParams::new(3.0, CrossAxisAlignment::End))
         .fix_height(value::TOP_BAR_HEIGHT)
         .padding((value::TOP_BAR_HORIZONTAL_PADDING, 0.))
-        .background(TOP_BAR_BACKGROUND_COLOR)
+        .background(value::TOP_BAR_BACKGROUND_COLOR)
         .env_scope(|env, _| {
             env.set(druid::theme::LABEL_COLOR, TEXT_COLOR);
             env.set(THIN_STROKE_ICON_COLOR_KEY, THIN_STROKE_ICON_COLOR);
