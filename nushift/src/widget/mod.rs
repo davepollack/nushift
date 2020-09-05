@@ -1,5 +1,5 @@
 mod button {
-    mod hover_transition;
+    mod hover_background;
     mod new_tab_button;
     mod close_button;
 

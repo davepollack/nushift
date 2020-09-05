@@ -3,7 +3,7 @@ use druid::{widget::{Painter, SizedBox, Padding}, kurbo::BezPath, RenderContext,
 use crate::model::RootData;
 use crate::theme::THICK_STROKE_ICON_COLOR_KEY;
 use crate::widget::value::TAB_HEIGHT;
-use super::hover_transition::{HoverParams, HoverBackground};
+use super::hover_background::{HoverParams, HoverBackground};
 
 pub fn new_tab_button() -> impl Widget<RootData> {
     let plus = Painter::new(|ctx, _: &RootData, env| {

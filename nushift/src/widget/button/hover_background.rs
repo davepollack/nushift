@@ -97,29 +97,23 @@ impl<T: Data> HoverBackground<T> {
     }
 
     fn animate_forward(&mut self) {
-        match self.transition_state {
-            TransitionState::Transitioning(_, TransitionDirection::Forward) => {},
-            TransitionState::Transitioning(t, TransitionDirection::Backward) => {
-                self.transition_state = TransitionState::Transitioning(t, TransitionDirection::Forward);
-            },
-            TransitionState::Stopped(true) => {}
-            TransitionState::Stopped(false) => {
-                self.transition_state = TransitionState::Transitioning(0.0, TransitionDirection::Forward);
-            }
-        }
+        let new_state = match self.transition_state {
+            TransitionState::Transitioning(_, TransitionDirection::Forward) => self.transition_state.clone(),
+            TransitionState::Transitioning(t, TransitionDirection::Backward) => TransitionState::Transitioning(t, TransitionDirection::Forward),
+            TransitionState::Stopped(false) => TransitionState::Transitioning(0.0, TransitionDirection::Forward),
+            TransitionState::Stopped(true) => self.transition_state.clone(),
+        };
+        self.transition_state = new_state;
     }
 
     fn animate_backward(&mut self) {
-        match self.transition_state {
-            TransitionState::Transitioning(t, TransitionDirection::Forward) => {
-                self.transition_state = TransitionState::Transitioning(t, TransitionDirection::Backward);
-            },
-            TransitionState::Transitioning(_, TransitionDirection::Backward) => {},
-            TransitionState::Stopped(true) => {
-                self.transition_state = TransitionState::Transitioning(1.0, TransitionDirection::Backward);
-            }
-            TransitionState::Stopped(false) => {}
-        }
+        let new_state = match self.transition_state {
+            TransitionState::Transitioning(t, TransitionDirection::Forward) => TransitionState::Transitioning(t, TransitionDirection::Backward),
+            TransitionState::Transitioning(_, TransitionDirection::Backward) => self.transition_state.clone(),
+            TransitionState::Stopped(false) => self.transition_state.clone(),
+            TransitionState::Stopped(true) => TransitionState::Transitioning(1.0, TransitionDirection::Backward),
+        };
+        self.transition_state = new_state;
     }
 
     fn update_animation_state(&mut self, interval_nanoseconds: &u64) -> bool {
@@ -216,4 +210,100 @@ impl<T: Data> Widget<T> for HoverBackground<T> {
     }
 }
 
-// TODO add tests
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use druid::widget::SizedBox;
+
+    fn create() -> HoverBackground<()> {
+        HoverBackground::new(SizedBox::empty(), HoverParams::default())
+    }
+
+    mod animate_forward {
+        use super::*;
+
+        #[test]
+        fn if_already_forward_then_do_nothing() {
+            let mut hover_background = create();
+            hover_background.transition_state = TransitionState::Transitioning(0.5, TransitionDirection::Forward);
+
+            hover_background.animate_forward();
+
+            assert!(matches!(hover_background.transition_state, TransitionState::Transitioning(_, TransitionDirection::Forward)));
+        }
+
+        #[test]
+        fn if_backward_then_change_to_forward() {
+            let mut hover_background = create();
+            hover_background.transition_state = TransitionState::Transitioning(0.5, TransitionDirection::Backward);
+
+            hover_background.animate_forward();
+
+            assert!(matches!(hover_background.transition_state, TransitionState::Transitioning(_, TransitionDirection::Forward)));
+        }
+
+        #[test]
+        fn if_stopped_at_beginning_then_change_to_forward() {
+            let mut hover_background = create();
+            hover_background.transition_state = TransitionState::Stopped(false);
+
+            hover_background.animate_forward();
+
+            assert!(matches!(hover_background.transition_state, TransitionState::Transitioning(_, TransitionDirection::Forward)));
+        }
+
+        #[test]
+        fn if_stopped_at_end_then_do_nothing() {
+            let mut hover_background = create();
+            hover_background.transition_state = TransitionState::Stopped(true);
+
+            hover_background.animate_forward();
+
+            assert!(matches!(hover_background.transition_state, TransitionState::Stopped(true)));
+        }
+    }
+
+    mod animate_backward {
+        use super::*;
+
+        #[test]
+        fn if_forward_then_change_to_backward() {
+            let mut hover_background = create();
+            hover_background.transition_state = TransitionState::Transitioning(0.5, TransitionDirection::Forward);
+
+            hover_background.animate_backward();
+
+            assert!(matches!(hover_background.transition_state, TransitionState::Transitioning(_, TransitionDirection::Backward)));
+        }
+
+        #[test]
+        fn if_already_backward_then_do_nothing() {
+            let mut hover_background = create();
+            hover_background.transition_state = TransitionState::Transitioning(0.5, TransitionDirection::Backward);
+
+            hover_background.animate_backward();
+
+            assert!(matches!(hover_background.transition_state, TransitionState::Transitioning(_, TransitionDirection::Backward)));
+        }
+
+        #[test]
+        fn if_stopped_at_beginning_then_do_nothing() {
+            let mut hover_background = create();
+            hover_background.transition_state = TransitionState::Stopped(false);
+
+            hover_background.animate_backward();
+
+            assert!(matches!(hover_background.transition_state, TransitionState::Stopped(false)));
+        }
+
+        #[test]
+        fn if_stopped_at_end_then_change_to_backward() {
+            let mut hover_background = create();
+            hover_background.transition_state = TransitionState::Stopped(true);
+
+            hover_background.animate_backward();
+
+            assert!(matches!(hover_background.transition_state, TransitionState::Transitioning(_, TransitionDirection::Backward)));
+        }
+    }
+}

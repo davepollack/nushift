@@ -3,7 +3,7 @@ use druid::{widget::{Painter, SizedBox, Padding}, kurbo::BezPath, Point, RenderC
 use crate::model::RootAndTabData;
 use crate::theme::THIN_STROKE_ICON_COLOR_KEY;
 use crate::widget::click_inverse::ClickInverse;
-use super::hover_transition::{HoverParams, HoverBackground};
+use super::hover_background::{HoverParams, HoverBackground};
 
 pub fn close_button() -> impl Widget<RootAndTabData> {
     let cross = Painter::new(|ctx, _: &RootAndTabData, env| {
