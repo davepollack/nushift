@@ -51,8 +51,6 @@ impl RootData {
             self.tabs.remove(index);
         }
 
-        // TODO if last tab, main title should change to "No tabs"
-
         match (&id_to_remove, &self.currently_selected_tab_id, index_to_remove) {
             // First tab was closed, is currently selected, and there are no tabs left
             (Some(id_to_remove), Some(currently_selected_tab_id), Some(0)) if id_to_remove.id_eq(currently_selected_tab_id) && self.tabs.is_empty() => {

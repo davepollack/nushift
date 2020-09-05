@@ -1,5 +1,5 @@
 use druid::{Widget, WidgetExt};
-use druid::{lens, LensExt, widget::{Flex, Label, CrossAxisAlignment, FlexParams}};
+use druid::{lens, Env, LensExt, LocalizedString, widget::{Flex, Label, CrossAxisAlignment, FlexParams}};
 use nushift_core::IdEq;
 
 use crate::theme::{TEXT_COLOR, THIN_STROKE_ICON_COLOR_KEY, THIN_STROKE_ICON_COLOR, THICK_STROKE_ICON_COLOR_KEY, THICK_STROKE_ICON_COLOR};
@@ -8,13 +8,17 @@ use super::{value, tab_list, button};
 
 pub fn top_bar() -> impl Widget<RootData> {
 
-    let main_title = Label::new(|root_data: &RootData, _env: &_| {
+    let main_title = Label::new(|root_data: &RootData, env: &Env| {
         match &root_data.currently_selected_tab_id {
             Some(id) => match root_data.tabs.iter().find(|tab_data| tab_data.id.id_eq(&id)) {
                 Some(tab_data) => tab_data.title.to_owned(),
                 None => String::new(),
-            }
-            None => String::new()
+            },
+            None => {
+                let mut no_tabs = LocalizedString::new("nushift-no-tabs");
+                no_tabs.resolve(root_data, env);
+                no_tabs.localized_str().into()
+            },
         }
     })
         .with_text_size(value::TOP_BAR_TEXT_SIZE)

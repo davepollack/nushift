@@ -16,12 +16,11 @@ fn main() {
 
     let hypervisor = Arc::new(Mutex::new(Hypervisor::new()));
 
-    let mut initial_state = RootData {
+    let initial_state = RootData {
         tabs: vector![],
         currently_selected_tab_id: None,
         hypervisor,
     };
-    initial_state.add_new_tab();
 
     AppLauncher::with_window(main_window)
         .use_simple_logger()
