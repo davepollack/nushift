@@ -1,6 +1,6 @@
 use druid::{AppLauncher, WindowDesc, Widget, LocalizedString};
 use druid::im::vector;
-use druid::widget::Flex;
+use druid::{Color, widget::Flex};
 use std::sync::{Mutex, Arc};
 use nushift_core::Hypervisor;
 
@@ -25,6 +25,9 @@ fn main() {
 
     AppLauncher::with_window(main_window)
         .use_simple_logger()
+        .configure_env(|env, _| {
+            env.set(druid::theme::WINDOW_BACKGROUND_COLOR, Color::grey(0.6));
+        })
         .launch(initial_state)
         .expect("Launch failed");
 }
