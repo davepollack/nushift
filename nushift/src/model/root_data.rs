@@ -19,13 +19,13 @@ impl RootData {
         let mut hypervisor = self.hypervisor.lock().unwrap();
         let mut title = LocalizedString::new("nushift-new-tab");
         title.resolve(self, env);
-        let tab_id = hypervisor.add_new_tab(title.localized_str());
+        let tab_id = hypervisor.add_new_tab(title.localized_str().to_string());
 
         self.currently_selected_tab_id = Some(Arc::clone(&tab_id));
 
         self.tabs.push_back(TabData {
             id: Arc::clone(&tab_id),
-            title: title.localized_str().into(),
+            title: title.localized_str(),
         });
 
         Arc::clone(&tab_id)

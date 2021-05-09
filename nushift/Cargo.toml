@@ -10,5 +10,5 @@ edition = "2018"
 nushift-core = { path = "../nushift-core" }
 
 [dependencies.druid]
-version = "0.6.0"
+version = "0.7.0"
 features = ["im"]

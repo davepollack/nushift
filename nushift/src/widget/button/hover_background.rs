@@ -147,6 +147,17 @@ impl<T: Data> HoverBackground<T> {
 
 impl<T: Data> Widget<T> for HoverBackground<T> {
     fn event(&mut self, ctx: &mut EventCtx, event: &Event, data: &mut T, env: &Env) {
+        match event {
+            Event::AnimFrame(interval) => {
+                ctx.request_paint();
+                let should_request_anim_frame = self.advance_animation(interval);
+                if should_request_anim_frame {
+                    ctx.request_anim_frame();
+                }
+            },
+            _ => {},
+        }
+
         self.inner.event(ctx, event, data, env);
     }
 
@@ -163,13 +174,6 @@ impl<T: Data> Widget<T> for HoverBackground<T> {
                 ctx.request_anim_frame();
             },
             LifeCycle::FocusChanged(_) => ctx.request_paint(),
-            LifeCycle::AnimFrame(interval) => {
-                ctx.request_paint();
-                let should_request_anim_frame = self.advance_animation(interval);
-                if should_request_anim_frame {
-                    ctx.request_anim_frame();
-                }
-            },
             _ => {},
         }
 

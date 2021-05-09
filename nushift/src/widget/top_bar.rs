@@ -11,13 +11,13 @@ pub fn top_bar() -> impl Widget<RootData> {
     let main_title = Label::new(|root_data: &RootData, env: &Env| {
         match &root_data.currently_selected_tab_id {
             Some(id) => match root_data.tabs.iter().find(|tab_data| tab_data.id.id_eq(&id)) {
-                Some(tab_data) => tab_data.title.to_owned(),
+                Some(tab_data) => tab_data.title.to_string(),
                 None => String::new(),
             },
             None => {
                 let mut no_tabs = LocalizedString::new("nushift-no-tabs");
                 no_tabs.resolve(root_data, env);
-                no_tabs.localized_str().into()
+                no_tabs.localized_str().to_string()
             },
         }
     })
@@ -27,7 +27,7 @@ pub fn top_bar() -> impl Widget<RootData> {
     let new_tab_button = button::new_tab_button();
 
     let tab_list = tab_list::tab_list()
-        .lens(lens::Id.map(
+        .lens(lens::Identity.map(
             // Add root data as shared data, so tabs can call `close_tab()` on the root data
             |root_data: &RootData| (root_data.clone(), root_data.tabs.clone()),
             |root_data: &mut RootData, new_data: RootAndVectorTabData| {

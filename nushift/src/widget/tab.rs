@@ -33,7 +33,7 @@ pub fn tab() -> Tab {
 
     let tab = Flex::row()
         .main_axis_alignment(MainAxisAlignment::SpaceBetween)
-        .with_child(Label::new(|(_root, tab_data): &RootAndTabData, _env: &_| tab_data.title.to_owned()).with_text_size(value::TAB_TEXT_SIZE))
+        .with_child(Label::new(|(_root, tab_data): &RootAndTabData, _env: &_| tab_data.title.to_string()).with_text_size(value::TAB_TEXT_SIZE))
         .with_child(button::close_button())
         .padding((value::TAB_HORIZONTAL_PADDING, 0.0))
         .background(selected_or_non_selected_background)
