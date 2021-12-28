@@ -25,7 +25,7 @@ fn main() {
     AppLauncher::with_window(main_window)
         .use_simple_logger()
         .configure_env(|env, _| {
-            env.set(druid::theme::WINDOW_BACKGROUND_COLOR, Color::grey(0.6));
+            env.set(druid::theme::WINDOW_BACKGROUND_COLOR, Color::TEAL);
         })
         .launch(initial_state)
         .expect("Launch failed");
