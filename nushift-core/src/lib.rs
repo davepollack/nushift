@@ -1,5 +1,9 @@
-mod hypervisor;
+pub mod hypervisor {
+    mod hypervisor;
+
+    pub use hypervisor::Hypervisor;
+}
+
 mod reusable_id_pool;
 
-pub use hypervisor::Hypervisor;
 pub use reusable_id_pool::{ReusableIdPool, Id, IdEq};
