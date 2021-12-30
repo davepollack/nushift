@@ -1,5 +1,6 @@
 use std::sync::{Mutex, Arc};
 use crate::reusable_id_pool::{ReusableIdPool, Id, IdEq};
+use super::tab::Tab;
 
 pub struct Hypervisor {
     tabs: Vec<Tab>,
@@ -21,39 +22,26 @@ impl Hypervisor {
     /// owned by the `Hypervisor`.
     ///
     /// The newly-created ID is returned.
-    pub fn add_new_tab<S>(&mut self, title: S) -> Arc<Id>
-        where S: Into<String>
-    {
+    pub fn add_new_tab<S: Into<String>>(&mut self, title: S) -> Arc<Id> {
         let new_tab_id = ReusableIdPool::allocate(&self.tabs_reusable_id_pool);
-
-        let new_tab = Tab {
-            id: new_tab_id,
-            title: title.into(),
-        };
+        let new_tab = Tab::new(new_tab_id, title);
 
         self.tabs.push(new_tab);
 
-        Arc::clone(&self.tabs.last().unwrap().id)
+        Arc::clone(&self.tabs.last().unwrap().id())
     }
 
     /// Close a tab.
     ///
     /// If the passed-in `tab_id` does not exist, this method does nothing.
     pub fn close_tab(&mut self, tab_id: &Arc<Id>) {
-        match self.tabs.iter().enumerate().find(|(_index, tab)| tab.id.id_eq(tab_id)) {
+        match self.tabs.iter().enumerate().find(|(_index, tab)| tab.id().id_eq(tab_id)) {
             Some((index, _tab)) => {
                 self.tabs.remove(index);
             }
             None => {},
         }
     }
-}
-
-struct Tab {
-    id: Arc<Id>,
-    // TODO remove the below suppression when `title` is used
-    #[allow(dead_code)]
-    title: String,
 }
 
 #[cfg(test)]
@@ -73,7 +61,7 @@ mod tests {
 
         hypervisor.add_new_tab("Tab title 1");
 
-        assert_eq!("Tab title 1", hypervisor.tabs[0].title);
+        assert_eq!("Tab title 1", hypervisor.tabs[0].title());
     }
 
     #[test]

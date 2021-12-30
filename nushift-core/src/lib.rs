@@ -1,5 +1,6 @@
 pub mod hypervisor {
     mod hypervisor;
+    mod tab;
 
     pub use hypervisor::Hypervisor;
 }
