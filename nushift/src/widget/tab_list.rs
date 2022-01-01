@@ -1,7 +1,7 @@
 use druid::widget::prelude::*;
 use druid::{widget::ListIter, WidgetPod, Widget, Point, Rect};
+use reusable_id_pool::{Id, IdEq};
 use std::{sync::Arc, hash::Hash, collections::{HashSet, HashMap}};
-use nushift_core::{Id, IdEq};
 
 use crate::model::{RootAndVectorTabData, RootAndTabData};
 use super::{tab, value};
@@ -165,8 +165,8 @@ impl Widget<RootAndVectorTabData> for TabList {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use reusable_id_pool::ReusableIdPool;
     use std::{collections::hash_map::DefaultHasher, sync::Mutex, hash::Hasher};
-    use nushift_core::ReusableIdPool;
 
     fn tab_keys_setup() -> (TabKey, TabKey) {
         let pool = Arc::new(Mutex::new(ReusableIdPool::new()));

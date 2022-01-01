@@ -8,6 +8,7 @@ edition = "2018"
 
 [dependencies]
 nushift-core = { path = "../nushift-core" }
+reusable-id-pool = { path = "../reusable-id-pool" }
 
 [dependencies.druid]
 version = "0.7.0"

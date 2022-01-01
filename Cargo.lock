@@ -900,12 +900,14 @@ version = "0.1.0"
 dependencies = [
  "druid",
  "nushift-core",
+ "reusable-id-pool",
 ]
 
 [[package]]
 name = "nushift-core"
 version = "0.1.0"
 dependencies = [
+ "reusable-id-pool",
  "riscy-emulator",
 ]
 
@@ -1183,6 +1185,10 @@ dependencies = [
  "quote",
  "syn",
 ]
+
+[[package]]
+name = "reusable-id-pool"
+version = "0.1.0"
 
 [[package]]
 name = "riscy-emulator"

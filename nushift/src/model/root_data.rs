@@ -1,7 +1,8 @@
 use std::sync::{Mutex, Arc};
 use druid::{Data, Env, Lens, LocalizedString};
 use druid::im::Vector;
-use nushift_core::{hypervisor::Hypervisor, Id, IdEq};
+use nushift_core::hypervisor::Hypervisor;
+use reusable_id_pool::{Id, IdEq};
 
 use super::tab_data::TabData;
 
@@ -80,7 +81,7 @@ impl RootData {
 pub mod tests {
     use super::*;
     use druid::im::vector;
-    use nushift_core::ReusableIdPool;
+    use reusable_id_pool::ReusableIdPool;
 
     pub fn mock() -> RootData {
         let hypervisor = Arc::new(Mutex::new(Hypervisor::new()));

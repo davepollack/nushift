@@ -2,7 +2,7 @@ use druid::{
     widget::{Container, ControllerHost, Painter, Flex, MainAxisAlignment, Label},
     Color, RenderContext, WidgetExt, MouseButton,
 };
-use nushift_core::IdEq;
+use reusable_id_pool::IdEq;
 
 use crate::model::RootAndTabData;
 use super::{button, value, click_inverse::ClickInverse};

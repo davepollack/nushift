@@ -1,5 +1,5 @@
 use std::sync::{Mutex, Arc};
-use crate::reusable_id_pool::{ReusableIdPool, Id, IdEq};
+use reusable_id_pool::{ReusableIdPool, Id, IdEq};
 use super::tab::Tab;
 
 pub struct Hypervisor {

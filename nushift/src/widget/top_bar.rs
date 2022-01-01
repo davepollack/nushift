@@ -1,6 +1,6 @@
 use druid::{Widget, WidgetExt};
 use druid::{lens, Env, LensExt, LocalizedString, widget::{Flex, Label, CrossAxisAlignment, FlexParams}};
-use nushift_core::IdEq;
+use reusable_id_pool::IdEq;
 
 use crate::theme::{TEXT_COLOR, THIN_STROKE_ICON_COLOR_KEY, THIN_STROKE_ICON_COLOR, THICK_STROKE_ICON_COLOR_KEY, THICK_STROKE_ICON_COLOR};
 use crate::model::{RootAndVectorTabData, RootData};

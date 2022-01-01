@@ -1,5 +1,7 @@
-// TODO: if making this module a public crate, would be cool to have an
+// TODO: Before publishing this crate, it would be cool to have an
 // `allocate_rc(...) -> Rc<Id>` alternative to `allocate(...) -> Arc<Id>`.
+//
+// Also, a `try_allocate` and `try_allocate_rc` that do not panic.
 
 use std::sync::{Arc, Mutex};
 

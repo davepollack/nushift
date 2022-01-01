@@ -1,10 +1,8 @@
 use std::sync::Arc;
+use reusable_id_pool::Id;
 use riscy_emulator::machine::RiscvMachine;
 
-use crate::{
-    reusable_id_pool::Id,
-    nushift_subsystem::NushiftSubsystem,
-};
+use crate::nushift_subsystem::NushiftSubsystem;
 
 use super::riscv_machine_wrapper::RiscvMachineWrapper;
 

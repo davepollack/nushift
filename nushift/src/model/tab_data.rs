@@ -1,6 +1,6 @@
 use druid::{ArcStr, Data};
+use reusable_id_pool::Id;
 use std::sync::Arc;
-use nushift_core::Id;
 
 #[derive(Clone, Data)]
 pub struct TabData {
@@ -11,8 +11,8 @@ pub struct TabData {
 #[cfg(test)]
 pub mod tests {
     use super::*;
+    use reusable_id_pool::ReusableIdPool;
     use std::sync::{Mutex, Arc};
-    use nushift_core::ReusableIdPool;
 
     pub fn mock() -> TabData {
         let reusable_id_pool = Arc::new(Mutex::new(ReusableIdPool::new()));

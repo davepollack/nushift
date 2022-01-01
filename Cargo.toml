@@ -3,4 +3,5 @@
 members = [
     "nushift",
     "nushift-core",
+    "reusable-id-pool",
 ]
