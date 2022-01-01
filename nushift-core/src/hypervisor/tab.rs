@@ -1,15 +1,26 @@
 use std::sync::Arc;
-use crate::reusable_id_pool::Id;
+use riscy_emulator::machine::RiscvMachine;
+
+use crate::{
+    reusable_id_pool::Id,
+    nushift_subsystem::NushiftSubsystem,
+};
+
+use super::riscv_machine_wrapper::RiscvMachineWrapper;
 
 pub struct Tab {
     id: Arc<Id>,
     title: String,
-    // TODO: Add emulated_machine field.
+    emulated_machine: RiscvMachine<NushiftSubsystem>,
 }
 
 impl Tab {
     pub fn new<S: Into<String>>(id: Arc<Id>, title: S) -> Self {
-        Tab { id, title: title.into() }
+        Tab {
+            id,
+            title: title.into(),
+            emulated_machine: RiscvMachineWrapper::new(),
+        }
     }
 
     pub fn id(&self) -> &Arc<Id> {

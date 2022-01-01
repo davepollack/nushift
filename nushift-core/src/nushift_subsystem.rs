@@ -4,7 +4,7 @@ use riscy_emulator::{
 };
 
 #[derive(Default)]
-struct NushiftSubsystem;
+pub struct NushiftSubsystem;
 
 impl Subsystem for NushiftSubsystem {
     fn system_call(
