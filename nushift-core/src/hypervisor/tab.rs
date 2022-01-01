@@ -4,6 +4,7 @@ use crate::reusable_id_pool::Id;
 pub struct Tab {
     id: Arc<Id>,
     title: String,
+    // TODO: Add emulated_machine field.
 }
 
 impl Tab {
