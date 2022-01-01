@@ -2,7 +2,7 @@ use druid::{AppLauncher, WindowDesc, Widget, LocalizedString};
 use druid::im::vector;
 use druid::{Color, widget::Flex};
 use std::sync::{Mutex, Arc};
-use nushift_core::hypervisor::Hypervisor;
+use nushift_core::Hypervisor;
 
 mod theme;
 mod widget;

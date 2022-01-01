@@ -1,7 +1,7 @@
 use std::sync::{Mutex, Arc};
 use druid::{Data, Env, Lens, LocalizedString};
 use druid::im::Vector;
-use nushift_core::hypervisor::Hypervisor;
+use nushift_core::Hypervisor;
 use reusable_id_pool::{Id, IdEq};
 
 use super::tab_data::TabData;
