@@ -909,6 +909,7 @@ version = "0.1.0"
 dependencies = [
  "reusable-id-pool",
  "riscy-emulator",
+ "riscy-isa",
 ]
 
 [[package]]
