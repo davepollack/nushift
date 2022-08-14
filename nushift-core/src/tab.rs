@@ -1,15 +1,12 @@
 use std::sync::Arc;
 use reusable_id_pool::Id;
-use riscy_emulator::machine::RiscvMachine;
-
-use crate::nushift_subsystem::NushiftSubsystem;
 
 use super::riscv_machine_wrapper::RiscvMachineWrapper;
 
 pub struct Tab {
     id: Arc<Id>,
     title: String,
-    emulated_machine: RiscvMachine<NushiftSubsystem>,
+    emulated_machine: RiscvMachineWrapper,
 }
 
 impl Tab {

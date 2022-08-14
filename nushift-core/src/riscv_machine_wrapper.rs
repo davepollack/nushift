@@ -3,10 +3,10 @@ use riscy_isa::Register;
 
 use crate::nushift_subsystem::NushiftSubsystem;
 
-pub struct RiscvMachineWrapper;
+pub struct RiscvMachineWrapper(RiscvMachine<NushiftSubsystem>);
 
 impl RiscvMachineWrapper {
-    pub fn new() -> RiscvMachine<NushiftSubsystem> {
+    pub fn new() -> RiscvMachineWrapper {
         let mut memory = Memory::new();
 
         // The stack. 256 KiB.
@@ -23,6 +23,6 @@ impl RiscvMachineWrapper {
         let mut machine = RiscvMachine::new(memory, entry);
         machine.state_mut().registers.set(Register::StackPointer, STACK_BASE + STACK_SIZE);
 
-        machine
+        RiscvMachineWrapper(machine)
     }
 }
