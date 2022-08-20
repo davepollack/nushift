@@ -1,4 +1,5 @@
-use std::sync::{Mutex, Arc};
+use std::{sync::{Mutex, Arc}, fs};
+use elfloader::ElfBinary;
 use reusable_id_pool::{ReusableIdPool, Id, IdEq};
 use super::tab::Tab;
 
@@ -24,7 +25,11 @@ impl Hypervisor {
     /// The newly-created ID is returned.
     pub fn add_new_tab<S: Into<String>>(&mut self, title: S) -> Arc<Id> {
         let new_tab_id = ReusableIdPool::allocate(&self.tabs_reusable_id_pool);
-        let new_tab = Tab::new(new_tab_id, title);
+        let mut new_tab = Tab::new(new_tab_id, title);
+
+        let binary_blob = fs::read("../riscv").expect("Can't read binary");
+        let binary = ElfBinary::new(binary_blob.as_slice()).expect("Got proper ELF file");
+        new_tab.load(binary);
 
         self.tabs.push(new_tab);
 

@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use elfloader::ElfBinary;
 use reusable_id_pool::Id;
 
 use super::riscv_machine_wrapper::RiscvMachineWrapper;
@@ -26,5 +27,9 @@ impl Tab {
     #[allow(dead_code)]
     pub fn title(&self) -> &str {
         &self.title
+    }
+
+    pub fn load(&mut self, binary: ElfBinary) {
+        binary.load(&mut self.emulated_machine).expect("Can't load the binary?")
     }
 }
