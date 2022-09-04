@@ -15,7 +15,7 @@ impl Tab {
         Tab {
             id,
             title: title.into(),
-            emulated_machine: RiscvMachineWrapper::new(),
+            emulated_machine: Default::default(),
         }
     }
 
@@ -30,6 +30,6 @@ impl Tab {
     }
 
     pub fn load(&mut self, binary: ElfBinary) {
-        binary.load(&mut self.emulated_machine).expect("Can't load the binary?")
+        self.emulated_machine = RiscvMachineWrapper::load(binary);
     }
 }
