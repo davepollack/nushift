@@ -87,7 +87,7 @@ impl ElfLoader for RiscvMachineLoader {
         );
 
         let region = self.0.get_mut(&base).ok_or_else(|| {
-            log::error!("discrepancy between allocated regions and calls to load");
+            log::error!("Discrepancy between allocated regions and calls to load. This should only happen if elfloader is not doing what we expect it to do.");
             return ElfLoaderErr::UnsupportedSectionData;
         })?;
 
