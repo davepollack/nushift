@@ -16,12 +16,12 @@ impl RiscvMachineWrapper {
     pub fn load(binary: ElfBinary) -> RiscvMachineWrapper {
         let mut memory = Memory::new();
 
-        let mut loader = RiscvMachineLoader(BTreeMap::new());
+        let mut loader: RiscvMachineLoader = Default::default();
         if let Err(_) = binary.load(&mut loader) {
             return RiscvMachineWrapper(None);
         }
 
-        let regions: Vec<Region> = loader.0.into_values().collect();
+        let regions: Vec<Region> = loader.regions.into_values().collect();
         for region in regions {
             memory.add_region(region);
         }
@@ -44,7 +44,8 @@ impl RiscvMachineWrapper {
     }
 }
 
-struct RiscvMachineLoader(BTreeMap<u64, Region>);
+#[derive(Default)]
+struct RiscvMachineLoader { regions: BTreeMap<u64, Region> }
 
 impl ElfLoader for RiscvMachineLoader {
     fn allocate(&mut self, load_headers: LoadableHeaders) -> Result<(), ElfLoaderErr> {
@@ -64,7 +65,7 @@ impl ElfLoader for RiscvMachineLoader {
             // Don't set the permissions of the region yet, because we need to
             // load (write) data into it.
 
-            if let Some(_) = self.0.insert(header.virtual_addr(), region) {
+            if let Some(_) = self.regions.insert(header.virtual_addr(), region) {
                 // Two regions with the same vaddr, error (for now. I'm not
                 // familiar with why this could be valid).
                 log::error!(
@@ -86,7 +87,7 @@ impl ElfLoader for RiscvMachineLoader {
             flags,
         );
 
-        let region = self.0.get_mut(&base).ok_or_else(|| {
+        let region = self.regions.get_mut(&base).ok_or_else(|| {
             log::error!("Discrepancy between allocated regions and calls to load. This should only happen if elfloader is not doing what we expect it to do.");
             return ElfLoaderErr::UnsupportedSectionData;
         })?;
@@ -101,7 +102,7 @@ impl ElfLoader for RiscvMachineLoader {
         // Now, set the permissions.
         let taken_region = mem::replace(region, Region::readwrite_memory(0, 4));
         let permissioned_region = taken_region.change_permissions(Permissions::custom(flags.is_write(), flags.is_execute()));
-        self.0.insert(base, permissioned_region);
+        self.regions.insert(base, permissioned_region);
 
         Ok(())
     }
