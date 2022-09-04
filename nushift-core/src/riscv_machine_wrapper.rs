@@ -1,7 +1,7 @@
 // TODO: Centralise lint configuration.
 #![deny(unused_qualifications)]
 
-use std::{collections::BTreeMap, mem};
+use std::collections::BTreeMap;
 
 use elfloader::{ElfLoader, ElfLoaderErr, LoadableHeaders, Flags, VAddr, RelocationEntry, ElfBinary};
 use riscy_emulator::{memory::{Memory, Region, Permissions}, machine::RiscvMachine};
@@ -16,14 +16,9 @@ impl RiscvMachineWrapper {
     pub fn load(binary: ElfBinary) -> RiscvMachineWrapper {
         let mut memory = Memory::new();
 
-        let mut loader: RiscvMachineLoader = Default::default();
+        let mut loader = RiscvMachineLoader { memory: &mut memory, regions: Default::default() };
         if let Err(_) = binary.load(&mut loader) {
             return RiscvMachineWrapper(None);
-        }
-
-        let regions: Vec<Region> = loader.regions.into_values().collect();
-        for region in regions {
-            memory.add_region(region);
         }
 
         // The stack. 256 KiB.
@@ -44,10 +39,9 @@ impl RiscvMachineWrapper {
     }
 }
 
-#[derive(Default)]
-struct RiscvMachineLoader { regions: BTreeMap<u64, Region> }
+struct RiscvMachineLoader<'a> { memory: &'a mut Memory, regions: BTreeMap<u64, Region> }
 
-impl ElfLoader for RiscvMachineLoader {
+impl ElfLoader for RiscvMachineLoader<'_> {
     fn allocate(&mut self, load_headers: LoadableHeaders) -> Result<(), ElfLoaderErr> {
         for header in load_headers {
             let flags = header.flags();
@@ -87,7 +81,7 @@ impl ElfLoader for RiscvMachineLoader {
             flags,
         );
 
-        let region = self.regions.get_mut(&base).ok_or_else(|| {
+        let mut region = self.regions.remove(&base).ok_or_else(|| {
             log::error!("Discrepancy between allocated regions and calls to load. This should only happen if elfloader is not doing what we expect it to do.");
             return ElfLoaderErr::UnsupportedSectionData;
         })?;
@@ -100,9 +94,8 @@ impl ElfLoader for RiscvMachineLoader {
         }
 
         // Now, set the permissions.
-        let taken_region = mem::replace(region, Region::readwrite_memory(0, 4));
-        let permissioned_region = taken_region.change_permissions(Permissions::custom(flags.is_write(), flags.is_execute()));
-        self.regions.insert(base, permissioned_region);
+        let permissioned_region = region.change_permissions(Permissions::custom(flags.is_write(), flags.is_execute()));
+        self.memory.add_region(permissioned_region);
 
         Ok(())
     }
