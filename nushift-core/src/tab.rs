@@ -32,4 +32,13 @@ impl Tab {
     pub fn load(&mut self, binary: ElfBinary) {
         self.emulated_machine = RiscvMachineWrapper::load(binary);
     }
+
+    pub fn run(&mut self) {
+        let result = self.emulated_machine.run();
+
+        // If an error occurred, log the error.
+        if let Err(wrapper_error) = result {
+            log::error!("{}", wrapper_error);
+        }
+    }
 }

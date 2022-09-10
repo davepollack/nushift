@@ -15,3 +15,5 @@ riscy-emulator = { git = "https://github.com/michaelmelanson/riscy", tag = "0.1.
 # specify the same git commit to get Cargo to allow passing riscy-isa types into
 # riscy-emulator.
 riscy-isa = { git = "https://github.com/michaelmelanson/riscy", tag = "0.1.1" }
+snafu = "0.7.1"
+snafu-cli-debug = "0.1.1"

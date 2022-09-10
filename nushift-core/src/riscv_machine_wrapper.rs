@@ -4,7 +4,9 @@
 use std::collections::BTreeMap;
 
 use elfloader::{ElfLoader, ElfLoaderErr, LoadableHeaders, Flags, VAddr, RelocationEntry, ElfBinary};
-use riscy_emulator::{memory::{Memory, Region, Permissions}, machine::RiscvMachine};
+use snafu::prelude::*;
+use snafu_cli_debug::SnafuCliDebug;
+use riscy_emulator::{memory::{Memory, Region, Permissions}, machine::{RiscvMachine, RiscvMachineStepAction}};
 use riscy_isa::Register;
 
 use crate::nushift_subsystem::NushiftSubsystem;
@@ -37,6 +39,30 @@ impl RiscvMachineWrapper {
 
         RiscvMachineWrapper(Some(machine))
     }
+
+    pub fn run(&mut self) -> Result<(), RiscvMachineWrapperError> {
+        let machine = self.0.as_mut().ok_or(RiscvMachineWrapperError::RunMachineNotPresent)?;
+
+        while !machine.halted() {
+            match machine.step().map_err(|e| RunSnafu { riscv_machine_error: format!("{:?}", e) }.build())? {
+                RiscvMachineStepAction::ExecutedInstruction { instruction: _ } => {},
+                RiscvMachineStepAction::Exit { status_code } => {
+                    log::info!("Exited with code {}", status_code);
+                    machine.halt();
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Snafu, SnafuCliDebug)]
+pub enum RiscvMachineWrapperError {
+    #[snafu(display("Attempted to run a machine that is not present"))]
+    RunMachineNotPresent,
+    #[snafu(display("A RiscvMachineError occurred while running the machine: {riscv_machine_error}"))]
+    RunError { riscv_machine_error: String },
 }
 
 struct RiscvMachineLoader<'a> { memory: &'a mut Memory, regions: BTreeMap<u64, Region> }
@@ -83,7 +109,7 @@ impl ElfLoader for RiscvMachineLoader<'_> {
 
         let mut region = self.regions.remove(&base).ok_or_else(|| {
             log::error!("Discrepancy between allocated regions and calls to load. This should only happen if elfloader is not doing what we expect it to do.");
-            return ElfLoaderErr::UnsupportedSectionData;
+            ElfLoaderErr::UnsupportedSectionData
         })?;
 
         for (offset, byte) in region_bytes.iter().enumerate() {
