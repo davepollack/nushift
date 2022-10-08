@@ -17,6 +17,7 @@ pub fn build(b: *std.build.Builder) void {
     const mode = b.standardReleaseOptions();
 
     const exe = b.addExecutable("nothing-nushift-app", "src/start_nushift.zig");
+    // Delete `exe.strip = true;` if you want to add back debug symbols.
     exe.strip = true;
     exe.setTarget(target);
     exe.setBuildMode(mode);
