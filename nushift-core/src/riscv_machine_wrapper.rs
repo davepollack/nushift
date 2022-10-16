@@ -47,7 +47,7 @@ impl RiscvMachineWrapper {
             match machine.step().map_err(|e| RunSnafu { riscv_machine_error: format!("{:?}", e) }.build())? {
                 RiscvMachineStepAction::ExecutedInstruction { instruction: _ } => {},
                 RiscvMachineStepAction::Exit { status_code } => {
-                    log::info!("Exited with code {}", status_code);
+                    log::info!("Exited with exit reason {}", status_code);
                     machine.halt();
                 }
             }

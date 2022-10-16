@@ -31,8 +31,7 @@ impl Hypervisor {
         if let Ok(binary_blob) = binary_blob_result {
             let binary = ElfBinary::new(binary_blob.as_slice()).expect("Got proper ELF file");
             new_tab.load(binary);
-            // TODO: Uncomment after implementing `exit` system call.
-            // new_tab.run();
+            new_tab.run();
         }
 
         self.tabs.push(new_tab);
