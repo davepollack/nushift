@@ -88,7 +88,7 @@ impl ShmSpace {
 enum ShmSpaceError {
     #[snafu(display("The new pool ID was already present in the space. This should never happen, and indicates a bug in Nushift's code."))]
     DuplicateId,
-    #[snafu(display("The maximum amount of SHM capabilities have been used for this app. Please release some capabilities."))]
+    #[snafu(display("The maximum amount of SHM capabilities have been used for this app. Please destroy some capabilities."))]
     Exhausted,
 }
 
