@@ -184,4 +184,24 @@ mod tests {
 
         assert_eq!(hash_1, hash_2);
     }
+
+    #[test]
+    fn arcid_cmp_different_if_different_ids() {
+        let reusable_id_pool = ReusableIdPool::new();
+
+        let id1 = ReusableIdPool::allocate(&reusable_id_pool);
+        let id2 = ReusableIdPool::allocate(&reusable_id_pool);
+
+        assert!(id1.cmp(&id2).is_ne());
+    }
+
+    #[test]
+    fn arcid_cmp_equal_if_same_id() {
+        let reusable_id_pool = ReusableIdPool::new();
+
+        let id1 = ReusableIdPool::allocate(&reusable_id_pool);
+        let id2 = ArcId::clone(&id1);
+
+        assert!(id1.cmp(&id2).is_eq());
+    }
 }
