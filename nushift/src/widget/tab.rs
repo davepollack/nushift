@@ -2,7 +2,6 @@ use druid::{
     widget::{Container, ControllerHost, Painter, Flex, MainAxisAlignment, Label},
     Color, RenderContext, WidgetExt, MouseButton,
 };
-use reusable_id_pool::IdEq;
 
 use crate::model::RootAndTabData;
 use super::{button, value, click_inverse::ClickInverse};
@@ -18,7 +17,7 @@ pub fn tab() -> Tab {
         let bounds = ctx.size().to_rect();
 
         match &data.0.currently_selected_tab_id {
-            Some(id) if id.id_eq(&data.1.id) => {
+            Some(id) if id == &data.1.id => {
                 ctx.fill(bounds, &TAB_SELECTED_BACKGROUND_COLOR);
             },
             _ => {

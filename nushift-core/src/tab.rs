@@ -1,17 +1,16 @@
-use std::sync::Arc;
 use elfloader::ElfBinary;
-use reusable_id_pool::Id;
+use reusable_id_pool::ArcId;
 
 use super::riscv_machine_wrapper::RiscvMachineWrapper;
 
 pub struct Tab {
-    id: Arc<Id>,
+    id: ArcId,
     title: String,
     emulated_machine: RiscvMachineWrapper,
 }
 
 impl Tab {
-    pub fn new<S: Into<String>>(id: Arc<Id>, title: S) -> Self {
+    pub fn new<S: Into<String>>(id: ArcId, title: S) -> Self {
         Tab {
             id,
             title: title.into(),
@@ -19,7 +18,7 @@ impl Tab {
         }
     }
 
-    pub fn id(&self) -> &Arc<Id> {
+    pub fn id(&self) -> &ArcId {
         &self.id
     }
 
@@ -38,7 +37,7 @@ impl Tab {
 
         // If an error occurred, log the error.
         if let Err(wrapper_error) = result {
-            log::error!("{}", wrapper_error);
+            log::error!("{wrapper_error}");
         }
     }
 }

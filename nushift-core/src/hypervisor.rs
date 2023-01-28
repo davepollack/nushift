@@ -1,6 +1,6 @@
 use std::{sync::{Mutex, Arc}, fs};
 use elfloader::ElfBinary;
-use reusable_id_pool::{ReusableIdPool, Id, IdEq};
+use reusable_id_pool::{ReusableIdPool, ArcId};
 use super::tab::Tab;
 
 pub struct Hypervisor {
@@ -13,7 +13,7 @@ impl Hypervisor {
     pub fn new() -> Self {
         Hypervisor {
             tabs: vec![],
-            tabs_reusable_id_pool: Arc::new(Mutex::new(ReusableIdPool::new())),
+            tabs_reusable_id_pool: ReusableIdPool::new(),
         }
     }
 
@@ -23,7 +23,7 @@ impl Hypervisor {
     /// owned by the `Hypervisor`.
     ///
     /// The newly-created ID is returned.
-    pub fn add_new_tab<S: Into<String>>(&mut self, title: S) -> Arc<Id> {
+    pub fn add_new_tab<S: Into<String>>(&mut self, title: S) -> ArcId {
         let new_tab_id = ReusableIdPool::allocate(&self.tabs_reusable_id_pool);
         let mut new_tab = Tab::new(new_tab_id, title);
 
@@ -36,14 +36,14 @@ impl Hypervisor {
 
         self.tabs.push(new_tab);
 
-        Arc::clone(&self.tabs.last().unwrap().id())
+        ArcId::clone(&self.tabs.last().unwrap().id())
     }
 
     /// Close a tab.
     ///
     /// If the passed-in `tab_id` does not exist, this method does nothing.
-    pub fn close_tab(&mut self, tab_id: &Arc<Id>) {
-        match self.tabs.iter().enumerate().find(|(_index, tab)| tab.id().id_eq(tab_id)) {
+    pub fn close_tab(&mut self, tab_id: &ArcId) {
+        match self.tabs.iter().enumerate().find(|(_index, tab)| tab.id() == tab_id) {
             Some((index, _tab)) => {
                 self.tabs.remove(index);
             }
@@ -85,7 +85,7 @@ mod tests {
     #[test]
     fn hypervisor_close_tab_does_nothing_if_tab_does_not_exist() {
         let mut hypervisor = Hypervisor::new();
-        let tab_id = ReusableIdPool::allocate(&Arc::new(Mutex::new(ReusableIdPool::new())));
+        let tab_id = ReusableIdPool::allocate(&ReusableIdPool::new());
 
         hypervisor.close_tab(&tab_id);
 

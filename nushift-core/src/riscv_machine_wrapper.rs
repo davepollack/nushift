@@ -41,7 +41,7 @@ impl RiscvMachineWrapper {
     }
 
     pub fn run(&mut self) -> Result<(), RiscvMachineWrapperError> {
-        let machine = self.0.as_mut().ok_or(RiscvMachineWrapperError::RunMachineNotPresent)?;
+        let machine = self.0.as_mut().ok_or(RunMachineNotPresentSnafu.build())?;
 
         while !machine.halted() {
             match machine.step().map_err(|e| RunSnafu { riscv_machine_error: format!("{:?}", e) }.build())? {

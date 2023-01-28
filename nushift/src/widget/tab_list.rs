@@ -1,32 +1,12 @@
 use druid::widget::prelude::*;
 use druid::{widget::ListIter, WidgetPod, Widget, Point, Rect};
-use reusable_id_pool::{Id, IdEq};
-use std::{sync::Arc, hash::Hash, collections::{HashSet, HashMap}};
+use reusable_id_pool::ArcId;
+use std::collections::{HashSet, HashMap};
 
 use crate::model::{RootAndVectorTabData, RootAndTabData};
 use super::{tab, value};
 
 const TAB_NORMAL_WIDTH: f64 = 200.0;
-
-#[derive(Debug, Clone)]
-struct TabKey(Arc<Id>);
-
-impl TabKey {
-    fn new(id: &Arc<Id>) -> Self {
-        TabKey(Arc::clone(id))
-    }
-}
-impl PartialEq for TabKey {
-    fn eq(&self, other: &Self) -> bool {
-        self.0.id_eq(&other.0)
-    }
-}
-impl Eq for TabKey {}
-impl Hash for TabKey {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        Arc::as_ptr(&self.0).hash(state);
-    }
-}
 
 pub fn tab_list() -> TabList {
     TabList::new()
@@ -35,7 +15,7 @@ pub fn tab_list() -> TabList {
 /// Based on druid::widget::List, but has more child tracking, and custom
 /// `layout()` method
 pub struct TabList {
-    widget_children: HashMap<TabKey, WidgetPod<RootAndTabData, tab::Tab>>,
+    widget_children: HashMap<ArcId, WidgetPod<RootAndTabData, tab::Tab>>,
 }
 
 impl TabList {
@@ -53,11 +33,11 @@ impl TabList {
 
         let mut data_ids_set = HashSet::with_capacity(root_and_vector_tab_data.data_len());
         root_and_vector_tab_data.for_each(|root_and_tab_data, _| {
-            data_ids_set.insert(TabKey::new(&root_and_tab_data.1.id));
+            data_ids_set.insert(ArcId::clone(&root_and_tab_data.1.id));
         });
 
         // Wipe all widget children that are no longer in the data
-        self.widget_children.retain(|tab_key: &TabKey, _| data_ids_set.contains(tab_key));
+        self.widget_children.retain(|tab_key: &ArcId, _| data_ids_set.contains(tab_key));
 
         if self.widget_children.len() != original_widget_children_len {
             is_changed = true;
@@ -78,7 +58,7 @@ impl TabList {
 impl Widget<RootAndVectorTabData> for TabList {
     fn event(&mut self, ctx: &mut EventCtx, event: &Event, root_and_vector_tab_data: &mut RootAndVectorTabData, env: &Env) {
         root_and_vector_tab_data.for_each_mut(|root_and_tab_data: &mut RootAndTabData, _| {
-            if let Some(widget_child) = self.widget_children.get_mut(&TabKey::new(&root_and_tab_data.1.id)) {
+            if let Some(widget_child) = self.widget_children.get_mut(&root_and_tab_data.1.id) {
                 widget_child.event(ctx, event, root_and_tab_data, env);
             }
         });
@@ -93,7 +73,7 @@ impl Widget<RootAndVectorTabData> for TabList {
         }
 
         root_and_vector_tab_data.for_each(|root_and_tab_data, _| {
-            if let Some(widget_child) = self.widget_children.get_mut(&TabKey::new(&root_and_tab_data.1.id)) {
+            if let Some(widget_child) = self.widget_children.get_mut(&root_and_tab_data.1.id) {
                 widget_child.lifecycle(ctx, event, root_and_tab_data, env);
             }
         });
@@ -104,7 +84,7 @@ impl Widget<RootAndVectorTabData> for TabList {
         // this way we avoid sending update to newly added children, at the cost
         // of potentially updating children that are going to be removed.
         root_and_vector_tab_data.for_each(|root_and_tab_data, _| {
-            if let Some(widget_child) = self.widget_children.get_mut(&TabKey::new(&root_and_tab_data.1.id)) {
+            if let Some(widget_child) = self.widget_children.get_mut(&root_and_tab_data.1.id) {
                 widget_child.update(ctx, root_and_tab_data, env);
             }
         });
@@ -129,7 +109,7 @@ impl Widget<RootAndVectorTabData> for TabList {
 
         let mut max_height_seen = bc.min().height;
         root_and_vector_tab_data.for_each(|root_and_tab_data, i| {
-            let widget_child = match self.widget_children.get_mut(&TabKey::new(&root_and_tab_data.1.id)) {
+            let widget_child = match self.widget_children.get_mut(&root_and_tab_data.1.id) {
                 Some(widget_child) => widget_child,
                 None => {
                     return;
@@ -155,7 +135,7 @@ impl Widget<RootAndVectorTabData> for TabList {
 
     fn paint(&mut self, ctx: &mut PaintCtx, root_and_vector_tab_data: &RootAndVectorTabData, env: &Env) {
         root_and_vector_tab_data.for_each(|root_and_tab_data, _| {
-            if let Some(widget_child) = self.widget_children.get_mut(&TabKey::new(&root_and_tab_data.1.id)) {
+            if let Some(widget_child) = self.widget_children.get_mut(&root_and_tab_data.1.id) {
                 widget_child.paint(ctx, root_and_tab_data, env);
             }
         });
@@ -165,38 +145,6 @@ impl Widget<RootAndVectorTabData> for TabList {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use reusable_id_pool::ReusableIdPool;
-    use std::{collections::hash_map::DefaultHasher, sync::Mutex, hash::Hasher};
-
-    fn tab_keys_setup() -> (TabKey, TabKey) {
-        let pool = Arc::new(Mutex::new(ReusableIdPool::new()));
-        let id = ReusableIdPool::allocate(&pool);
-        let cloned_arc_id = Arc::clone(&id);
-
-        (TabKey(id), TabKey(cloned_arc_id))
-    }
-
-    #[test]
-    fn tab_key_eq_is_true_for_cloned_arc_id() {
-        let (tab_key_1, tab_key_2) = tab_keys_setup();
-
-        assert!(tab_key_1.eq(&tab_key_2));
-    }
-
-    #[test]
-    fn tab_key_hash_is_equal_for_cloned_arc_id() {
-        let (tab_key_1, tab_key_2) = tab_keys_setup();
-
-        let mut hasher = DefaultHasher::new();
-        tab_key_1.hash(&mut hasher);
-        let hash_1 = hasher.finish();
-
-        let mut hasher = DefaultHasher::new();
-        tab_key_2.hash(&mut hasher);
-        let hash_2 = hasher.finish();
-
-        assert_eq!(hash_1, hash_2);
-    }
 
     #[test]
     fn tab_list_new_creates_widget_with_empty_vec() {
@@ -232,7 +180,7 @@ mod tests {
         is_changed = tab_list.create_and_remove_widget_children(&mock_root_and_vector_tab_data, &env);
         assert!(is_changed);
         assert_eq!(2, tab_list.widget_children.len());
-        assert!(!tab_list.widget_children.contains_key(&TabKey::new(&removed_tab.id)));
+        assert!(!tab_list.widget_children.contains_key(&removed_tab.id));
 
         // Remove and add a different data element, the length should be the same, BUT it should report it has changed.
         mock_root_and_vector_tab_data.1.remove(1);

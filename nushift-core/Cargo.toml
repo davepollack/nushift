@@ -9,6 +9,7 @@ edition = "2018"
 [dependencies]
 elfloader = "0.15.0"
 log = "0.4.17"
+num_enum = "0.5.7"
 reusable-id-pool = { path = "../reusable-id-pool" }
 riscy-emulator = { git = "https://github.com/michaelmelanson/riscy", tag = "0.1.1" }
 # I would use the crates.io published version of riscy-isa, but we have to

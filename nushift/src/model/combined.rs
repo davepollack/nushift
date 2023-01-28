@@ -7,14 +7,14 @@ pub type RootAndVectorTabData = (RootData, Vector<TabData>);
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use std::sync::Arc;
     use druid::im::vector;
+    use reusable_id_pool::ArcId;
 
     pub fn mock_root_and_tab_data() -> RootAndTabData {
         let mut mock_root_data = super::super::root_data::tests::mock();
         let mock_tab_data = super::super::tab_data::tests::mock();
         // Set up mock_root_data
-        let tab_id = Arc::clone(&mock_tab_data.id);
+        let tab_id = ArcId::clone(&mock_tab_data.id);
         mock_root_data.tabs.push_back(mock_tab_data);
         mock_root_data.currently_selected_tab_id = Some(tab_id);
 

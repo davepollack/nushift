@@ -1,10 +1,10 @@
 use druid::{ArcStr, Data};
-use reusable_id_pool::Id;
-use std::sync::Arc;
+use reusable_id_pool::ArcId;
 
 #[derive(Clone, Data)]
 pub struct TabData {
-    pub id: Arc<Id>,
+    #[data(same_fn="PartialEq::eq")]
+    pub id: ArcId,
     pub title: ArcStr,
 }
 
@@ -12,10 +12,9 @@ pub struct TabData {
 pub mod tests {
     use super::*;
     use reusable_id_pool::ReusableIdPool;
-    use std::sync::{Mutex, Arc};
 
     pub fn mock() -> TabData {
-        let reusable_id_pool = Arc::new(Mutex::new(ReusableIdPool::new()));
+        let reusable_id_pool = ReusableIdPool::new();
         TabData {
             id: ReusableIdPool::allocate(&reusable_id_pool),
             title: "Mock title".into()

@@ -1,6 +1,5 @@
 use druid::{Widget, WidgetExt};
 use druid::{lens, Env, LensExt, LocalizedString, widget::{Flex, Label, CrossAxisAlignment, FlexParams}};
-use reusable_id_pool::IdEq;
 
 use crate::theme::{TEXT_COLOR, THIN_STROKE_ICON_COLOR_KEY, THIN_STROKE_ICON_COLOR, THICK_STROKE_ICON_COLOR_KEY, THICK_STROKE_ICON_COLOR};
 use crate::model::{RootAndVectorTabData, RootData};
@@ -10,7 +9,7 @@ pub fn top_bar() -> impl Widget<RootData> {
 
     let main_title = Label::new(|root_data: &RootData, env: &Env| {
         match &root_data.currently_selected_tab_id {
-            Some(id) => match root_data.tabs.iter().find(|tab_data| tab_data.id.id_eq(&id)) {
+            Some(id) => match root_data.tabs.iter().find(|tab_data| &tab_data.id == id) {
                 Some(tab_data) => tab_data.title.to_string(),
                 None => String::new(),
             },
