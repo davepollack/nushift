@@ -80,7 +80,7 @@ impl ShmSpace {
 
     fn destroy_shm_cap(&mut self, shm_cap_id: ShmCapId) {
         // TODO: There needs to be checks here that the SHM has been released, etc.
-        todo!()
+        self.space.remove(&shm_cap_id);
     }
 }
 
