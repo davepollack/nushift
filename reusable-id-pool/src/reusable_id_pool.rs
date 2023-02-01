@@ -14,7 +14,7 @@ pub struct ReusableIdPool {
 #[derive(Snafu, SnafuCliDebug)]
 pub enum ReusableIdPoolError {
     #[snafu(display("There are too many IDs concurrently in use. The limit is 2^64 concurrent IDs. Please release some IDs."))]
-    Exhausted,
+    TooManyConcurrentIDs,
 }
 
 #[derive(Debug)]
@@ -83,7 +83,7 @@ impl ReusableIdPool {
                 pool: Arc::clone(reusable_id_pool),
             })))
         } else if pool.frontier == u64::MAX {
-            ExhaustedSnafu.fail()
+            TooManyConcurrentIDsSnafu.fail()
         } else {
             let frontier_arc_id = ArcId(Arc::new(Id {
                 per_pool_id: pool.frontier,

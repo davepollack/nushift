@@ -67,7 +67,7 @@ impl ShmSpace {
 
     fn new_shm_cap(&mut self, shm_type: ShmType) -> Result<(ShmCapId, &ShmCap), ShmSpaceError> {
         let id = ReusableIdPool::try_allocate(&self.id_pool)
-            .map_err(|rip_err| match rip_err { ReusableIdPoolError::Exhausted => ExhaustedSnafu.build() })?;
+            .map_err(|rip_err| match rip_err { ReusableIdPoolError::TooManyConcurrentIDs => ExhaustedSnafu.build() })?;
 
         // I would really like `try_insert` to be available on stable. If it is
         // available by the time you are reading this, please replace this code.
