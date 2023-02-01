@@ -12,6 +12,7 @@ pub struct ReusableIdPool {
 }
 
 #[derive(Snafu, SnafuCliDebug)]
+#[snafu(visibility(pub(crate)))]
 pub enum ReusableIdPoolError {
     #[snafu(display("There are too many IDs concurrently in use. The limit is 2^64 concurrent IDs. Please release some IDs."))]
     TooManyConcurrentIDs,
@@ -66,7 +67,7 @@ impl ReusableIdPool {
     pub fn new() -> Arc<Mutex<Self>> {
         Arc::new(Mutex::new(ReusableIdPool {
             frontier: 0,
-            free_list: vec![]
+            free_list: vec![],
         }))
     }
 
