@@ -1,5 +1,5 @@
 use num_enum::TryFromPrimitive;
-use reusable_id_pool::{ReusableIdPool, ReusableIdPoolError, ArcId};
+use reusable_id_pool::{ReusableIdPoolError, ReusableIdPoolManual};
 use riscy_emulator::{
     subsystem::{Subsystem, SubsystemAction},
     machine::{RiscvMachine, RiscvMachineError},
@@ -7,7 +7,7 @@ use riscy_emulator::{
 use riscy_isa::Register;
 use snafu::Snafu;
 use snafu_cli_debug::SnafuCliDebug;
-use std::{convert::TryFrom, sync::{Arc, Mutex}, collections::BTreeMap};
+use std::{convert::TryFrom, collections::BTreeMap};
 
 // Regarding the use of `u64`s in this file:
 //
@@ -51,22 +51,22 @@ impl ShmCap {
     }
 }
 
-type ShmCapId = ArcId;
+type ShmCapId = u64;
 struct ShmSpace {
-    id_pool: Arc<Mutex<ReusableIdPool>>,
+    id_pool: ReusableIdPoolManual,
     space: BTreeMap<ShmCapId, ShmCap>,
 }
 
 impl ShmSpace {
     fn new() -> Self {
         ShmSpace {
-            id_pool: ReusableIdPool::new(),
+            id_pool: ReusableIdPoolManual::new(),
             space: BTreeMap::new(),
         }
     }
 
     fn new_shm_cap(&mut self, shm_type: ShmType) -> Result<(ShmCapId, &ShmCap), ShmSpaceError> {
-        let id = ReusableIdPool::try_allocate(&self.id_pool)
+        let id = self.id_pool.try_allocate()
             .map_err(|rip_err| match rip_err { ReusableIdPoolError::TooManyConcurrentIDs => ExhaustedSnafu.build() })?;
 
         // I would really like `try_insert` to be available on stable. If it is
@@ -74,7 +74,7 @@ impl ShmSpace {
         if self.space.contains_key(&id) {
             return DuplicateIdSnafu.fail();
         }
-        let shm_cap = self.space.entry(ArcId::clone(&id)).or_insert(ShmCap::new(shm_type));
+        let shm_cap = self.space.entry(id).or_insert(ShmCap::new(shm_type));
         Ok((id, shm_cap))
     }
 
