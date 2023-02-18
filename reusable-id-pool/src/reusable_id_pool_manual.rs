@@ -1,3 +1,5 @@
+// TODO: Use linked_hash_map when std is in configuration.
+
 use std::collections::BTreeSet;
 
 use super::reusable_id_pool::{ReusableIdPoolError, TooManyConcurrentIDsSnafu};

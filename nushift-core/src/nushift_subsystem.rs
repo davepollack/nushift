@@ -7,7 +7,7 @@ use riscy_emulator::{
 use riscy_isa::Register;
 use snafu::Snafu;
 use snafu_cli_debug::SnafuCliDebug;
-use std::{convert::TryFrom, collections::BTreeMap};
+use std::{convert::TryFrom, collections::{BTreeMap, btree_map::Entry}};
 
 // Regarding the use of `u64`s in this file:
 //
@@ -69,12 +69,12 @@ impl ShmSpace {
         let id = self.id_pool.try_allocate()
             .map_err(|rip_err| match rip_err { ReusableIdPoolError::TooManyConcurrentIDs => ExhaustedSnafu.build() })?;
 
-        // I would really like `try_insert` to be available on stable. If it is
-        // available by the time you are reading this, please replace this code.
-        if self.space.contains_key(&id) {
-            return DuplicateIdSnafu.fail();
-        }
-        let shm_cap = self.space.entry(id).or_insert(ShmCap::new(shm_type));
+        let entry = self.space.entry(id);
+        let shm_cap = match entry {
+            Entry::Occupied(_) => return DuplicateIdSnafu.fail(),
+            Entry::Vacant(vacant_entry) => vacant_entry.insert(ShmCap::new(shm_type)),
+        };
+
         Ok((id, shm_cap))
     }
 
