@@ -1,13 +1,15 @@
+use ckb_vm::{SupportMachine, Syscalls, Error as CKBVMError, registers::{A0, A1}, Register, DefaultMachine, CoreMachine};
 use num_enum::TryFromPrimitive;
 use reusable_id_pool::{ReusableIdPoolError, ReusableIdPoolManual};
 use riscy_emulator::{
     subsystem::{Subsystem, SubsystemAction},
     machine::{RiscvMachine, RiscvMachineError},
 };
-use riscy_isa::Register;
 use snafu::Snafu;
 use snafu_cli_debug::SnafuCliDebug;
 use std::{convert::TryFrom, collections::{BTreeMap, btree_map::Entry}};
+
+use crate::process_control_block::ProcessControlBlock;
 
 // Regarding the use of `u64`s in this file:
 //
@@ -101,7 +103,7 @@ impl Subsystem for NushiftSubsystem {
         context: &mut RiscvMachine<Self>,
     ) -> Result<Option<SubsystemAction>, RiscvMachineError> {
         let registers = &context.state().registers;
-        let syscall = Syscall::try_from(registers.get(Register::A0));
+        let syscall = Syscall::try_from(registers.get(riscy_isa::Register::A0));
 
         match syscall {
             Err(_) => {
@@ -109,13 +111,46 @@ impl Subsystem for NushiftSubsystem {
                 // syscall. Don't stop the program.
                 Ok(None)
             },
-            Ok(Syscall::Exit) => Ok(Some(SubsystemAction::Exit { status_code: registers.get(Register::A1) })),
+            Ok(Syscall::Exit) => Ok(Some(SubsystemAction::Exit { status_code: registers.get(riscy_isa::Register::A1) })),
             _ => {
                 // Return immediately, because these system calls should be
                 // asynchronous.
 
                 // TODO: Actually queue something, though.
                 Ok(None)
+            },
+        }
+    }
+}
+
+// TODO: Probably don't have this in this file.
+impl<T: SupportMachine> Syscalls<T> for ProcessControlBlock {
+    fn initialize(&mut self, machine: &mut T) -> Result<(), CKBVMError> {
+        Ok(())
+    }
+
+    fn ecall(&mut self, machine: &mut T) -> Result<bool, CKBVMError> {
+        // TODO: When 32-bit apps are supported, convert into u64 from multiple
+        // registers, instead of `.to_u64()` which can only act on a single
+        // register here)
+        let syscall = Syscall::try_from(machine.registers()[A0].to_u64());
+
+        match syscall {
+            Err(_) => {
+                // TODO: Return an error to the program that it was an unknown
+                // syscall. Don't stop the program.
+                Ok(false)
+            },
+            Ok(Syscall::Exit) => {
+                self.user_exit(machine.registers()[A1].to_u64());
+                Ok(true)
+            },
+            _ => {
+                // Return immediately, because these system calls should be
+                // asynchronous.
+
+                // TODO: Actually queue something, though.
+                Ok(true)
             },
         }
     }
