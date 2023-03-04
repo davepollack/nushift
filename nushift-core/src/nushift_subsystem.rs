@@ -125,7 +125,7 @@ impl Subsystem for NushiftSubsystem {
 
 // TODO: Probably don't have this in this file.
 impl<T: SupportMachine> Syscalls<T> for ProcessControlBlock {
-    fn initialize(&mut self, machine: &mut T) -> Result<(), CKBVMError> {
+    fn initialize(&mut self, _machine: &mut T) -> Result<(), CKBVMError> {
         Ok(())
     }
 
