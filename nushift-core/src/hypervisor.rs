@@ -1,5 +1,4 @@
 use std::{sync::{Mutex, Arc}, fs};
-use elfloader::ElfBinary;
 use reusable_id_pool::{ReusableIdPool, ArcId};
 use super::tab::Tab;
 
@@ -29,8 +28,7 @@ impl Hypervisor {
 
         let binary_blob_result = fs::read("../examples/nothing-nushift-app/zig-out/bin/nothing-nushift-app");
         if let Ok(binary_blob) = binary_blob_result {
-            let binary = ElfBinary::new(binary_blob.as_slice()).expect("Got proper ELF file");
-            new_tab.load(binary);
+            new_tab.load(binary_blob);
             new_tab.run();
         }
 

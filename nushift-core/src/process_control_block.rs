@@ -4,7 +4,6 @@ use ckb_vm::{
     SupportMachine,
     CoreMachine,
     Register,
-    Machine as CKBVMMachine,
     Error as CKBVMError,
     Bytes,
     machine::VERSION1,
@@ -15,7 +14,7 @@ use ckb_vm::{
 use snafu::prelude::*;
 use snafu_cli_debug::SnafuCliDebug;
 
-pub struct ProcessControlBlock<R = u64> {
+pub struct ProcessControlBlock<R> {
     machine: MachineState<R>,
     exit_reason: ExitReason,
 }
@@ -23,22 +22,21 @@ pub struct ProcessControlBlock<R = u64> {
 enum MachineState<R> {
     Unloaded,
     Loaded(DefaultCoreMachine<R, SparseMemory<R>>),
-    Stopped,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub enum ExitReason {
     NotExited,
     UserExit { exit_reason: u64 },
 }
 
-impl ProcessControlBlock {
+impl<R: Register> ProcessControlBlock<R> {
     pub fn new() -> Self {
         Self { machine: MachineState::Unloaded, exit_reason: ExitReason::NotExited }
     }
 
     pub fn load_machine(&mut self, image: Vec<u8>) -> Result<(), ProcessControlBlockError> {
-        let core_machine = DefaultCoreMachine::<u64, SparseMemory<u64>>::new(
+        let core_machine = DefaultCoreMachine::<R, SparseMemory<R>>::new(
             ckb_vm::ISA_IMC,
             ckb_vm::machine::VERSION1,
             u64::MAX,
@@ -78,7 +76,7 @@ impl ProcessControlBlock {
         }
 
         // TODO: The decoder is based on PC being in the first 4 MiB, which is an issue.
-        let mut decoder = build_decoder::<u64>(self.isa(), self.version());
+        let mut decoder = build_decoder::<R>(self.isa(), self.version());
 
         self.set_running()?;
         while self.is_running()? {
@@ -114,7 +112,7 @@ impl ProcessControlBlock {
     fn is_running(&self) -> Result<bool, ProcessControlBlockError> {
         match &self.machine {
             MachineState::Loaded(machine) => Ok(machine.running()),
-            _ => RunMachineNotLoadedSnafu.fail()
+            _ => RunMachineNotLoadedSnafu.fail(),
         }
     }
 }
@@ -213,15 +211,5 @@ impl<R: Register> SupportMachine for ProcessControlBlock<R> {
 
     fn reset_signal(&mut self) -> bool {
         proxy_to_self_machine!(mut self, reset_signal)
-    }
-}
-
-impl<R: Register> CKBVMMachine for ProcessControlBlock<R> {
-    fn ecall(&mut self) -> Result<(), CKBVMError> {
-        todo!()
-    }
-
-    fn ebreak(&mut self) -> Result<(), CKBVMError> {
-        todo!()
     }
 }

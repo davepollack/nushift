@@ -1,12 +1,11 @@
-use elfloader::ElfBinary;
 use reusable_id_pool::ArcId;
 
-use super::riscv_machine_wrapper::RiscvMachineWrapper;
+use super::process_control_block::ProcessControlBlock;
 
 pub struct Tab {
     id: ArcId,
     title: String,
-    emulated_machine: RiscvMachineWrapper,
+    emulated_machine: ProcessControlBlock<u64>,
 }
 
 impl Tab {
@@ -14,7 +13,7 @@ impl Tab {
         Tab {
             id,
             title: title.into(),
-            emulated_machine: Default::default(),
+            emulated_machine: ProcessControlBlock::new(),
         }
     }
 
@@ -28,16 +27,21 @@ impl Tab {
         &self.title
     }
 
-    pub fn load(&mut self, binary: ElfBinary) {
-        self.emulated_machine = RiscvMachineWrapper::load(binary);
+    pub fn load(&mut self, image: Vec<u8>) {
+        let result = self.emulated_machine.load_machine(image);
+
+        // If an error occurred, log the error.
+        if let Err(wrapper_error) = result {
+            log::error!("{wrapper_error}");
+        }
     }
 
     pub fn run(&mut self) {
         let result = self.emulated_machine.run();
 
-        // If an error occurred, log the error.
-        if let Err(wrapper_error) = result {
-            log::error!("{wrapper_error}");
+        match result {
+            Ok(exit_reason) => log::info!("Exit reason: {exit_reason:?}"),
+            Err(wrapper_error) => log::error!("{wrapper_error}"),
         }
     }
 }

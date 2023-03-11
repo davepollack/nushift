@@ -1,4 +1,4 @@
-use ckb_vm::{SupportMachine, Syscalls, Error as CKBVMError, registers::{A0, A1}, Register, DefaultMachine, CoreMachine};
+use ckb_vm::{Error as CKBVMError, registers::{A0, A1}, Register, CoreMachine, Machine as CKBVMMachine};
 use num_enum::TryFromPrimitive;
 use reusable_id_pool::{ReusableIdPoolError, ReusableIdPoolManual};
 use riscy_emulator::{
@@ -124,34 +124,34 @@ impl Subsystem for NushiftSubsystem {
 }
 
 // TODO: Probably don't have this in this file.
-impl<T: SupportMachine> Syscalls<T> for ProcessControlBlock {
-    fn initialize(&mut self, _machine: &mut T) -> Result<(), CKBVMError> {
-        Ok(())
-    }
-
-    fn ecall(&mut self, machine: &mut T) -> Result<bool, CKBVMError> {
+impl<R: Register> CKBVMMachine for ProcessControlBlock<R> {
+    fn ecall(&mut self) -> Result<(), CKBVMError> {
         // TODO: When 32-bit apps are supported, convert into u64 from multiple
         // registers, instead of `.to_u64()` which can only act on a single
         // register here)
-        let syscall = Syscall::try_from(machine.registers()[A0].to_u64());
+        let syscall = Syscall::try_from(self.registers()[A0].to_u64());
 
         match syscall {
             Err(_) => {
                 // TODO: Return an error to the program that it was an unknown
-                // syscall. Don't stop the program.
-                Ok(false)
+                // syscall.
+                Ok(())
             },
             Ok(Syscall::Exit) => {
-                self.user_exit(machine.registers()[A1].to_u64());
-                Ok(true)
+                self.user_exit(self.registers()[A1].to_u64());
+                Ok(())
             },
             _ => {
                 // Return immediately, because these system calls should be
                 // asynchronous.
 
                 // TODO: Actually queue something, though.
-                Ok(true)
+                Ok(())
             },
         }
+    }
+
+    fn ebreak(&mut self) -> Result<(), CKBVMError> {
+        todo!()
     }
 }
