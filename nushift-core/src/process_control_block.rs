@@ -6,17 +6,21 @@ use ckb_vm::{
     Register,
     Machine as CKBVMMachine,
     Error as CKBVMError,
+    Bytes,
+    machine::VERSION1,
+    registers::SP,
 };
+use snafu::prelude::*;
+use snafu_cli_debug::SnafuCliDebug;
 
 pub struct ProcessControlBlock<R = u64> {
-    machine: Machine<R>,
+    machine: MachineState<R>,
     exit_reason: ExitReason,
 }
 
-enum Machine<R> {
+enum MachineState<R> {
     Unloaded,
     Loaded(DefaultCoreMachine<R, SparseMemory<R>>),
-    Running(DefaultCoreMachine<R, SparseMemory<R>>),
     Stopped,
 }
 
@@ -27,39 +31,70 @@ enum ExitReason {
 
 impl ProcessControlBlock {
     pub fn new() -> Self {
-        Self { machine: Machine::Unloaded, exit_reason: ExitReason::NotExited }
+        Self { machine: MachineState::Unloaded, exit_reason: ExitReason::NotExited }
     }
 
-    pub fn load_machine(&mut self, image: &[u8]) {
+    pub fn load_machine(&mut self, image: Vec<u8>) -> Result<(), ProcessControlBlockError> {
         let core_machine = DefaultCoreMachine::<u64, SparseMemory<u64>>::new(
             ckb_vm::ISA_IMC,
             ckb_vm::machine::VERSION1,
             u64::MAX,
         );
 
-        // TODO
+        // We have to set it as loaded here for the below support methods to
+        // work. If we remove the SupportMachine implementation and use our own
+        // methods that can take a CoreMachine directly, we may not have to set
+        // it as loaded on this line.
+        self.machine = MachineState::Loaded(core_machine);
+
+        // Use self.load_elf() and self.initialize_stack(), this is why we
+        // implemented SupportMachine, so we don't have to convert the loader
+        // code in riscv_machine_wrapper.rs, otherwise, remove the
+        // SupportMachine implementation.
+
+        self.load_elf(&Bytes::from(image), true).context(ElfLoadingSnafu)?;
+
+        // The stack. 256 KiB.
+        //
+        // Should the location and size be determined by app metadata? Should
+        // the location be randomised?
+        const STACK_BASE: u64 = 0x80000000;
+        const STACK_SIZE: u64 = 0x40000;
+        self.initialize_stack(&[], STACK_BASE, STACK_SIZE).context(StackInitializationSnafu)?;
+        // Make sure SP is 16 byte aligned
+        if self.version() >= VERSION1 {
+            debug_assert!(self.registers()[SP].to_u64() % 16 == 0);
+        }
+
+        Ok(())
     }
 
     pub fn user_exit(&mut self, exit_reason: u64) {
-        if let Machine::Loaded(machine) = &mut self.machine {
+        if let MachineState::Loaded(machine) = &mut self.machine {
             self.exit_reason = ExitReason::UserExit { exit_reason };
             machine.set_running(false);
         }
     }
 }
 
-const PANIC_MESSAGE: &str = "process_control_block.rs: Machine attempted to be used before loaded";
+#[derive(Snafu, SnafuCliDebug)]
+pub enum ProcessControlBlockError {
+    ElfLoadingError { source: CKBVMError },
+    StackInitializationError { source: CKBVMError },
+}
+
+const PANIC_MESSAGE: &str = "process_control_block.rs: Machine attempted to be used but not loaded";
 macro_rules! proxy_to_self_machine {
     ($self:ident, $name:ident$(, $arg:expr)*) => {
         match &$self.machine {
-            Machine::Loaded(core_machine) | Machine::Running(core_machine) => core_machine.$name($($arg),*),
-            _ => panic!("{}", PANIC_MESSAGE)
+            MachineState::Loaded(core_machine) => core_machine.$name($($arg),*),
+            _ => panic!("{}", PANIC_MESSAGE),
         }
     };
     (mut $self:ident, $name:ident$(, $arg:expr)*) => {
         match &mut $self.machine {
-            Machine::Loaded(core_machine) | Machine::Running(core_machine) => core_machine.$name($($arg),*),
-            _ => panic!("{}", PANIC_MESSAGE)
+            MachineState::Loaded(core_machine) => core_machine.$name($($arg),*),
+            _ => panic!("{}", PANIC_MESSAGE),
         }
     };
 }
@@ -102,6 +137,36 @@ impl<R: Register> CoreMachine for ProcessControlBlock<R> {
 
     fn isa(&self) -> u8 {
         proxy_to_self_machine!(self, isa)
+    }
+}
+
+impl<R: Register> SupportMachine for ProcessControlBlock<R> {
+    fn cycles(&self) -> u64 {
+        proxy_to_self_machine!(self, cycles)
+    }
+
+    fn set_cycles(&mut self, cycles: u64) {
+        proxy_to_self_machine!(mut self, set_cycles, cycles)
+    }
+
+    fn max_cycles(&self) -> u64 {
+        proxy_to_self_machine!(self, max_cycles)
+    }
+
+    fn running(&self) -> bool {
+        proxy_to_self_machine!(self, running)
+    }
+
+    fn set_running(&mut self, running: bool) {
+        proxy_to_self_machine!(mut self, set_running, running)
+    }
+
+    fn reset(&mut self, max_cycles: u64) {
+        proxy_to_self_machine!(mut self, reset, max_cycles)
+    }
+
+    fn reset_signal(&mut self) -> bool {
+        proxy_to_self_machine!(mut self, reset_signal)
     }
 }
 
