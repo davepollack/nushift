@@ -9,6 +9,8 @@ use ckb_vm::{
     Bytes,
     machine::VERSION1,
     registers::SP,
+    decoder::build_decoder,
+    instructions::execute,
 };
 use snafu::prelude::*;
 use snafu_cli_debug::SnafuCliDebug;
@@ -24,7 +26,8 @@ enum MachineState<R> {
     Stopped,
 }
 
-enum ExitReason {
+#[derive(Copy, Clone)]
+pub enum ExitReason {
     NotExited,
     UserExit { exit_reason: u64 },
 }
@@ -69,10 +72,49 @@ impl ProcessControlBlock {
         Ok(())
     }
 
+    pub fn run(&mut self) -> Result<ExitReason, ProcessControlBlockError> {
+        if !matches!(self.machine, MachineState::Loaded(_)) {
+            return RunMachineNotLoadedSnafu.fail();
+        }
+
+        // TODO: The decoder is based on PC being in the first 4 MiB, which is an issue.
+        let mut decoder = build_decoder::<u64>(self.isa(), self.version());
+
+        self.set_running()?;
+        while self.is_running()? {
+            // We don't have `if self.reset_signal()` here because we're not supporting reset right now
+            let instruction = {
+                let pc = self.pc().to_u64();
+                let memory = self.memory_mut();
+                decoder.decode(memory, pc).context(DecodeSnafu)?
+            };
+            execute(instruction, self).context(ExecuteSnafu)?;
+        }
+
+        Ok(self.exit_reason)
+    }
+
     pub fn user_exit(&mut self, exit_reason: u64) {
         if let MachineState::Loaded(machine) = &mut self.machine {
             self.exit_reason = ExitReason::UserExit { exit_reason };
             machine.set_running(false);
+        }
+    }
+
+    fn set_running(&mut self) -> Result<(), ProcessControlBlockError> {
+        match &mut self.machine {
+            MachineState::Loaded(machine) => {
+                machine.set_running(true);
+                Ok(())
+            },
+            _ => RunMachineNotLoadedSnafu.fail(),
+        }
+    }
+
+    fn is_running(&self) -> Result<bool, ProcessControlBlockError> {
+        match &self.machine {
+            MachineState::Loaded(machine) => Ok(machine.running()),
+            _ => RunMachineNotLoadedSnafu.fail()
         }
     }
 }
@@ -81,6 +123,10 @@ impl ProcessControlBlock {
 pub enum ProcessControlBlockError {
     ElfLoadingError { source: CKBVMError },
     StackInitializationError { source: CKBVMError },
+    #[snafu(display("Attempted to run a machine that is not loaded"))]
+    RunMachineNotLoaded,
+    DecodeError { source: CKBVMError },
+    ExecuteError { source: CKBVMError },
 }
 
 const PANIC_MESSAGE: &str = "process_control_block.rs: Machine attempted to be used but not loaded";
