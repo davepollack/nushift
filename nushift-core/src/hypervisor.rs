@@ -26,7 +26,7 @@ impl Hypervisor {
         let new_tab_id = ReusableIdPool::allocate(&self.tabs_reusable_id_pool);
         let mut new_tab = Tab::new(new_tab_id, title);
 
-        let binary_blob_result = fs::read("../examples/nothing-nushift-app/zig-out/bin/nothing-nushift-app");
+        let binary_blob_result = fs::read("../examples/shm-nushift-app/zig-out/bin/shm-nushift-app");
         if let Ok(binary_blob) = binary_blob_result {
             new_tab.load(binary_blob);
             new_tab.run();

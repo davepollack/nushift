@@ -6,13 +6,25 @@ use std::collections::BTreeMap;
 use elfloader::{ElfLoader, ElfLoaderErr, LoadableHeaders, Flags, VAddr, RelocationEntry, ElfBinary};
 use snafu::prelude::*;
 use snafu_cli_debug::SnafuCliDebug;
-use riscy_emulator::{memory::{Memory, Region, Permissions}, machine::{RiscvMachine, RiscvMachineStepAction}};
+use riscy_emulator::{memory::{Memory, Region, Permissions}, machine::{RiscvMachine, RiscvMachineStepAction, RiscvMachineError}, subsystem::{Subsystem, SubsystemAction}};
 use riscy_isa::Register;
 
-use crate::nushift_subsystem::NushiftSubsystem;
+#[derive(Default)]
+pub struct OldNushiftSubsystem;
+
+// TODO: Probably remove this, and this file
+impl Subsystem for OldNushiftSubsystem {
+    fn system_call(
+        &mut self,
+        _context: &mut RiscvMachine<Self>,
+    ) -> Result<Option<SubsystemAction>, RiscvMachineError> {
+        Err(RiscvMachineError::UnknownSystemCall(0))
+    }
+}
+
 
 #[derive(Default)]
-pub struct RiscvMachineWrapper(Option<RiscvMachine<NushiftSubsystem>>);
+pub struct RiscvMachineWrapper(Option<RiscvMachine<OldNushiftSubsystem>>);
 
 impl RiscvMachineWrapper {
     pub fn load(binary: ElfBinary) -> RiscvMachineWrapper {

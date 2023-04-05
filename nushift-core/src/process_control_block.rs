@@ -14,9 +14,12 @@ use ckb_vm::{
 use snafu::prelude::*;
 use snafu_cli_debug::SnafuCliDebug;
 
+use super::nushift_subsystem;
+
 pub struct ProcessControlBlock<R> {
     machine: MachineState<R>,
     exit_reason: ExitReason,
+    pub(crate) shm_space: nushift_subsystem::ShmSpace,
 }
 
 enum MachineState<R> {
@@ -32,7 +35,11 @@ pub enum ExitReason {
 
 impl<R: Register> ProcessControlBlock<R> {
     pub fn new() -> Self {
-        Self { machine: MachineState::Unloaded, exit_reason: ExitReason::NotExited }
+        Self {
+            machine: MachineState::Unloaded,
+            exit_reason: ExitReason::NotExited,
+            shm_space: nushift_subsystem::ShmSpace::new(),
+        }
     }
 
     pub fn load_machine(&mut self, image: Vec<u8>) -> Result<(), ProcessControlBlockError> {

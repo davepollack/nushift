@@ -1,5 +1,5 @@
-const OsNushift = @import("os_nushift.zig");
-const main = @import("main.zig");
+const OsNushift = @import("os_nushift");
+const main = @import("main");
 
 export fn _start() callconv(.Naked) noreturn {
     const exit_reason = main.main();

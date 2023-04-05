@@ -1,15 +1,11 @@
-use ckb_vm::{Error as CKBVMError, registers::{A0, A1}, Register, CoreMachine, Machine as CKBVMMachine};
-use num_enum::TryFromPrimitive;
+use ckb_vm::{Error as CKBVMError, registers::{A0, A1, T0}, Register, CoreMachine, Machine as CKBVMMachine};
+use num_enum::{TryFromPrimitive, IntoPrimitive};
 use reusable_id_pool::{ReusableIdPoolError, ReusableIdPoolManual};
-use riscy_emulator::{
-    subsystem::{Subsystem, SubsystemAction},
-    machine::{RiscvMachine, RiscvMachineError},
-};
 use snafu::Snafu;
 use snafu_cli_debug::SnafuCliDebug;
 use std::{convert::TryFrom, collections::{BTreeMap, btree_map::Entry}};
 
-use crate::process_control_block::ProcessControlBlock;
+use super::process_control_block::ProcessControlBlock;
 
 // Regarding the use of `u64`s in this file:
 //
@@ -29,13 +25,20 @@ enum Syscall {
     Exit = 0,
     ShmNew = 1,
     ShmAcquire = 2,
-    ShmRelease = 3,
-    ShmDestroy = 4,
+    ShmNewAndAcquire = 3,
+    ShmRelease = 4,
+    ShmDestroy = 5,
+    ShmReleaseAndDestroy = 6,
 }
+
+const SYSCALL_NUM_REGISTER: usize = A0;
+const FIRST_ARG_REGISTER: usize = A1;
+const RETURN_VAL_REGISTER: usize = A0;
+const ERROR_RETURN_VAL_REGISTER: usize = T0;
 
 #[derive(TryFromPrimitive)]
 #[repr(u64)]
-enum ShmType {
+pub enum ShmType {
     FourKiB = 0,
     TwoMiB = 1,
     FourMiB = 2,
@@ -43,7 +46,7 @@ enum ShmType {
     FiveTwelveGiB = 4,
 }
 
-struct ShmCap {
+pub struct ShmCap {
     shm_type: ShmType,
 }
 
@@ -54,20 +57,20 @@ impl ShmCap {
 }
 
 type ShmCapId = u64;
-struct ShmSpace {
+pub struct ShmSpace {
     id_pool: ReusableIdPoolManual,
     space: BTreeMap<ShmCapId, ShmCap>,
 }
 
 impl ShmSpace {
-    fn new() -> Self {
+    pub fn new() -> Self {
         ShmSpace {
-            id_pool: ReusableIdPoolManual::new(),
+            id_pool: ReusableIdPoolManual::new_with_start_value(1),
             space: BTreeMap::new(),
         }
     }
 
-    fn new_shm_cap(&mut self, shm_type: ShmType) -> Result<(ShmCapId, &ShmCap), ShmSpaceError> {
+    pub fn new_shm_cap(&mut self, shm_type: ShmType) -> Result<(ShmCapId, &ShmCap), ShmSpaceError> {
         let id = self.id_pool.try_allocate()
             .map_err(|rip_err| match rip_err { ReusableIdPoolError::TooManyConcurrentIDs => ExhaustedSnafu.build() })?;
 
@@ -80,47 +83,33 @@ impl ShmSpace {
         Ok((id, shm_cap))
     }
 
-    fn destroy_shm_cap(&mut self, shm_cap_id: ShmCapId) {
+    pub fn destroy_shm_cap(&mut self, shm_cap_id: ShmCapId) {
         // TODO: There needs to be checks here that the SHM has been released, etc.
         self.space.remove(&shm_cap_id);
     }
 }
 
 #[derive(Snafu, SnafuCliDebug)]
-enum ShmSpaceError {
+pub enum ShmSpaceError {
     #[snafu(display("The new pool ID was already present in the space. This should never happen, and indicates a bug in Nushift's code."))]
     DuplicateId,
     #[snafu(display("The maximum amount of SHM capabilities have been used for this app. Please destroy some capabilities."))]
     Exhausted,
 }
 
-#[derive(Default)]
-pub struct NushiftSubsystem;
+#[derive(IntoPrimitive)]
+#[repr(u64)]
+pub enum SyscallError {
+    UnknownSyscall = 0,
 
-impl Subsystem for NushiftSubsystem {
-    fn system_call(
-        &mut self,
-        context: &mut RiscvMachine<Self>,
-    ) -> Result<Option<SubsystemAction>, RiscvMachineError> {
-        let registers = &context.state().registers;
-        let syscall = Syscall::try_from(registers.get(riscy_isa::Register::A0));
+    ShmDuplicateId = 1,
+    ShmExhausted = 2,
+    ShmUnknownShmType = 3,
+}
 
-        match syscall {
-            Err(_) => {
-                // TODO: Return an error to the program that it was an unknown
-                // syscall. Don't stop the program.
-                Ok(None)
-            },
-            Ok(Syscall::Exit) => Ok(Some(SubsystemAction::Exit { status_code: registers.get(riscy_isa::Register::A1) })),
-            _ => {
-                // Return immediately, because these system calls should be
-                // asynchronous.
-
-                // TODO: Actually queue something, though.
-                Ok(None)
-            },
-        }
-    }
+fn set_error<R: Register>(pcb: &mut ProcessControlBlock<R>, error: SyscallError) {
+    pcb.set_register(RETURN_VAL_REGISTER, R::from_u64(0));
+    pcb.set_register(ERROR_RETURN_VAL_REGISTER, R::from_u64(error.into()));
 }
 
 // TODO: Probably don't have this in this file.
@@ -129,18 +118,42 @@ impl<R: Register> CKBVMMachine for ProcessControlBlock<R> {
         // TODO: When 32-bit apps are supported, convert into u64 from multiple
         // registers, instead of `.to_u64()` which can only act on a single
         // register here)
-        let syscall = Syscall::try_from(self.registers()[A0].to_u64());
+        let syscall = Syscall::try_from(self.registers()[SYSCALL_NUM_REGISTER].to_u64());
 
         match syscall {
             Err(_) => {
-                // TODO: Return an error to the program that it was an unknown
-                // syscall.
+                set_error(self, SyscallError::UnknownSyscall);
                 Ok(())
             },
+
             Ok(Syscall::Exit) => {
-                self.user_exit(self.registers()[A1].to_u64());
+                self.user_exit(self.registers()[FIRST_ARG_REGISTER].to_u64());
                 Ok(())
             },
+            Ok(Syscall::ShmNew) => {
+                let shm_type = match ShmType::try_from(self.registers()[FIRST_ARG_REGISTER].to_u64()) {
+                    Ok(shm_type) => shm_type,
+                    Err(_) => { set_error(self, SyscallError::ShmUnknownShmType); return Ok(()); },
+                };
+
+                let shm_cap_id = match self.shm_space.new_shm_cap(shm_type) {
+                    Ok((shm_cap_id, _)) => shm_cap_id,
+                    Err(shm_space_error) => match shm_space_error {
+                        ShmSpaceError::DuplicateId => { set_error(self, SyscallError::ShmDuplicateId); return Ok(()); },
+                        ShmSpaceError::Exhausted => { set_error(self, SyscallError::ShmExhausted); return Ok(()); },
+                    },
+                };
+
+                self.set_register(RETURN_VAL_REGISTER, Self::REG::from_u64(shm_cap_id));
+                Ok(())
+            },
+            Ok(Syscall::ShmDestroy) => {
+                let shm_cap_id = self.registers()[FIRST_ARG_REGISTER].to_u64();
+                self.shm_space.destroy_shm_cap(shm_cap_id);
+                self.set_register(RETURN_VAL_REGISTER, Self::REG::from_u64(0));
+                Ok(())
+            },
+
             _ => {
                 // Return immediately, because these system calls should be
                 // asynchronous.
