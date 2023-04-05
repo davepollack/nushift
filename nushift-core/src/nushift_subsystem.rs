@@ -65,7 +65,7 @@ pub struct ShmSpace {
 impl ShmSpace {
     pub fn new() -> Self {
         ShmSpace {
-            id_pool: ReusableIdPoolManual::new_with_start_value(1),
+            id_pool: ReusableIdPoolManual::new(),
             space: BTreeMap::new(),
         }
     }
@@ -108,8 +108,13 @@ pub enum SyscallError {
 }
 
 fn set_error<R: Register>(pcb: &mut ProcessControlBlock<R>, error: SyscallError) {
-    pcb.set_register(RETURN_VAL_REGISTER, R::from_u64(0));
+    pcb.set_register(RETURN_VAL_REGISTER, R::from_u64(u64::MAX));
     pcb.set_register(ERROR_RETURN_VAL_REGISTER, R::from_u64(error.into()));
+}
+
+fn set_success<R: Register>(pcb: &mut ProcessControlBlock<R>, return_value: u64) {
+    pcb.set_register(RETURN_VAL_REGISTER, R::from_u64(return_value));
+    pcb.set_register(ERROR_RETURN_VAL_REGISTER, R::from_u64(u64::MAX));
 }
 
 // TODO: Probably don't have this in this file.
@@ -144,13 +149,13 @@ impl<R: Register> CKBVMMachine for ProcessControlBlock<R> {
                     },
                 };
 
-                self.set_register(RETURN_VAL_REGISTER, Self::REG::from_u64(shm_cap_id));
+                set_success(self, shm_cap_id);
                 Ok(())
             },
             Ok(Syscall::ShmDestroy) => {
                 let shm_cap_id = self.registers()[FIRST_ARG_REGISTER].to_u64();
                 self.shm_space.destroy_shm_cap(shm_cap_id);
-                self.set_register(RETURN_VAL_REGISTER, Self::REG::from_u64(0));
+                set_success(self, 0);
                 Ok(())
             },
 

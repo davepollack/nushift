@@ -6,20 +6,14 @@ use super::reusable_id_pool::{ReusableIdPoolError, TooManyConcurrentIDsSnafu};
 
 pub struct ReusableIdPoolManual {
     frontier: u64,
-    start_value: u64,
     free_list: BTreeSet<u64>,
 }
 
 impl ReusableIdPoolManual {
     /// Create a new reusable ID pool.
     pub fn new() -> Self {
-        ReusableIdPoolManual::new_with_start_value(0)
-    }
-
-    pub fn new_with_start_value(start_value: u64) -> Self {
         ReusableIdPoolManual {
-            frontier: start_value,
-            start_value,
+            frontier: 0,
             free_list: BTreeSet::new(),
         }
     }
@@ -44,7 +38,7 @@ impl ReusableIdPoolManual {
 
     /// Silently rejects invalid free requests (double frees and never-allocated), rather than returning an error.
     pub fn release(&mut self, id: u64) {
-        if id < self.start_value || id >= self.frontier {
+        if id >= self.frontier {
             return;
         }
         self.free_list.insert(id);
@@ -114,18 +108,6 @@ mod tests {
 
         let old_free_list = reusable_id_pool_manual.free_list.clone();
         reusable_id_pool_manual.release(10);
-        assert_eq!(old_free_list, reusable_id_pool_manual.free_list);
-    }
-
-    #[test]
-    fn release_rejects_free_requests_below_start_value() {
-        let mut reusable_id_pool_manual = ReusableIdPoolManual::new_with_start_value(1);
-
-        let id1 = reusable_id_pool_manual.allocate();
-        assert_eq!(1, id1);
-
-        let old_free_list = reusable_id_pool_manual.free_list.clone();
-        reusable_id_pool_manual.release(0);
         assert_eq!(old_free_list, reusable_id_pool_manual.free_list);
     }
 
