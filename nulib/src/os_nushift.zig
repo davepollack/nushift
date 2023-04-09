@@ -6,12 +6,17 @@ pub const Syscall = enum(usize) {
     shm_destroy = 5,
 };
 
-pub const ShmType = enum(usize) {
-    four_kib = 0,
-    two_mib = 1,
-    four_mib = 2,
-    one_gib = 3,
-    five_twelve_gib = 4,
+pub const SyscallError = enum(usize) {
+    unknown_syscall = 0,
+
+    shm_duplicate_id = 1,
+    shm_exhausted = 2,
+    shm_unknown_shm_type = 3,
+};
+
+pub const SyscallResult = union(enum) {
+    success: usize,
+    @"error": SyscallError,
 };
 
 pub fn SyscallArgs(comptime sys: Syscall) type {
@@ -22,16 +27,34 @@ pub fn SyscallArgs(comptime sys: Syscall) type {
     };
 }
 
-fn syscall1(syscall_number: usize, arg1: usize) usize {
-    return asm volatile ("ecall"
-        : [ret] "={x10}" (-> usize),
-        : [syscall_number] "{x10}" (syscall_number),
-          [arg1] "{x11}" (arg1),
+pub const ShmType = enum(usize) {
+    four_kib = 0,
+    two_mib = 1,
+    four_mib = 2,
+    one_gib = 3,
+    five_twelve_gib = 4,
+};
+
+fn syscall1(syscall_number: usize, arg1: usize) SyscallResult {
+    var a0_output: usize = undefined;
+    var t0_output: usize = undefined;
+
+    asm volatile ("ecall"
+        : [ret_a0] "={a0}" (a0_output),
+          [ret_t0] "={t0}" (t0_output),
+        : [syscall_number] "{a0}" (syscall_number),
+          [arg1] "{a1}" (arg1),
         : "memory"
     );
+
+    if (a0_output == std.math.maxInt(usize)) {
+        return SyscallResult{ .@"error" = @intToEnum(SyscallError, t0_output) };
+    }
+
+    return SyscallResult{ .success = a0_output };
 }
 
-pub fn syscall(comptime sys: Syscall, sys_args: SyscallArgs(sys)) usize {
+pub fn syscall(comptime sys: Syscall, sys_args: SyscallArgs(sys)) SyscallResult {
     return switch (sys) {
         .exit => syscall1(@enumToInt(sys), sys_args.exit_reason),
         .shm_new => syscall1(@enumToInt(sys), @enumToInt(sys_args.shm_type)),

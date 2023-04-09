@@ -31,6 +31,16 @@ enum Syscall {
     ShmReleaseAndDestroy = 6,
 }
 
+#[derive(IntoPrimitive)]
+#[repr(u64)]
+pub enum SyscallError {
+    UnknownSyscall = 0,
+
+    ShmDuplicateId = 1,
+    ShmExhausted = 2,
+    ShmUnknownShmType = 3,
+}
+
 const SYSCALL_NUM_REGISTER: usize = A0;
 const FIRST_ARG_REGISTER: usize = A1;
 const RETURN_VAL_REGISTER: usize = A0;
@@ -97,16 +107,6 @@ pub enum ShmSpaceError {
     Exhausted,
 }
 
-#[derive(IntoPrimitive)]
-#[repr(u64)]
-pub enum SyscallError {
-    UnknownSyscall = 0,
-
-    ShmDuplicateId = 1,
-    ShmExhausted = 2,
-    ShmUnknownShmType = 3,
-}
-
 fn set_error<R: Register>(pcb: &mut ProcessControlBlock<R>, error: SyscallError) {
     pcb.set_register(RETURN_VAL_REGISTER, R::from_u64(u64::MAX));
     pcb.set_register(ERROR_RETURN_VAL_REGISTER, R::from_u64(error.into()));
@@ -133,6 +133,7 @@ impl<R: Register> CKBVMMachine for ProcessControlBlock<R> {
 
             Ok(Syscall::Exit) => {
                 self.user_exit(self.registers()[FIRST_ARG_REGISTER].to_u64());
+                set_success(self, 0);
                 Ok(())
             },
             Ok(Syscall::ShmNew) => {
