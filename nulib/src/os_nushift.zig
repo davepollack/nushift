@@ -35,7 +35,32 @@ pub const ShmType = enum(usize) {
     five_twelve_gib = 4,
 };
 
-fn syscall1(syscall_number: usize, arg1: usize) SyscallResult {
+pub fn syscall(comptime sys: Syscall, sys_args: SyscallArgs(sys)) SyscallResult {
+    return syscall_internal(sys, sys_args, false, SyscallResult);
+}
+
+pub fn syscall_ignore_errors(comptime sys: Syscall, sys_args: SyscallArgs(sys)) usize {
+    return syscall_internal(sys, sys_args, true, usize);
+}
+
+fn syscall_internal(comptime sys: Syscall, sys_args: SyscallArgs(sys), comptime ignore_errors: bool, comptime ReturnType: type) ReturnType {
+    return switch (sys) {
+        .exit => syscall1(@enumToInt(sys), sys_args.exit_reason, ignore_errors, ReturnType),
+        .shm_new => syscall1(@enumToInt(sys), @enumToInt(sys_args.shm_type), ignore_errors, ReturnType),
+        .shm_destroy => syscall1(@enumToInt(sys), sys_args.shm_cap_id, ignore_errors, ReturnType),
+    };
+}
+
+fn syscall1(syscall_number: usize, arg1: usize, comptime ignore_errors: bool, comptime ReturnType: type) ReturnType {
+    if (ignore_errors) {
+        return asm volatile ("ecall"
+            : [ret] "={a0}" (-> usize),
+            : [syscall_number] "{a0}" (syscall_number),
+              [arg1] "{a1}" (arg1),
+            : "memory"
+        );
+    }
+
     var a0_output: usize = undefined;
     var t0_output: usize = undefined;
 
@@ -52,12 +77,4 @@ fn syscall1(syscall_number: usize, arg1: usize) SyscallResult {
     }
 
     return SyscallResult{ .success = a0_output };
-}
-
-pub fn syscall(comptime sys: Syscall, sys_args: SyscallArgs(sys)) SyscallResult {
-    return switch (sys) {
-        .exit => syscall1(@enumToInt(sys), sys_args.exit_reason),
-        .shm_new => syscall1(@enumToInt(sys), @enumToInt(sys_args.shm_type)),
-        .shm_destroy => syscall1(@enumToInt(sys), sys_args.shm_cap_id),
-    };
 }
