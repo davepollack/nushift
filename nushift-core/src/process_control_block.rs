@@ -3,6 +3,7 @@ use ckb_vm::{
     SparseMemory,
     SupportMachine,
     CoreMachine,
+    Machine as CKBVMMachine,
     Register,
     Error as CKBVMError,
     Bytes,
@@ -14,12 +15,12 @@ use ckb_vm::{
 use snafu::prelude::*;
 use snafu_cli_debug::SnafuCliDebug;
 
-use super::nushift_subsystem;
+use super::nushift_subsystem::NushiftSubsystem;
 
 pub struct ProcessControlBlock<R> {
     machine: MachineState<R>,
     exit_reason: ExitReason,
-    pub(crate) shm_space: nushift_subsystem::ShmSpace,
+    pub(crate) subsystem: NushiftSubsystem,
 }
 
 enum MachineState<R> {
@@ -38,7 +39,7 @@ impl<R: Register> ProcessControlBlock<R> {
         Self {
             machine: MachineState::Unloaded,
             exit_reason: ExitReason::NotExited,
-            shm_space: nushift_subsystem::ShmSpace::new(),
+            subsystem: NushiftSubsystem::new(),
         }
     }
 
@@ -218,5 +219,15 @@ impl<R: Register> SupportMachine for ProcessControlBlock<R> {
 
     fn reset_signal(&mut self) -> bool {
         proxy_to_self_machine!(mut self, reset_signal)
+    }
+}
+
+impl<R: Register> CKBVMMachine for ProcessControlBlock<R> {
+    fn ecall(&mut self) -> Result<(), CKBVMError> {
+        NushiftSubsystem::ecall(self)
+    }
+
+    fn ebreak(&mut self) -> Result<(), CKBVMError> {
+        NushiftSubsystem::ebreak(self)
     }
 }

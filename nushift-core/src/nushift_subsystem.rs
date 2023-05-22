@@ -1,4 +1,4 @@
-use ckb_vm::{Error as CKBVMError, registers::{A0, A1, T0}, Register, CoreMachine, Machine as CKBVMMachine};
+use ckb_vm::{Error as CKBVMError, registers::{A0, A1, T0}, Register, CoreMachine};
 use num_enum::{TryFromPrimitive, IntoPrimitive};
 use reusable_id_pool::{ReusableIdPoolError, ReusableIdPoolManual};
 use snafu::Snafu;
@@ -44,6 +44,10 @@ pub enum SyscallError {
 const SYSCALL_NUM_REGISTER: usize = A0;
 const FIRST_ARG_REGISTER: usize = A1;
 const RETURN_VAL_REGISTER: usize = A0;
+// a1 is used by the RISC-V calling conventions for a second return value,
+// rather than t0, but my concern is with the whole 32-bit app thing using
+// multiple registers to encode a 64-bit value. Maybe the 32-bit ABI will just
+// use a0 and a2 and the 64-bit will use a0 and a1. For now, using t0.
 const ERROR_RETURN_VAL_REGISTER: usize = T0;
 
 #[derive(TryFromPrimitive)]
@@ -117,46 +121,53 @@ fn set_success<R: Register>(pcb: &mut ProcessControlBlock<R>, return_value: u64)
     pcb.set_register(ERROR_RETURN_VAL_REGISTER, R::from_u64(u64::MAX));
 }
 
-// TODO: Probably don't have this in this file.
-impl<R: Register> CKBVMMachine for ProcessControlBlock<R> {
-    fn ecall(&mut self) -> Result<(), CKBVMError> {
+pub struct NushiftSubsystem {
+    shm_space: ShmSpace,
+}
+
+impl NushiftSubsystem {
+    pub fn new() -> Self {
+        NushiftSubsystem { shm_space: ShmSpace::new() }
+    }
+
+    pub fn ecall<R: Register>(pcb: &mut ProcessControlBlock<R>) -> Result<(), CKBVMError> {
         // TODO: When 32-bit apps are supported, convert into u64 from multiple
         // registers, instead of `.to_u64()` which can only act on a single
         // register here)
-        let syscall = Syscall::try_from(self.registers()[SYSCALL_NUM_REGISTER].to_u64());
+        let syscall = Syscall::try_from(pcb.registers()[SYSCALL_NUM_REGISTER].to_u64());
 
         match syscall {
             Err(_) => {
-                set_error(self, SyscallError::UnknownSyscall);
+                set_error(pcb, SyscallError::UnknownSyscall);
                 Ok(())
             },
 
             Ok(Syscall::Exit) => {
-                self.user_exit(self.registers()[FIRST_ARG_REGISTER].to_u64());
-                set_success(self, 0);
+                pcb.user_exit(pcb.registers()[FIRST_ARG_REGISTER].to_u64());
+                set_success(pcb, 0);
                 Ok(())
             },
             Ok(Syscall::ShmNew) => {
-                let shm_type = match ShmType::try_from(self.registers()[FIRST_ARG_REGISTER].to_u64()) {
+                let shm_type = match ShmType::try_from(pcb.registers()[FIRST_ARG_REGISTER].to_u64()) {
                     Ok(shm_type) => shm_type,
-                    Err(_) => { set_error(self, SyscallError::ShmUnknownShmType); return Ok(()); },
+                    Err(_) => { set_error(pcb, SyscallError::ShmUnknownShmType); return Ok(()); },
                 };
 
-                let shm_cap_id = match self.shm_space.new_shm_cap(shm_type) {
+                let shm_cap_id = match pcb.subsystem.shm_space.new_shm_cap(shm_type) {
                     Ok((shm_cap_id, _)) => shm_cap_id,
                     Err(shm_space_error) => match shm_space_error {
-                        ShmSpaceError::DuplicateId => { set_error(self, SyscallError::ShmDuplicateId); return Ok(()); },
-                        ShmSpaceError::Exhausted => { set_error(self, SyscallError::ShmExhausted); return Ok(()); },
+                        ShmSpaceError::DuplicateId => { set_error(pcb, SyscallError::ShmDuplicateId); return Ok(()); },
+                        ShmSpaceError::Exhausted => { set_error(pcb, SyscallError::ShmExhausted); return Ok(()); },
                     },
                 };
 
-                set_success(self, shm_cap_id);
+                set_success(pcb, shm_cap_id);
                 Ok(())
             },
             Ok(Syscall::ShmDestroy) => {
-                let shm_cap_id = self.registers()[FIRST_ARG_REGISTER].to_u64();
-                self.shm_space.destroy_shm_cap(shm_cap_id);
-                set_success(self, 0);
+                let shm_cap_id = pcb.registers()[FIRST_ARG_REGISTER].to_u64();
+                pcb.subsystem.shm_space.destroy_shm_cap(shm_cap_id);
+                set_success(pcb, 0);
                 Ok(())
             },
 
@@ -170,7 +181,7 @@ impl<R: Register> CKBVMMachine for ProcessControlBlock<R> {
         }
     }
 
-    fn ebreak(&mut self) -> Result<(), CKBVMError> {
+    pub fn ebreak<R: Register>(_pcb: &mut ProcessControlBlock<R>) -> Result<(), CKBVMError> {
         todo!()
     }
 }
