@@ -44,11 +44,13 @@ pub enum SyscallError {
 const SYSCALL_NUM_REGISTER: usize = A0;
 const FIRST_ARG_REGISTER: usize = A1;
 const RETURN_VAL_REGISTER: usize = A0;
-// a1 is used by the RISC-V calling conventions for a second return value,
-// rather than t0, but my concern is with the whole 32-bit app thing using
-// multiple registers to encode a 64-bit value. Maybe the 32-bit ABI will just
-// use a0 and a2 and the 64-bit will use a0 and a1. For now, using t0.
+/// a1 is used by the RISC-V calling conventions for a second return value,
+/// rather than t0, but my concern is with the whole 32-bit app thing using
+/// multiple registers to encode a 64-bit value. Maybe the 32-bit ABI will just
+/// use a0 and a2 and the 64-bit will use a0 and a1. For now, using t0.
 const ERROR_RETURN_VAL_REGISTER: usize = T0;
+
+const SV39_BITS: u8 = 39;
 
 #[derive(TryFromPrimitive)]
 #[repr(u64)]
@@ -71,17 +73,19 @@ pub enum ShmType {
 pub struct ShmCap {
     shm_type: ShmType,
 }
-
 impl ShmCap {
     fn new(shm_type: ShmType) -> Self {
         ShmCap { shm_type }
     }
 }
-
 type ShmCapId = u64;
+/// 0 = number of 1 GiB caps, 1 = number of 2 MiB caps, 2 = number of 4 KiB caps
+type Sv39SpaceStats = [u32; 3];
+
 pub struct ShmSpace {
     id_pool: ReusableIdPoolManual,
     space: BTreeMap<ShmCapId, ShmCap>,
+    stats: Sv39SpaceStats,
 }
 
 impl ShmSpace {
@@ -89,9 +93,11 @@ impl ShmSpace {
         ShmSpace {
             id_pool: ReusableIdPoolManual::new(),
             space: BTreeMap::new(),
+            stats: [0; 3],
         }
     }
 
+    // TODO: Need to increment stats, need to add length/amount to shm_new request and ShmCap
     pub fn new_shm_cap(&mut self, shm_type: ShmType) -> Result<(ShmCapId, &ShmCap), ShmSpaceError> {
         let id = self.id_pool.try_allocate()
             .map_err(|rip_err| match rip_err { ReusableIdPoolError::TooManyConcurrentIDs => ExhaustedSnafu.build() })?;
@@ -105,9 +111,35 @@ impl ShmSpace {
         Ok((id, shm_cap))
     }
 
+    // TODO: Need to decrement stats
     pub fn destroy_shm_cap(&mut self, shm_cap_id: ShmCapId) {
         // TODO: There needs to be checks here that the SHM has been released, etc.
         self.space.remove(&shm_cap_id);
+    }
+
+    /// This assumes that all caps can be arranged as: all 1 GiB ones first,
+    /// then all 2 MiB ones, then all 4 KiB ones. This is probably a very dumb
+    /// assumption and I might regret it later.
+    fn sv39_available_caps(&self, shm_type: ShmType) -> u32 {
+        match shm_type {
+            ShmType::FourKiB => {
+                let four_kib_equivalent_used = (self.stats[0] << 18) + (self.stats[1] << 9) + self.stats[2];
+                let four_kib_total: u32 = 1 << (SV39_BITS - 12);
+                four_kib_total - four_kib_equivalent_used
+            },
+            ShmType::TwoMiB => {
+                let two_mib_equivalent_used = (self.stats[0] << 9) + self.stats[1] + ((self.stats[2] >> 9) + (self.stats[2] & ((1 << 9) - 1) != 0) as u32);
+                let two_mib_total: u32 = 1 << (SV39_BITS - 21);
+                two_mib_total - two_mib_equivalent_used
+            },
+            ShmType::OneGiB => {
+                let four_kib_equivalent_used_excl_one_gib = (self.stats[1] << 9) + self.stats[2];
+                let one_gib_equivalent_used_by_non_one_gib = (four_kib_equivalent_used_excl_one_gib >> 18) + (four_kib_equivalent_used_excl_one_gib & ((1 << 18) - 1) != 0) as u32;
+                let one_gib_equivalent_used = self.stats[0] + one_gib_equivalent_used_by_non_one_gib;
+                let one_gib_total: u32 = 1 << (SV39_BITS - 30);
+                one_gib_total - one_gib_equivalent_used
+            },
+        }
     }
 }
 
@@ -191,5 +223,56 @@ impl NushiftSubsystem {
 
     pub fn ebreak<R: Register>(_pcb: &mut ProcessControlBlock<R>) -> Result<(), CKBVMError> {
         todo!()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shm_space_sv39_available_caps_none_used() {
+        let shm_space = ShmSpace::new();
+
+        assert_eq!(512, shm_space.sv39_available_caps(ShmType::OneGiB));
+        assert_eq!(1 << (SV39_BITS - 21), shm_space.sv39_available_caps(ShmType::TwoMiB));
+        assert_eq!(1 << (SV39_BITS - 12), shm_space.sv39_available_caps(ShmType::FourKiB));
+    }
+
+    #[test]
+    fn shm_space_sv39_available_caps_one_gibs_used() {
+        let mut shm_space = ShmSpace::new();
+        shm_space.stats = [3, 0, 0];
+
+        assert_eq!(509, shm_space.sv39_available_caps(ShmType::OneGiB));
+        assert_eq!((1 << (SV39_BITS - 21)) - (3 << 9), shm_space.sv39_available_caps(ShmType::TwoMiB));
+        assert_eq!((1 << (SV39_BITS - 12)) - (3 << 18), shm_space.sv39_available_caps(ShmType::FourKiB));
+    }
+
+    #[test]
+    fn shm_space_sv39_available_caps_all_types_used() {
+        let mut shm_space = ShmSpace::new();
+
+        // Make a layout where a 1 GiB slot isn't completely used by 2 MiB caps,
+        // and then 4 KiB caps fill the remainder and go over to the next space.
+        shm_space.stats = [3, 511, 513];
+
+        assert_eq!(507, shm_space.sv39_available_caps(ShmType::OneGiB));
+        assert_eq!((1 << (SV39_BITS - 21)) - (4 << 9) - 1, shm_space.sv39_available_caps(ShmType::TwoMiB));
+        assert_eq!((1 << (SV39_BITS - 12)) - (4 << 18) - 1, shm_space.sv39_available_caps(ShmType::FourKiB));
+
+        // Same, but 4 KiB caps fill exactly the remainder.
+        shm_space.stats = [3, 511, 512];
+
+        assert_eq!(508, shm_space.sv39_available_caps(ShmType::OneGiB));
+        assert_eq!((1 << (SV39_BITS - 21)) - (4 << 9), shm_space.sv39_available_caps(ShmType::TwoMiB));
+        assert_eq!((1 << (SV39_BITS - 12)) - (4 << 18), shm_space.sv39_available_caps(ShmType::FourKiB));
+
+        // Same, but 4 KiB caps fill almost the remainder except one.
+        shm_space.stats = [3, 511, 511];
+
+        assert_eq!(508, shm_space.sv39_available_caps(ShmType::OneGiB));
+        assert_eq!((1 << (SV39_BITS - 21)) - (4 << 9), shm_space.sv39_available_caps(ShmType::TwoMiB));
+        assert_eq!((1 << (SV39_BITS - 12)) - (4 << 18) + 1, shm_space.sv39_available_caps(ShmType::FourKiB));
     }
 }
