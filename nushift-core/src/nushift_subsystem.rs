@@ -98,6 +98,8 @@ impl ShmSpace {
     }
 
     // TODO: Need to increment stats, need to add length/amount to shm_new request and ShmCap
+    // TODO: Should 0 length be valid?
+    // TODO: Probably should add shm_resize. And the validation that has for length should be consistent with here.
     pub fn new_shm_cap(&mut self, shm_type: ShmType) -> Result<(ShmCapId, &ShmCap), ShmSpaceError> {
         let id = self.id_pool.try_allocate()
             .map_err(|rip_err| match rip_err { ReusableIdPoolError::TooManyConcurrentIDs => ExhaustedSnafu.build() })?;

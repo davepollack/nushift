@@ -1,7 +1,7 @@
 const OsNushift = @import("os_nushift");
 
 pub fn main() usize {
-    const new_result = OsNushift.syscall(.shm_new, .{ .shm_type = OsNushift.ShmType.four_kib });
+    const new_result = OsNushift.syscall(.shm_new, .{ .type = OsNushift.ShmType.four_kib, .length = 1 });
     const shm_cap_id = switch (new_result) {
         .success => |val| val,
         .@"error" => |err_enum| return @enumToInt(err_enum),

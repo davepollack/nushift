@@ -22,7 +22,7 @@ pub const SyscallResult = union(enum) {
 pub fn SyscallArgs(comptime sys: Syscall) type {
     return switch (sys) {
         .exit => struct { exit_reason: usize },
-        .shm_new => struct { shm_type: ShmType },
+        .shm_new => struct { type: ShmType, length: usize },
         .shm_destroy => struct { shm_cap_id: usize },
     };
 }
@@ -43,18 +43,34 @@ pub fn syscall_ignore_errors(comptime sys: Syscall, sys_args: SyscallArgs(sys)) 
 
 fn syscall_internal(comptime sys: Syscall, sys_args: SyscallArgs(sys), comptime ignore_errors: bool, comptime ReturnType: type) ReturnType {
     return switch (sys) {
-        .exit => syscall1(@enumToInt(sys), sys_args.exit_reason, ignore_errors, ReturnType),
-        .shm_new => syscall1(@enumToInt(sys), @enumToInt(sys_args.shm_type), ignore_errors, ReturnType),
-        .shm_destroy => syscall1(@enumToInt(sys), sys_args.shm_cap_id, ignore_errors, ReturnType),
+        .exit => syscall_internal_args(@enumToInt(sys), 1, [_]usize{sys_args.exit_reason}, ignore_errors, ReturnType),
+        .shm_new => syscall_internal_args(@enumToInt(sys), 2, [_]usize{ @enumToInt(sys_args.type), sys_args.length }, ignore_errors, ReturnType),
+        .shm_destroy => syscall_internal_args(@enumToInt(sys), 1, [_]usize{sys_args.shm_cap_id}, ignore_errors, ReturnType),
     };
 }
 
-fn syscall1(syscall_number: usize, arg1: usize, comptime ignore_errors: bool, comptime ReturnType: type) ReturnType {
+fn syscall_internal_args(syscall_number: usize, comptime num_args: comptime_int, args: [num_args]usize, comptime ignore_errors: bool, comptime ReturnType: type) ReturnType {
     if (ignore_errors) {
+        if (num_args >= 2) {
+            return asm volatile ("ecall"
+                : [ret] "={a0}" (-> usize),
+                : [syscall_number] "{a0}" (syscall_number),
+                  [arg1] "{a1}" (args[0]),
+                  [arg2] "{a2}" (args[1]),
+                : "memory"
+            );
+        }
+        if (num_args == 1) {
+            return asm volatile ("ecall"
+                : [ret] "={a0}" (-> usize),
+                : [syscall_number] "{a0}" (syscall_number),
+                  [arg1] "{a1}" (args[0]),
+                : "memory"
+            );
+        }
         return asm volatile ("ecall"
             : [ret] "={a0}" (-> usize),
             : [syscall_number] "{a0}" (syscall_number),
-              [arg1] "{a1}" (arg1),
             : "memory"
         );
     }
@@ -62,13 +78,31 @@ fn syscall1(syscall_number: usize, arg1: usize, comptime ignore_errors: bool, co
     var a0_output: usize = undefined;
     var t0_output: usize = undefined;
 
-    asm volatile ("ecall"
-        : [ret_a0] "={a0}" (a0_output),
-          [ret_t0] "={t0}" (t0_output),
-        : [syscall_number] "{a0}" (syscall_number),
-          [arg1] "{a1}" (arg1),
-        : "memory"
-    );
+    if (num_args >= 2) {
+        asm volatile ("ecall"
+            : [ret_a0] "={a0}" (a0_output),
+              [ret_t0] "={t0}" (t0_output),
+            : [syscall_number] "{a0}" (syscall_number),
+              [arg1] "{a1}" (args[0]),
+              [arg2] "{a2}" (args[1]),
+            : "memory"
+        );
+    } else if (num_args == 1) {
+        asm volatile ("ecall"
+            : [ret_a0] "={a0}" (a0_output),
+              [ret_t0] "={t0}" (t0_output),
+            : [syscall_number] "{a0}" (syscall_number),
+              [arg1] "{a1}" (args[0]),
+            : "memory"
+        );
+    } else {
+        asm volatile ("ecall"
+            : [ret_a0] "={a0}" (a0_output),
+              [ret_t0] "={t0}" (t0_output),
+            : [syscall_number] "{a0}" (syscall_number),
+            : "memory"
+        );
+    }
 
     if (a0_output == std.math.maxInt(usize)) {
         return SyscallResult{ .@"error" = @intToEnum(SyscallError, t0_output) };
