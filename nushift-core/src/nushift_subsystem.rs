@@ -53,11 +53,19 @@ const ERROR_RETURN_VAL_REGISTER: usize = T0;
 #[derive(TryFromPrimitive)]
 #[repr(u64)]
 pub enum ShmType {
+    // Support page sizes available in the Sv39 scheme.
     FourKiB = 0,
     TwoMiB = 1,
-    FourMiB = 2,
-    OneGiB = 3,
-    FiveTwelveGiB = 4,
+    OneGiB = 2,
+
+    // If supporting the Sv32 scheme (needed for supporting RV32 i.e. 32-bit
+    // apps), FourMiB which corresponds to the superpage in that scheme will be
+    // supported.
+    // FourMiB = ...,
+
+    // When/if Sv48 is supported in the future, the FiveTwelveGiB superpage in
+    // that scheme will be supported.
+    // FiveTwelveGiB = ...,
 }
 
 pub struct ShmCap {

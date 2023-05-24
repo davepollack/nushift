@@ -30,9 +30,7 @@ pub fn SyscallArgs(comptime sys: Syscall) type {
 pub const ShmType = enum(usize) {
     four_kib = 0,
     two_mib = 1,
-    four_mib = 2,
-    one_gib = 3,
-    five_twelve_gib = 4,
+    one_gib = 2,
 };
 
 pub fn syscall(comptime sys: Syscall, sys_args: SyscallArgs(sys)) SyscallResult {
