@@ -212,11 +212,11 @@ impl NushiftSubsystem {
             },
 
             _ => {
-                // Return immediately, because these system calls should be
-                // asynchronous.
-
-                // TODO: Actually queue something, though.
-                Ok(())
+                // I don't think I should return an unimplemented syscall
+                // SyscallError here. I think I should implement the
+                // not-that-many-remaining syscalls. And then remove this match
+                // arm.
+                todo!("Unimplemented syscall")
             },
         }
     }
