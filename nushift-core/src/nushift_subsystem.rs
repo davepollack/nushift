@@ -1,4 +1,4 @@
-use ckb_vm::{Error as CKBVMError, registers::{A0, A1, T0}, Register, CoreMachine};
+use ckb_vm::{Error as CKBVMError, registers::{A0, A1, A2, T0}, Register, CoreMachine};
 use num_enum::{TryFromPrimitive, IntoPrimitive};
 use reusable_id_pool::{ReusableIdPoolError, ReusableIdPoolManual};
 use snafu::Snafu;
@@ -39,10 +39,13 @@ pub enum SyscallError {
     ShmDuplicateId = 1,
     ShmExhausted = 2,
     ShmUnknownShmType = 3,
+    ShmInvalidLength = 4,
+    ShmCapacityNotAvailable = 5,
 }
 
 const SYSCALL_NUM_REGISTER: usize = A0;
 const FIRST_ARG_REGISTER: usize = A1;
+const SECOND_ARG_REGISTER: usize = A2;
 const RETURN_VAL_REGISTER: usize = A0;
 /// a1 is used by the RISC-V calling conventions for a second return value,
 /// rather than t0, but my concern is with the whole 32-bit app thing using
@@ -52,7 +55,7 @@ const ERROR_RETURN_VAL_REGISTER: usize = T0;
 
 const SV39_BITS: u8 = 39;
 
-#[derive(TryFromPrimitive)]
+#[derive(TryFromPrimitive, Debug, Clone, Copy)]
 #[repr(u64)]
 pub enum ShmType {
     // Support page sizes available in the Sv39 scheme.
@@ -70,12 +73,14 @@ pub enum ShmType {
     // FiveTwelveGiB = ...,
 }
 
+#[derive(Debug)]
 pub struct ShmCap {
     shm_type: ShmType,
+    length: u64,
 }
 impl ShmCap {
-    fn new(shm_type: ShmType) -> Self {
-        ShmCap { shm_type }
+    fn new(shm_type: ShmType, length: u64) -> Self {
+        ShmCap { shm_type, length }
     }
 }
 type ShmCapId = u64;
@@ -97,26 +102,39 @@ impl ShmSpace {
         }
     }
 
-    // TODO: Need to increment stats, need to add length/amount to shm_new request and ShmCap
-    // TODO: Should 0 length be valid?
     // TODO: Probably should add shm_resize. And the validation that has for length should be consistent with here.
-    pub fn new_shm_cap(&mut self, shm_type: ShmType) -> Result<(ShmCapId, &ShmCap), ShmSpaceError> {
+    pub fn new_shm_cap(&mut self, shm_type: ShmType, length: u64) -> Result<(ShmCapId, &ShmCap), ShmSpaceError> {
+        if length == 0 {
+            return InvalidLengthSnafu.fail();
+        }
+
+        if length > self.sv39_available_caps(shm_type).into() {
+            return CapacityNotAvailableSnafu.fail();
+        }
+
+        // Since we have got past the sv39_available_caps check and it returns a
+        // u32, we now know length is < 2^32.
+        let sv39_length = length as u32;
+
         let id = self.id_pool.try_allocate()
             .map_err(|rip_err| match rip_err { ReusableIdPoolError::TooManyConcurrentIDs => ExhaustedSnafu.build() })?;
 
-        let entry = self.space.entry(id);
-        let shm_cap = match entry {
+        let shm_cap = match self.space.entry(id) {
             Entry::Occupied(_) => return DuplicateIdSnafu.fail(),
-            Entry::Vacant(vacant_entry) => vacant_entry.insert(ShmCap::new(shm_type)),
+            Entry::Vacant(vacant_entry) => vacant_entry.insert(ShmCap::new(shm_type, length)),
         };
+
+        Self::sv39_increment_stats(&mut self.stats, shm_type, sv39_length);
 
         Ok((id, shm_cap))
     }
 
-    // TODO: Need to decrement stats
     pub fn destroy_shm_cap(&mut self, shm_cap_id: ShmCapId) {
         // TODO: There needs to be checks here that the SHM has been released, etc.
-        self.space.remove(&shm_cap_id);
+        let shm_cap = self.space.remove(&shm_cap_id);
+        if let Some(shm_cap) = shm_cap {
+            Self::sv39_decrement_stats(&mut self.stats, shm_cap);
+        }
     }
 
     /// This assumes that all caps can be arranged as: all 1 GiB ones first,
@@ -143,6 +161,27 @@ impl ShmSpace {
             },
         }
     }
+
+    /// sv39_available_caps(...) MUST be checked before calling this, otherwise
+    /// this can cause an overflow.
+    fn sv39_increment_stats(stats: &mut Sv39SpaceStats, shm_type: ShmType, sv39_length: u32) {
+        match shm_type {
+            ShmType::FourKiB => stats[2] += sv39_length,
+            ShmType::TwoMiB => stats[1] += sv39_length,
+            ShmType::OneGiB => stats[0] += sv39_length,
+        }
+    }
+
+    /// The passed-in ShmCap must be one removed from a real space that we have
+    /// bookkept correctly, otherwise this could underflow. To help achieve
+    /// this, this accepts a ShmCap that is moved in, not borrowed.
+    fn sv39_decrement_stats(stats: &mut Sv39SpaceStats, shm_cap: ShmCap) {
+        match shm_cap.shm_type {
+            ShmType::FourKiB => stats[2] -= shm_cap.length as u32,
+            ShmType::TwoMiB => stats[1] -= shm_cap.length as u32,
+            ShmType::OneGiB => stats[0] -= shm_cap.length as u32,
+        }
+    }
 }
 
 #[derive(Snafu, SnafuCliDebug)]
@@ -151,6 +190,10 @@ pub enum ShmSpaceError {
     DuplicateId,
     #[snafu(display("The maximum amount of SHM capabilities have been used for this app. Please destroy some capabilities."))]
     Exhausted,
+    #[snafu(display("The length provided was invalid, for example 0 is invalid."))]
+    InvalidLength,
+    #[snafu(display("There is not enough available capacity to support this length of this SHM type."))]
+    CapacityNotAvailable,
 }
 
 fn set_error<R: Register>(pcb: &mut ProcessControlBlock<R>, error: SyscallError) {
@@ -194,12 +237,15 @@ impl NushiftSubsystem {
                     Ok(shm_type) => shm_type,
                     Err(_) => { set_error(pcb, SyscallError::ShmUnknownShmType); return Ok(()); },
                 };
+                let length = pcb.registers()[SECOND_ARG_REGISTER].to_u64();
 
-                let shm_cap_id = match pcb.subsystem.shm_space.new_shm_cap(shm_type) {
+                let shm_cap_id = match pcb.subsystem.shm_space.new_shm_cap(shm_type, length) {
                     Ok((shm_cap_id, _)) => shm_cap_id,
                     Err(shm_space_error) => match shm_space_error {
                         ShmSpaceError::DuplicateId => { set_error(pcb, SyscallError::ShmDuplicateId); return Ok(()); },
                         ShmSpaceError::Exhausted => { set_error(pcb, SyscallError::ShmExhausted); return Ok(()); },
+                        ShmSpaceError::InvalidLength => { set_error(pcb, SyscallError::ShmInvalidLength); return Ok(()); },
+                        ShmSpaceError::CapacityNotAvailable => { set_error(pcb, SyscallError::ShmCapacityNotAvailable); return Ok(()); },
                     },
                 };
 

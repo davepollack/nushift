@@ -22,7 +22,7 @@ pub const SyscallResult = union(enum) {
 pub fn SyscallArgs(comptime sys: Syscall) type {
     return switch (sys) {
         .exit => struct { exit_reason: usize },
-        .shm_new => struct { type: ShmType, length: usize },
+        .shm_new => struct { shm_type: ShmType, length: usize },
         .shm_destroy => struct { shm_cap_id: usize },
     };
 }
@@ -44,7 +44,7 @@ pub fn syscall_ignore_errors(comptime sys: Syscall, sys_args: SyscallArgs(sys)) 
 fn syscall_internal(comptime sys: Syscall, sys_args: SyscallArgs(sys), comptime ignore_errors: bool, comptime ReturnType: type) ReturnType {
     return switch (sys) {
         .exit => syscall_internal_args(@enumToInt(sys), 1, [_]usize{sys_args.exit_reason}, ignore_errors, ReturnType),
-        .shm_new => syscall_internal_args(@enumToInt(sys), 2, [_]usize{ @enumToInt(sys_args.type), sys_args.length }, ignore_errors, ReturnType),
+        .shm_new => syscall_internal_args(@enumToInt(sys), 2, [_]usize{ @enumToInt(sys_args.shm_type), sys_args.length }, ignore_errors, ReturnType),
         .shm_destroy => syscall_internal_args(@enumToInt(sys), 1, [_]usize{sys_args.shm_cap_id}, ignore_errors, ReturnType),
     };
 }
