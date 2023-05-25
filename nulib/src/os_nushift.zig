@@ -12,6 +12,8 @@ pub const SyscallError = enum(usize) {
     shm_duplicate_id = 1,
     shm_exhausted = 2,
     shm_unknown_shm_type = 3,
+    shm_invalid_length = 4,
+    shm_capacity_not_available = 5,
 };
 
 pub const SyscallResult = union(enum) {
