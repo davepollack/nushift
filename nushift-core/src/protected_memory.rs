@@ -25,13 +25,13 @@ impl Acquisitions {
 
         // Check if the equal or below entry intersects.
         if let Some((eq_or_below_addr, eq_or_below_length_in_bytes)) = equal_or_below {
-            // If equal addresses, return not allowed. Assumes both length in
-            // the map and passed-in length are not 0.
+            // If equal addresses, not allowed. Assumes both length in the map
+            // and passed-in length are not 0.
             if *eq_or_below_addr == address {
                 return false;
             }
 
-            // Assumes does not overflow, which should have been validated
+            // Assumes this does not overflow, which should have been validated
             // before entries are inserted into the map.
             if eq_or_below_addr + eq_or_below_length_in_bytes > address {
                 return false;
@@ -43,9 +43,8 @@ impl Acquisitions {
 
         // Check if intersects the above entry.
         if let Some((above_addr, _)) = above {
-            // Assumes address + length_in_bytes does not overflow. I am
-            // currently saying this should be checked before `is_allowed` is
-            // called.
+            // Assumes address + length_in_bytes does not overflow. Currently, I
+            // am thinking this should be checked before `is_allowed` is called.
             if address + length_in_bytes > *above_addr {
                 return false;
             }
