@@ -1,9 +1,9 @@
 // TODO: Before publishing this crate, it would be cool to have an
 // `allocate_rc(...) -> RcId` alternative to `allocate(...) -> ArcId`.
 
+use core::fmt::{self, Debug};
 use std::{sync::{Arc, Mutex}, hash::Hash};
 use snafu::Snafu;
-use snafu_cli_debug::SnafuCliDebug;
 
 #[derive(Debug)]
 pub struct ReusableIdPool {
@@ -11,11 +11,19 @@ pub struct ReusableIdPool {
     free_list: Vec<u64>,
 }
 
-#[derive(Snafu, SnafuCliDebug)]
+#[derive(Snafu)]
 #[snafu(visibility(pub(crate)))]
 pub enum ReusableIdPoolError {
     #[snafu(display("There are too many IDs concurrently in use. The limit is 2^64 concurrent IDs. Please release some IDs."))]
     TooManyConcurrentIDs,
+}
+
+impl Debug for ReusableIdPoolError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::TooManyConcurrentIDs => write!(f, "{} (TooManyConcurrentIDs)", self),
+        }
+    }
 }
 
 #[derive(Debug)]

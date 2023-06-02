@@ -7,4 +7,3 @@ edition = "2021"
 
 [dependencies]
 snafu = "0.7.1"
-snafu-cli-debug = "0.1.1"

@@ -1271,7 +1271,6 @@ name = "reusable-id-pool"
 version = "0.1.0"
 dependencies = [
  "snafu",
- "snafu-cli-debug",
 ]
 
 [[package]]
