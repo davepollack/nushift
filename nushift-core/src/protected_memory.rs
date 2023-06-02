@@ -15,6 +15,10 @@ type ShmAcquisitionLength = u64;
 struct Acquisitions(BTreeMap<ShmAcquisitionAddress, ShmAcquisitionLength>);
 
 impl Acquisitions {
+    pub fn new() -> Self {
+        Self(BTreeMap::new())
+    }
+
     /// This function currently does not have the responsibility of checking if
     /// address + length_in_bytes overflows and if address is page aligned,
     /// which should be checked by something.
@@ -93,4 +97,73 @@ struct PageTableLeaf {
 
 struct PageTableEntry {
 
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn acquisitions_is_allowed_empty_allowed() {
+        let acquisitions = Acquisitions::new();
+
+        assert!(acquisitions.is_allowed(0x30000, 0x2000));
+    }
+
+    #[test]
+    fn acquisitions_is_allowed_boundary_of_previous_region_allowed() {
+        let mut acquisitions = Acquisitions::new();
+        acquisitions.try_insert(0x30000, 0x2000).expect("should work");
+
+        assert!(acquisitions.is_allowed(0x32000, 0x1000));
+    }
+
+    #[test]
+    fn acquisitions_is_allowed_same_address_not_allowed() {
+        let mut acquisitions = Acquisitions::new();
+        acquisitions.try_insert(0x30000, 0x2000).expect("should work");
+
+        assert!(!acquisitions.is_allowed(0x30000, 0x1000));
+    }
+
+    #[test]
+    fn acquisitions_is_allowed_boundary_of_above_region_allowed() {
+        let mut acquisitions = Acquisitions::new();
+        acquisitions.try_insert(0x30000, 0x2000).expect("should work");
+
+        assert!(acquisitions.is_allowed(0x2f000, 0x1000));
+    }
+
+    #[test]
+    fn acquisitions_is_allowed_intersects_below_region_not_allowed() {
+        let mut acquisitions = Acquisitions::new();
+        acquisitions.try_insert(0x30000, 0x2000).expect("should work");
+
+        assert!(!acquisitions.is_allowed(0x31fff, 0x1000));
+    }
+
+    #[test]
+    fn acquisitions_is_allowed_intersects_above_region_not_allowed() {
+        let mut acquisitions = Acquisitions::new();
+        acquisitions.try_insert(0x30000, 0x2000).expect("should work");
+
+        assert!(!acquisitions.is_allowed(0x2f001, 0x1000));
+    }
+
+    #[test]
+    fn acquisitions_try_insert_is_ok_is_err() {
+        let mut acquisitions = Acquisitions::new();
+
+        assert!(acquisitions.try_insert(0x30000, 0x2000).is_ok());
+        assert!(acquisitions.try_insert(0x30000, 0x1000).is_err());
+    }
+
+    #[test]
+    fn acquisitions_free_frees() {
+        let mut acquisitions = Acquisitions::new();
+        acquisitions.try_insert(0x30000, 0x2000).expect("should work");
+        acquisitions.free(0x30000, 0x2000);
+
+        assert!(acquisitions.is_allowed(0x30000, 0x2000));
+    }
 }
