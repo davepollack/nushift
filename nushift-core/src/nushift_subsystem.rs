@@ -1,9 +1,10 @@
 use ckb_vm::{Error as CKBVMError, registers::{A0, A1, A2, T0}, Register, CoreMachine};
+use memmap2::MmapMut;
 use num_enum::{TryFromPrimitive, IntoPrimitive};
 use reusable_id_pool::{ReusableIdPoolError, ReusableIdPoolManual};
-use snafu::Snafu;
+use snafu::prelude::*;
 use snafu_cli_debug::SnafuCliDebug;
-use std::{convert::TryFrom, collections::{BTreeMap, btree_map::Entry}};
+use std::{convert::{TryFrom, TryInto}, collections::{HashMap, hash_map::Entry}, io};
 
 use super::process_control_block::ProcessControlBlock;
 
@@ -73,14 +74,25 @@ pub enum ShmType {
     // FiveTwelveGiB = ...,
 }
 
+impl ShmType {
+    pub fn page_bytes(&self) -> u64 {
+        match self {
+            Self::FourKiB => 1 << 12,
+            Self::TwoMiB => 1 << 21,
+            Self::OneGiB => 1 << 30,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct ShmCap {
     shm_type: ShmType,
     length: u64,
+    backing: MmapMut,
 }
 impl ShmCap {
-    fn new(shm_type: ShmType, length: u64) -> Self {
-        ShmCap { shm_type, length }
+    fn new(shm_type: ShmType, length: u64, backing: MmapMut) -> Self {
+        ShmCap { shm_type, length, backing }
     }
 }
 type ShmCapId = u64;
@@ -89,7 +101,7 @@ type Sv39SpaceStats = [u32; 3];
 
 pub struct ShmSpace {
     id_pool: ReusableIdPoolManual,
-    space: BTreeMap<ShmCapId, ShmCap>,
+    space: HashMap<ShmCapId, ShmCap>,
     stats: Sv39SpaceStats,
 }
 
@@ -97,7 +109,7 @@ impl ShmSpace {
     pub fn new() -> Self {
         ShmSpace {
             id_pool: ReusableIdPoolManual::new(),
-            space: BTreeMap::new(),
+            space: HashMap::new(),
             stats: [0; 3],
         }
     }
@@ -108,20 +120,28 @@ impl ShmSpace {
             return InvalidLengthSnafu.fail();
         }
 
-        if length > self.sv39_available_caps(shm_type).into() {
+        if length > self.sv39_available_pages(shm_type).into() {
             return CapacityNotAvailableSnafu.fail();
         }
 
-        // Since we have got past the sv39_available_caps check and it returns a
-        // u32, we now know length is < 2^32.
+        // Since we have got past the sv39_available_pages check and it returns
+        // a u32, we now know length is < 2^32.
         let sv39_length = length as u32;
+
+        let mmap_mut = MmapMut::map_anon(
+            shm_type.page_bytes()
+                .checked_mul(length)
+                .ok_or(BackingCapacityNotAvailableOverflowsSnafu.build())?
+                .try_into()
+                .map_err(|_| BackingCapacityNotAvailableOverflowsSnafu.build())?
+        ).context(BackingCapacityNotAvailableSnafu)?;
 
         let id = self.id_pool.try_allocate()
             .map_err(|rip_err| match rip_err { ReusableIdPoolError::TooManyConcurrentIDs => ExhaustedSnafu.build() })?;
 
         let shm_cap = match self.space.entry(id) {
             Entry::Occupied(_) => return DuplicateIdSnafu.fail(),
-            Entry::Vacant(vacant_entry) => vacant_entry.insert(ShmCap::new(shm_type, length)),
+            Entry::Vacant(vacant_entry) => vacant_entry.insert(ShmCap::new(shm_type, length, mmap_mut)),
         };
 
         Self::sv39_increment_stats(&mut self.stats, shm_type, sv39_length);
@@ -132,15 +152,16 @@ impl ShmSpace {
     pub fn destroy_shm_cap(&mut self, shm_cap_id: ShmCapId) {
         // TODO: There needs to be checks here that the SHM has been released, etc.
         let shm_cap = self.space.remove(&shm_cap_id);
+        self.id_pool.release(shm_cap_id);
         if let Some(shm_cap) = shm_cap {
             Self::sv39_decrement_stats(&mut self.stats, shm_cap);
         }
     }
 
-    /// This assumes that all caps can be arranged as: all 1 GiB ones first,
+    /// This assumes that all pages can be arranged as: all 1 GiB ones first,
     /// then all 2 MiB ones, then all 4 KiB ones. This is probably a very dumb
     /// assumption and I might regret it later.
-    fn sv39_available_caps(&self, shm_type: ShmType) -> u32 {
+    fn sv39_available_pages(&self, shm_type: ShmType) -> u32 {
         match shm_type {
             ShmType::FourKiB => {
                 let four_kib_equivalent_used = (self.stats[0] << 18) + (self.stats[1] << 9) + self.stats[2];
@@ -162,7 +183,7 @@ impl ShmSpace {
         }
     }
 
-    /// sv39_available_caps(...) MUST be checked before calling this, otherwise
+    /// sv39_available_pages(...) MUST be checked before calling this, otherwise
     /// this can cause an overflow.
     fn sv39_increment_stats(stats: &mut Sv39SpaceStats, shm_type: ShmType, sv39_length: u32) {
         match shm_type {
@@ -194,6 +215,10 @@ pub enum ShmSpaceError {
     InvalidLength,
     #[snafu(display("There is not enough available capacity to support this length of this SHM type."))]
     CapacityNotAvailable,
+    #[snafu(display("There is not enough available backing capacity, currently using mmap, to support this length of this SHM type."))]
+    BackingCapacityNotAvailable { source: io::Error },
+    #[snafu(display("The requested capacity in bytes overflows either u64 or usize on this platform. Note that length in the system call arguments is number of this SHM type's pages, not number of bytes."))]
+    BackingCapacityNotAvailableOverflows,
 }
 
 fn set_error<R: Register>(pcb: &mut ProcessControlBlock<R>, error: SyscallError) {
@@ -245,7 +270,9 @@ impl NushiftSubsystem {
                         ShmSpaceError::DuplicateId => { set_error(pcb, SyscallError::ShmDuplicateId); return Ok(()); },
                         ShmSpaceError::Exhausted => { set_error(pcb, SyscallError::ShmExhausted); return Ok(()); },
                         ShmSpaceError::InvalidLength => { set_error(pcb, SyscallError::ShmInvalidLength); return Ok(()); },
-                        ShmSpaceError::CapacityNotAvailable => { set_error(pcb, SyscallError::ShmCapacityNotAvailable); return Ok(()); },
+                        ShmSpaceError::CapacityNotAvailable
+                        | ShmSpaceError::BackingCapacityNotAvailable { source: _ }
+                        | ShmSpaceError::BackingCapacityNotAvailableOverflows => { set_error(pcb, SyscallError::ShmCapacityNotAvailable); return Ok(()); },
                     },
                 };
 
@@ -279,48 +306,49 @@ mod tests {
     use super::*;
 
     #[test]
-    fn shm_space_sv39_available_caps_none_used() {
+    fn shm_space_sv39_available_pages_none_used() {
         let shm_space = ShmSpace::new();
 
-        assert_eq!(512, shm_space.sv39_available_caps(ShmType::OneGiB));
-        assert_eq!(1 << (SV39_BITS - 21), shm_space.sv39_available_caps(ShmType::TwoMiB));
-        assert_eq!(1 << (SV39_BITS - 12), shm_space.sv39_available_caps(ShmType::FourKiB));
+        assert_eq!(512, shm_space.sv39_available_pages(ShmType::OneGiB));
+        assert_eq!(1 << (SV39_BITS - 21), shm_space.sv39_available_pages(ShmType::TwoMiB));
+        assert_eq!(1 << (SV39_BITS - 12), shm_space.sv39_available_pages(ShmType::FourKiB));
     }
 
     #[test]
-    fn shm_space_sv39_available_caps_one_gibs_used() {
+    fn shm_space_sv39_available_pages_one_gibs_used() {
         let mut shm_space = ShmSpace::new();
         shm_space.stats = [3, 0, 0];
 
-        assert_eq!(509, shm_space.sv39_available_caps(ShmType::OneGiB));
-        assert_eq!((1 << (SV39_BITS - 21)) - (3 << 9), shm_space.sv39_available_caps(ShmType::TwoMiB));
-        assert_eq!((1 << (SV39_BITS - 12)) - (3 << 18), shm_space.sv39_available_caps(ShmType::FourKiB));
+        assert_eq!(509, shm_space.sv39_available_pages(ShmType::OneGiB));
+        assert_eq!((1 << (SV39_BITS - 21)) - (3 << 9), shm_space.sv39_available_pages(ShmType::TwoMiB));
+        assert_eq!((1 << (SV39_BITS - 12)) - (3 << 18), shm_space.sv39_available_pages(ShmType::FourKiB));
     }
 
     #[test]
-    fn shm_space_sv39_available_caps_all_types_used() {
+    fn shm_space_sv39_available_pages_all_types_used() {
         let mut shm_space = ShmSpace::new();
 
-        // Make a layout where a 1 GiB slot isn't completely used by 2 MiB caps,
-        // and then 4 KiB caps fill the remainder and go over to the next space.
+        // Make a layout where a 1 GiB slot isn't completely used by 2 MiB
+        // pages, and then 4 KiB pages fill the remainder and go over to the
+        // next space.
         shm_space.stats = [3, 511, 513];
 
-        assert_eq!(507, shm_space.sv39_available_caps(ShmType::OneGiB));
-        assert_eq!((1 << (SV39_BITS - 21)) - (4 << 9) - 1, shm_space.sv39_available_caps(ShmType::TwoMiB));
-        assert_eq!((1 << (SV39_BITS - 12)) - (4 << 18) - 1, shm_space.sv39_available_caps(ShmType::FourKiB));
+        assert_eq!(507, shm_space.sv39_available_pages(ShmType::OneGiB));
+        assert_eq!((1 << (SV39_BITS - 21)) - (4 << 9) - 1, shm_space.sv39_available_pages(ShmType::TwoMiB));
+        assert_eq!((1 << (SV39_BITS - 12)) - (4 << 18) - 1, shm_space.sv39_available_pages(ShmType::FourKiB));
 
-        // Same, but 4 KiB caps fill exactly the remainder.
+        // Same, but 4 KiB pages fill exactly the remainder.
         shm_space.stats = [3, 511, 512];
 
-        assert_eq!(508, shm_space.sv39_available_caps(ShmType::OneGiB));
-        assert_eq!((1 << (SV39_BITS - 21)) - (4 << 9), shm_space.sv39_available_caps(ShmType::TwoMiB));
-        assert_eq!((1 << (SV39_BITS - 12)) - (4 << 18), shm_space.sv39_available_caps(ShmType::FourKiB));
+        assert_eq!(508, shm_space.sv39_available_pages(ShmType::OneGiB));
+        assert_eq!((1 << (SV39_BITS - 21)) - (4 << 9), shm_space.sv39_available_pages(ShmType::TwoMiB));
+        assert_eq!((1 << (SV39_BITS - 12)) - (4 << 18), shm_space.sv39_available_pages(ShmType::FourKiB));
 
-        // Same, but 4 KiB caps fill almost the remainder except one.
+        // Same, but 4 KiB pages fill almost the remainder except one.
         shm_space.stats = [3, 511, 511];
 
-        assert_eq!(508, shm_space.sv39_available_caps(ShmType::OneGiB));
-        assert_eq!((1 << (SV39_BITS - 21)) - (4 << 9), shm_space.sv39_available_caps(ShmType::TwoMiB));
-        assert_eq!((1 << (SV39_BITS - 12)) - (4 << 18) + 1, shm_space.sv39_available_caps(ShmType::FourKiB));
+        assert_eq!(508, shm_space.sv39_available_pages(ShmType::OneGiB));
+        assert_eq!((1 << (SV39_BITS - 21)) - (4 << 9), shm_space.sv39_available_pages(ShmType::TwoMiB));
+        assert_eq!((1 << (SV39_BITS - 12)) - (4 << 18) + 1, shm_space.sv39_available_pages(ShmType::FourKiB));
     }
 }

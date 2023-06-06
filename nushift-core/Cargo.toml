@@ -9,6 +9,7 @@ edition = "2018"
 [dependencies]
 ckb-vm = "0.23.2"
 log = "0.4.17"
+memmap2 = "0.6.2"
 num_enum = "0.5.7"
 reusable-id-pool = { path = "../reusable-id-pool" }
 snafu = "0.7.1"
