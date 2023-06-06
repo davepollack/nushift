@@ -1,4 +1,8 @@
-use std::{collections::BTreeMap, ops::Bound};
+use std::{collections::BTreeMap, ops::Bound, convert::TryInto};
+use snafu::prelude::*;
+use snafu_cli_debug::SnafuCliDebug;
+
+use crate::nushift_subsystem::{ShmCapId, ShmCapLength, ShmSpace};
 
 // Costs of mapping, unmapping and accessing memory in this file:
 //
@@ -83,7 +87,7 @@ impl Acquisitions {
     }
 }
 
-struct PageTableLevel1 {
+pub struct PageTableLevel1 {
     entries: [Option<Box<PageTableLevel2>>; 512],
 }
 
@@ -92,11 +96,44 @@ struct PageTableLevel2 {
 }
 
 struct PageTableLeaf {
-    entries: [PageTableEntry; 512],
+    entries: [Option<PageTableEntry>; 512],
 }
 
 struct PageTableEntry {
+    shm_cap_id: ShmCapId,
+    offset: ShmCapLength,
+}
 
+pub fn walk<'space>(vpn: u64, page_table: &PageTableLevel1, shm_space: &'space ShmSpace) -> Result<&'space [u8], PageTableError> {
+    let level_2_table = page_table.entries[(vpn & ((1 << 9) - 1)) as usize].as_ref().ok_or(PageNotFoundSnafu.build())?;
+    // TODO: Support superpages
+    let leaf_table = level_2_table.entries[((vpn >> 9) & ((1 << 9) - 1)) as usize].as_ref().ok_or(PageNotFoundSnafu.build())?;
+    let entry = leaf_table.entries[((vpn >> 18) & ((1 << 9) - 1)) as usize].as_ref().ok_or(PageNotFoundSnafu.build())?;
+
+    let shm_cap = shm_space.get(&entry.shm_cap_id).ok_or_else(|| PageEntryCorruptedSnafu { shm_cap_id: entry.shm_cap_id, offset: None, shm_cap_length: None }.build())?;
+    if entry.offset >= shm_cap.length() {
+        return PageEntryCorruptedSnafu { shm_cap_id: entry.shm_cap_id, offset: Some(entry.offset), shm_cap_length: Some(shm_cap.length()) }.fail();
+    }
+    let byte_start: usize = entry.offset
+        .checked_mul(shm_cap.shm_type().page_bytes())
+        .ok_or(PageEntryCorruptedSnafu { shm_cap_id: entry.shm_cap_id, offset: Some(entry.offset), shm_cap_length: Some(shm_cap.length()) }.build())?
+        .try_into()
+        .map_err(|_| PageEntryCorruptedSnafu { shm_cap_id: entry.shm_cap_id, offset: Some(entry.offset), shm_cap_length: Some(shm_cap.length()) }.build())?;
+    let byte_end = byte_start
+        .checked_add(
+            shm_cap.shm_type().page_bytes().try_into().map_err(|_| PageEntryCorruptedSnafu { shm_cap_id: entry.shm_cap_id, offset: Some(entry.offset), shm_cap_length: Some(shm_cap.length()) }.build())?
+        )
+        .ok_or(PageEntryCorruptedSnafu { shm_cap_id: entry.shm_cap_id, offset: Some(entry.offset), shm_cap_length: Some(shm_cap.length()) }.build())?;
+
+    Ok(&shm_cap.backing()[byte_start..byte_end])
+}
+
+#[derive(Snafu, SnafuCliDebug)]
+pub enum PageTableError {
+    #[snafu(display("The requested page was not present"))]
+    PageNotFound,
+    #[snafu(display("The SHM cap ID was not found or the offset was higher than the cap's length, both of which should never happen, and this indicates a bug in Nushift's code."))]
+    PageEntryCorrupted { shm_cap_id: ShmCapId, offset: Option<ShmCapLength>, shm_cap_length: Option<ShmCapLength> },
 }
 
 #[cfg(test)]

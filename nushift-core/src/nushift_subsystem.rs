@@ -87,15 +87,28 @@ impl ShmType {
 #[derive(Debug)]
 pub struct ShmCap {
     shm_type: ShmType,
-    length: u64,
+    length: ShmCapLength,
     backing: MmapMut,
 }
 impl ShmCap {
-    fn new(shm_type: ShmType, length: u64, backing: MmapMut) -> Self {
+    pub fn new(shm_type: ShmType, length: ShmCapLength, backing: MmapMut) -> Self {
         ShmCap { shm_type, length, backing }
     }
+
+    pub fn shm_type(&self) -> ShmType {
+        self.shm_type
+    }
+
+    pub fn length(&self) -> ShmCapLength {
+        self.length
+    }
+
+    pub fn backing(&self) -> &[u8] {
+        &self.backing
+    }
 }
-type ShmCapId = u64;
+pub type ShmCapId = u64;
+pub type ShmCapLength = u64;
 /// 0 = number of 1 GiB caps, 1 = number of 2 MiB caps, 2 = number of 4 KiB caps
 type Sv39SpaceStats = [u32; 3];
 
@@ -115,7 +128,7 @@ impl ShmSpace {
     }
 
     // TODO: Probably should add shm_resize. And the validation that has for length should be consistent with here.
-    pub fn new_shm_cap(&mut self, shm_type: ShmType, length: u64) -> Result<(ShmCapId, &ShmCap), ShmSpaceError> {
+    pub fn new_shm_cap(&mut self, shm_type: ShmType, length: ShmCapLength) -> Result<(ShmCapId, &ShmCap), ShmSpaceError> {
         if length == 0 {
             return InvalidLengthSnafu.fail();
         }
@@ -156,6 +169,10 @@ impl ShmSpace {
         if let Some(shm_cap) = shm_cap {
             Self::sv39_decrement_stats(&mut self.stats, shm_cap);
         }
+    }
+
+    pub fn get(&self, shm_cap_id: &ShmCapId) -> Option<&ShmCap> {
+        self.space.get(shm_cap_id)
     }
 
     /// This assumes that all pages can be arranged as: all 1 GiB ones first,
