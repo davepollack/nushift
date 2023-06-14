@@ -155,7 +155,8 @@ pub fn walk<'space>(vaddr: u64, page_table: &PageTableLevel1, shm_space: &'space
 
     let space_slice = &shm_cap.backing()[byte_start..byte_end];
     // TODO: If the size of a superpage is greater than the word size of the
-    // platform this hypervisor is running on, this cast will currently panic.
+    // platform this hypervisor is running on, this cast will currently not be
+    // correct.
     let byte_offset_in_space_slice = (vaddr & (shm_cap.shm_type().page_bytes() - 1)) as usize;
 
     Ok(WalkResult { space_slice, byte_offset_in_space_slice })
