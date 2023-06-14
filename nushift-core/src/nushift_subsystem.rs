@@ -56,7 +56,7 @@ const ERROR_RETURN_VAL_REGISTER: usize = T0;
 
 const SV39_BITS: u8 = 39;
 
-#[derive(TryFromPrimitive, Debug, Clone, Copy)]
+#[derive(TryFromPrimitive, Debug, Clone, Copy, PartialEq)]
 #[repr(u64)]
 pub enum ShmType {
     // Support page sizes available in the Sv39 scheme.
