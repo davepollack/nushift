@@ -103,6 +103,9 @@ enum PageTableLeaf {
 
 struct PageTableEntry {
     shm_cap_id: ShmCapId,
+    /// The offset within the ShmCap referred to by `shm_cap_id`. For example,
+    /// an ShmCap can have a length of 3, and a shm_cap_offset of 1 means we are
+    /// associated with the second page of that cap.
     shm_cap_offset: ShmCapLength,
 }
 
@@ -146,18 +149,17 @@ pub fn walk<'space>(vaddr: u64, page_table: &PageTableLevel1, shm_space: &'space
         .checked_mul(shm_cap.shm_type().page_bytes())
         .ok_or(PageEntryCorruptedSnafu { shm_cap_id: entry.shm_cap_id, mismatched_entry_found_at_level: None, shm_cap_offset: Some(entry.shm_cap_offset), shm_cap_length: Some(shm_cap.length()) }.build())?
         .try_into()
-        .map_err(|_| PageEntryCorruptedSnafu { shm_cap_id: entry.shm_cap_id, mismatched_entry_found_at_level: None, shm_cap_offset: Some(entry.shm_cap_offset), shm_cap_length: Some(shm_cap.length()) }.build())?;
+        .map_err(|_| PageTooLargeToFitInHostPlatformWordSnafu { shm_cap_id: entry.shm_cap_id, shm_type: shm_cap.shm_type(), offset: entry.shm_cap_offset }.build())?;
     let byte_end = byte_start
         .checked_add(
-            shm_cap.shm_type().page_bytes().try_into().map_err(|_| PageEntryCorruptedSnafu { shm_cap_id: entry.shm_cap_id, mismatched_entry_found_at_level: None, shm_cap_offset: Some(entry.shm_cap_offset), shm_cap_length: Some(shm_cap.length()) }.build())?
+            shm_cap.shm_type().page_bytes().try_into().map_err(|_| PageTooLargeToFitInHostPlatformWordSnafu { shm_cap_id: entry.shm_cap_id, shm_type: shm_cap.shm_type(), offset: entry.shm_cap_offset }.build())?
         )
         .ok_or(PageEntryCorruptedSnafu { shm_cap_id: entry.shm_cap_id, mismatched_entry_found_at_level: None, shm_cap_offset: Some(entry.shm_cap_offset), shm_cap_length: Some(shm_cap.length()) }.build())?;
 
     let space_slice = &shm_cap.backing()[byte_start..byte_end];
-    // TODO: If the size of a superpage is greater than the word size of the
-    // platform this hypervisor is running on, this cast will currently not be
-    // correct.
-    let byte_offset_in_space_slice = (vaddr & (shm_cap.shm_type().page_bytes() - 1)) as usize;
+    let byte_offset_in_space_slice = (vaddr & (shm_cap.shm_type().page_bytes() - 1))
+        .try_into()
+        .map_err(|_| PageTooLargeToFitInHostPlatformWordSnafu { shm_cap_id: entry.shm_cap_id, shm_type: shm_cap.shm_type(), offset: entry.shm_cap_offset }.build())?;
 
     Ok(WalkResult { space_slice, byte_offset_in_space_slice })
 }
@@ -176,6 +178,8 @@ pub enum PageTableError {
     PageNotFound,
     #[snafu(display("The SHM cap ID was not found or the offset was higher than the cap's length, both of which should never happen, and this indicates a bug in Nushift's code."))]
     PageEntryCorrupted { shm_cap_id: ShmCapId, mismatched_entry_found_at_level: Option<(u8, ShmType)>, shm_cap_offset: Option<ShmCapLength>, shm_cap_length: Option<ShmCapLength> },
+    #[snafu(display("A large superpage {shm_type:?} offset at {offset}, does not fit into the host platform's usize of {} bytes. For example, running some 64-bit Nushift apps on a 32-bit host platform. This limitation of Nushift could be resolved in the future.", core::mem::size_of::<usize>()))]
+    PageTooLargeToFitInHostPlatformWord { shm_cap_id: ShmCapId, shm_type: ShmType, offset: ShmCapLength },
 }
 
 #[cfg(test)]
