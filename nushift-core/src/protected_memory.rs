@@ -88,11 +88,11 @@ impl Acquisitions {
 }
 
 pub struct PageTableLevel1 {
-    entries: [Option<Box<PageTableLevel2>>; 512],
+    entries: [Option<Box<PageTableLevel2>>; Self::NUM_ENTRIES],
 }
 
 enum PageTableLevel2 {
-    Entries([Option<Box<PageTableLeaf>>; 512]),
+    Entries([Option<Box<PageTableLeaf>>; Self::NUM_ENTRIES]),
     OneGiBSuperpage(PageTableEntry),
 }
 
@@ -107,6 +107,71 @@ struct PageTableEntry {
     /// an ShmCap can have a length of 3, and a shm_cap_offset of 1 means we are
     /// associated with the second page of that cap.
     shm_cap_offset: ShmCapLength,
+}
+
+impl PageTableLevel1 {
+    const ENTRIES_BITS: u8 = 9;
+    const NUM_ENTRIES: usize = 1 << Self::ENTRIES_BITS;
+
+    /// Check `is_allowed()` on Acquisitions before calling this. This also
+    /// doesn't check whether `address` is aligned nor fits within Sv39, which
+    /// should be checked by something.
+    fn insert(&mut self, shm_cap_id: ShmCapId, shm_cap: &ShmCap, address: u64) -> Result<(), PageTableError> {
+        let vpn2 = address >> 30;
+        if let ShmType::OneGiB = shm_cap.shm_type() {
+            let (start, end) = (
+                vpn2 as usize,
+                vpn2.checked_add(shm_cap.length())
+                    .ok_or(PageInsertOutOfBoundsSnafu { shm_type: ShmType::OneGiB, length: shm_cap.length(), address }.build())?
+                    .try_into()
+                    .map_err(|_| PageInsertOutOfBoundsSnafu { shm_type: ShmType::OneGiB, length: shm_cap.length(), address }.build())?
+            );
+            if end > PageTableLevel1::NUM_ENTRIES {
+                return PageInsertOutOfBoundsSnafu { shm_type: ShmType::OneGiB, length: shm_cap.length(), address }.fail();
+            }
+            for i in start..end {
+                let offset = (i - start) as u64;
+                self.entries[i] = Some(Box::new(PageTableLevel2::OneGiBSuperpage(PageTableEntry { shm_cap_id, shm_cap_offset: offset })));
+            }
+            return Ok(());
+        }
+
+        let vpn1 = (address >> 21) & ((1 << 9) - 1);
+        if let ShmType::TwoMiB = shm_cap.shm_type() {
+            let start_vpn1 = vpn1;
+            let end_vpn1 = vpn1.checked_add(shm_cap.length())
+                .ok_or(PageInsertOutOfBoundsSnafu { shm_type: ShmType::TwoMiB, length: shm_cap.length(), address }.build())?;
+
+            let absolute_end_vpn1 = (vpn2 << PageTableLevel2::ENTRIES_BITS) + end_vpn1;
+            if absolute_end_vpn1 >= 1 << PageTableLevel1::ENTRIES_BITS << PageTableLevel2::ENTRIES_BITS {
+                return PageInsertOutOfBoundsSnafu { shm_type: ShmType::TwoMiB, length: shm_cap.length(), address }.fail();
+            }
+
+            for current_vpn1 in start_vpn1..end_vpn1 {
+                // Initialise level 2 table or get existing
+                let current_vpn2 = vpn2 + (current_vpn1 >> PageTableLevel2::ENTRIES_BITS);
+                let level_2_table = self.entries[current_vpn2 as usize].get_or_insert_with(|| Box::new(PageTableLevel2::Entries(core::array::from_fn(|_| None))));
+
+                let level_2_table = match level_2_table.as_mut() {
+                    PageTableLevel2::OneGiBSuperpage(_) => return PageInsertCorruptedSnafu { shm_cap_id, vpn2: current_vpn2, vpn1: current_vpn1 }.fail(),
+                    PageTableLevel2::Entries(entries) => entries,
+                };
+
+                let current_vpn1_index = (current_vpn1 & ((1 << PageTableLevel2::ENTRIES_BITS) - 1)) as usize;
+                level_2_table[current_vpn1_index] = Some(Box::new(PageTableLeaf::TwoMiBSuperpage(PageTableEntry { shm_cap_id, shm_cap_offset: (current_vpn1 - start_vpn1) })));
+            }
+            return Ok(());
+        }
+
+        // TODO
+
+        Ok(())
+    }
+}
+
+impl PageTableLevel2 {
+    const ENTRIES_BITS: u8 = 9;
+    const NUM_ENTRIES: usize = 1 << Self::ENTRIES_BITS;
 }
 
 pub struct WalkResult<'space> {
@@ -174,6 +239,9 @@ fn check_shm_type_mismatch(current_level: u8, entry: &PageTableEntry, shm_cap: &
 
 #[derive(Snafu, SnafuCliDebug)]
 pub enum PageTableError {
+    PageInsertOutOfBounds { shm_type: ShmType, length: ShmCapLength, address: u64 },
+    #[snafu(display("Could not insert page due to pages already being present. Although attempting to map to an already-mapped range is a user-visible error, this particular discriminant should never occur and indicates a bug in Nushift's code."))]
+    PageInsertCorrupted { shm_cap_id: ShmCapId, vpn2: u64, vpn1: u64 },
     #[snafu(display("The requested page was not present"))]
     PageNotFound,
     #[snafu(display("The SHM cap ID was not found or the offset was higher than the cap's length, both of which should never happen, and this indicates a bug in Nushift's code."))]
