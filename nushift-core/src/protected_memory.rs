@@ -120,27 +120,27 @@ impl PageTableLevel1 {
         let vpn2 = address >> 30;
         if let ShmType::OneGiB = shm_cap.shm_type() {
             let (start, end) = (
-                vpn2 as usize,
+                vpn2,
                 vpn2.checked_add(shm_cap.length())
-                    .ok_or(PageInsertOutOfBoundsSnafu { shm_type: ShmType::OneGiB, length: shm_cap.length(), address }.build())?
-                    .try_into()
-                    .map_err(|_| PageInsertOutOfBoundsSnafu { shm_type: ShmType::OneGiB, length: shm_cap.length(), address }.build())?
+                    .ok_or(PageInsertOutOfBoundsSnafu { shm_type: ShmType::OneGiB, length: shm_cap.length(), address }.build())?,
             );
-            if end > PageTableLevel1::NUM_ENTRIES {
+            if end > PageTableLevel1::NUM_ENTRIES as u64 {
                 return PageInsertOutOfBoundsSnafu { shm_type: ShmType::OneGiB, length: shm_cap.length(), address }.fail();
             }
             for i in start..end {
-                let offset = (i - start) as u64;
-                self.entries[i] = Some(Box::new(PageTableLevel2::OneGiBSuperpage(PageTableEntry { shm_cap_id, shm_cap_offset: offset })));
+                let offset = i - start;
+                self.entries[i as usize] = Some(Box::new(PageTableLevel2::OneGiBSuperpage(PageTableEntry { shm_cap_id, shm_cap_offset: offset })));
             }
             return Ok(());
         }
 
         let vpn1 = (address >> 21) & ((1 << 9) - 1);
         if let ShmType::TwoMiB = shm_cap.shm_type() {
-            let start_vpn1 = vpn1;
-            let end_vpn1 = vpn1.checked_add(shm_cap.length())
-                .ok_or(PageInsertOutOfBoundsSnafu { shm_type: ShmType::TwoMiB, length: shm_cap.length(), address }.build())?;
+            let (start_vpn1, end_vpn1) = (
+                vpn1,
+                vpn1.checked_add(shm_cap.length())
+                    .ok_or(PageInsertOutOfBoundsSnafu { shm_type: ShmType::TwoMiB, length: shm_cap.length(), address }.build())?,
+            );
 
             let absolute_end_vpn1 = (vpn2 << PageTableLevel2::ENTRIES_BITS) + end_vpn1;
             if absolute_end_vpn1 >= 1 << PageTableLevel1::ENTRIES_BITS << PageTableLevel2::ENTRIES_BITS {
