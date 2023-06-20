@@ -118,54 +118,55 @@ impl PageTableLevel1 {
     /// should be checked by something.
     fn insert(&mut self, shm_cap_id: ShmCapId, shm_cap: &ShmCap, address: u64) -> Result<(), PageTableError> {
         let vpn2 = address >> 30;
-        if let ShmType::OneGiB = shm_cap.shm_type() {
-            let (start, end) = (
-                vpn2,
-                vpn2.checked_add(shm_cap.length())
-                    .ok_or(PageInsertOutOfBoundsSnafu { shm_type: ShmType::OneGiB, length: shm_cap.length(), address }.build())?,
-            );
-            if end > PageTableLevel1::NUM_ENTRIES as u64 {
-                return PageInsertOutOfBoundsSnafu { shm_type: ShmType::OneGiB, length: shm_cap.length(), address }.fail();
-            }
-            for i in start..end {
-                let offset = i - start;
-                self.entries[i as usize] = Some(Box::new(PageTableLevel2::OneGiBSuperpage(PageTableEntry { shm_cap_id, shm_cap_offset: offset })));
-            }
-            return Ok(());
-        }
-
         let vpn1 = (address >> 21) & ((1 << 9) - 1);
-        if let ShmType::TwoMiB = shm_cap.shm_type() {
-            let (start_vpn1, end_vpn1) = (
-                vpn1,
-                vpn1.checked_add(shm_cap.length())
-                    .ok_or(PageInsertOutOfBoundsSnafu { shm_type: ShmType::TwoMiB, length: shm_cap.length(), address }.build())?,
-            );
 
-            let absolute_end_vpn1 = (vpn2 << PageTableLevel2::ENTRIES_BITS) + end_vpn1;
-            if absolute_end_vpn1 >= 1 << PageTableLevel1::ENTRIES_BITS << PageTableLevel2::ENTRIES_BITS {
-                return PageInsertOutOfBoundsSnafu { shm_type: ShmType::TwoMiB, length: shm_cap.length(), address }.fail();
-            }
+        match shm_cap.shm_type() {
+            ShmType::OneGiB => {
+                let (start, end) = (
+                    vpn2,
+                    vpn2.checked_add(shm_cap.length())
+                        .ok_or(PageInsertOutOfBoundsSnafu { shm_type: ShmType::OneGiB, length: shm_cap.length(), address }.build())?,
+                );
+                if end > PageTableLevel1::NUM_ENTRIES as u64 {
+                    return PageInsertOutOfBoundsSnafu { shm_type: ShmType::OneGiB, length: shm_cap.length(), address }.fail();
+                }
+                for i in start..end {
+                    let offset = i - start;
+                    self.entries[i as usize] = Some(Box::new(PageTableLevel2::OneGiBSuperpage(PageTableEntry { shm_cap_id, shm_cap_offset: offset })));
+                }
+                Ok(())
+            },
 
-            for current_vpn1 in start_vpn1..end_vpn1 {
-                // Initialise level 2 table or get existing
-                let current_vpn2 = vpn2 + (current_vpn1 >> PageTableLevel2::ENTRIES_BITS);
-                let level_2_table = self.entries[current_vpn2 as usize].get_or_insert_with(|| Box::new(PageTableLevel2::Entries(core::array::from_fn(|_| None))));
+            ShmType::TwoMiB => {
+                let (start_vpn1, end_vpn1) = (
+                    vpn1,
+                    vpn1.checked_add(shm_cap.length())
+                        .ok_or(PageInsertOutOfBoundsSnafu { shm_type: ShmType::TwoMiB, length: shm_cap.length(), address }.build())?,
+                );
 
-                let level_2_table = match level_2_table.as_mut() {
-                    PageTableLevel2::OneGiBSuperpage(_) => return PageInsertCorruptedSnafu { shm_cap_id, vpn2: current_vpn2, vpn1: current_vpn1 }.fail(),
-                    PageTableLevel2::Entries(entries) => entries,
-                };
+                let absolute_end_vpn1 = (vpn2 << PageTableLevel2::ENTRIES_BITS) + end_vpn1;
+                if absolute_end_vpn1 >= 1 << PageTableLevel1::ENTRIES_BITS << PageTableLevel2::ENTRIES_BITS {
+                    return PageInsertOutOfBoundsSnafu { shm_type: ShmType::TwoMiB, length: shm_cap.length(), address }.fail();
+                }
 
-                let current_vpn1_index = (current_vpn1 & ((1 << PageTableLevel2::ENTRIES_BITS) - 1)) as usize;
-                level_2_table[current_vpn1_index] = Some(Box::new(PageTableLeaf::TwoMiBSuperpage(PageTableEntry { shm_cap_id, shm_cap_offset: (current_vpn1 - start_vpn1) })));
-            }
-            return Ok(());
+                for current_vpn1 in start_vpn1..end_vpn1 {
+                    // Initialise level 2 table or get existing
+                    let current_vpn2 = vpn2 + (current_vpn1 >> PageTableLevel2::ENTRIES_BITS);
+                    let level_2_table = self.entries[current_vpn2 as usize].get_or_insert_with(|| Box::new(PageTableLevel2::Entries(core::array::from_fn(|_| None))));
+
+                    let level_2_table = match level_2_table.as_mut() {
+                        PageTableLevel2::OneGiBSuperpage(_) => return PageInsertCorruptedSnafu { shm_cap_id, vpn2: current_vpn2, vpn1: current_vpn1 }.fail(),
+                        PageTableLevel2::Entries(entries) => entries,
+                    };
+
+                    let current_vpn1_index = (current_vpn1 & ((1 << PageTableLevel2::ENTRIES_BITS) - 1)) as usize;
+                    level_2_table[current_vpn1_index] = Some(Box::new(PageTableLeaf::TwoMiBSuperpage(PageTableEntry { shm_cap_id, shm_cap_offset: (current_vpn1 - start_vpn1) })));
+                }
+                Ok(())
+            },
+
+            ShmType::FourKiB => todo!(),
         }
-
-        // TODO
-
-        Ok(())
     }
 }
 
