@@ -97,7 +97,7 @@ enum PageTableLevel2 {
 }
 
 enum PageTableLeaf {
-    Entries([Option<PageTableEntry>; 512]),
+    Entries([Option<PageTableEntry>; Self::NUM_ENTRIES]),
     TwoMiBSuperpage(PageTableEntry),
 }
 
@@ -119,6 +119,7 @@ impl PageTableLevel1 {
     fn insert(&mut self, shm_cap_id: ShmCapId, shm_cap: &ShmCap, address: u64) -> Result<(), PageTableError> {
         let vpn2 = address >> 30;
         let vpn1 = (address >> 21) & ((1 << 9) - 1);
+        let vpn0 = (address >> 12) & ((1 << 9) - 1);
 
         match shm_cap.shm_type() {
             ShmType::OneGiB => {
@@ -145,7 +146,7 @@ impl PageTableLevel1 {
                 );
 
                 let absolute_end_vpn1 = (vpn2 << PageTableLevel2::ENTRIES_BITS) + end_vpn1;
-                if absolute_end_vpn1 >= 1 << PageTableLevel1::ENTRIES_BITS << PageTableLevel2::ENTRIES_BITS {
+                if absolute_end_vpn1 > 1u64 << PageTableLevel1::ENTRIES_BITS << PageTableLevel2::ENTRIES_BITS {
                     return PageInsertOutOfBoundsSnafu { shm_type: ShmType::TwoMiB, length: shm_cap.length(), address }.fail();
                 }
 
@@ -155,7 +156,7 @@ impl PageTableLevel1 {
                     let level_2_table = self.entries[current_vpn2 as usize].get_or_insert_with(|| Box::new(PageTableLevel2::Entries(core::array::from_fn(|_| None))));
 
                     let level_2_table = match level_2_table.as_mut() {
-                        PageTableLevel2::OneGiBSuperpage(_) => return PageInsertCorruptedSnafu { shm_cap_id, vpn2: current_vpn2, vpn1: current_vpn1 }.fail(),
+                        PageTableLevel2::OneGiBSuperpage(_) => return PageInsertCorruptedSnafu { shm_cap_id, vpn2: current_vpn2, current_vpn1: Some(current_vpn1), current_vpn0: None }.fail(),
                         PageTableLevel2::Entries(entries) => entries,
                     };
 
@@ -165,12 +166,53 @@ impl PageTableLevel1 {
                 Ok(())
             },
 
-            ShmType::FourKiB => todo!(),
+            ShmType::FourKiB => {
+                let (start_vpn0, end_vpn0) = (
+                    vpn0,
+                    vpn0.checked_add(shm_cap.length())
+                        .ok_or(PageInsertOutOfBoundsSnafu { shm_type: ShmType::FourKiB, length: shm_cap.length(), address }.build())?,
+                );
+
+                let absolute_end_vpn0 = (vpn2 << PageTableLevel2::ENTRIES_BITS << PageTableLeaf::ENTRIES_BITS) + (vpn1 << PageTableLeaf::ENTRIES_BITS) + end_vpn0;
+                if absolute_end_vpn0 > 1u64 << PageTableLevel1::ENTRIES_BITS << PageTableLevel2::ENTRIES_BITS << PageTableLeaf::ENTRIES_BITS {
+                    return PageInsertOutOfBoundsSnafu { shm_type: ShmType::FourKiB, length: shm_cap.length(), address }.fail();
+                }
+
+                for current_vpn0 in start_vpn0..end_vpn0 {
+                    // Initialise level 2 table or get existing
+                    let current_vpn2 = vpn2 + (current_vpn0 >> PageTableLevel2::ENTRIES_BITS >> PageTableLeaf::ENTRIES_BITS);
+                    let level_2_table = self.entries[current_vpn2 as usize].get_or_insert_with(|| Box::new(PageTableLevel2::Entries(core::array::from_fn(|_| None))));
+
+                    let level_2_table = match level_2_table.as_mut() {
+                        PageTableLevel2::OneGiBSuperpage(_) => return PageInsertCorruptedSnafu { shm_cap_id, vpn2: current_vpn2, current_vpn1: None, current_vpn0: Some(current_vpn0) }.fail(),
+                        PageTableLevel2::Entries(entries) => entries,
+                    };
+
+                    // Initialise leaf table or get existing
+                    let current_vpn1 = vpn1 + (current_vpn0 >> PageTableLeaf::ENTRIES_BITS);
+                    let current_vpn1_index = (current_vpn1 & ((1 << PageTableLevel2::ENTRIES_BITS) - 1)) as usize;
+                    let leaf_table = level_2_table[current_vpn1_index].get_or_insert_with(|| Box::new(PageTableLeaf::Entries(core::array::from_fn(|_| None))));
+
+                    let leaf_table = match leaf_table.as_mut() {
+                        PageTableLeaf::TwoMiBSuperpage(_) => return PageInsertCorruptedSnafu { shm_cap_id, vpn2: current_vpn2, current_vpn1: Some(current_vpn1), current_vpn0: Some(current_vpn0) }.fail(),
+                        PageTableLeaf::Entries(entries) => entries,
+                    };
+
+                    let current_vpn0_index = (current_vpn0 & ((1 << PageTableLeaf::ENTRIES_BITS) - 1)) as usize;
+                    leaf_table[current_vpn0_index] = Some(PageTableEntry { shm_cap_id, shm_cap_offset: (current_vpn0 - start_vpn0) });
+                }
+                Ok(())
+            },
         }
     }
 }
 
 impl PageTableLevel2 {
+    const ENTRIES_BITS: u8 = 9;
+    const NUM_ENTRIES: usize = 1 << Self::ENTRIES_BITS;
+}
+
+impl PageTableLeaf {
     const ENTRIES_BITS: u8 = 9;
     const NUM_ENTRIES: usize = 1 << Self::ENTRIES_BITS;
 }
@@ -240,9 +282,10 @@ fn check_shm_type_mismatch(current_level: u8, entry: &PageTableEntry, shm_cap: &
 
 #[derive(Snafu, SnafuCliDebug)]
 pub enum PageTableError {
+    #[snafu(display("Page insert out of bounds due to cap length being too high. This can certainly be caused by the user, but it should have been checked before we got to this page insert function."))]
     PageInsertOutOfBounds { shm_type: ShmType, length: ShmCapLength, address: u64 },
-    #[snafu(display("Could not insert page due to pages already being present. Although attempting to map to an already-mapped range is a user-visible error, this particular discriminant should never occur and indicates a bug in Nushift's code."))]
-    PageInsertCorrupted { shm_cap_id: ShmCapId, vpn2: u64, vpn1: u64 },
+    #[snafu(display("Could not insert page due to pages already being present. Although attempting to map to an already-mapped range is a user-visible error, this particular variant should never occur and indicates a bug in Nushift's code."))]
+    PageInsertCorrupted { shm_cap_id: ShmCapId, vpn2: u64, current_vpn1: Option<u64>, current_vpn0: Option<u64> },
     #[snafu(display("The requested page was not present"))]
     PageNotFound,
     #[snafu(display("The SHM cap ID was not found or the offset was higher than the cap's length, both of which should never happen, and this indicates a bug in Nushift's code."))]
