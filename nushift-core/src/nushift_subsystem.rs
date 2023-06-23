@@ -4,7 +4,7 @@ use num_enum::{TryFromPrimitive, IntoPrimitive};
 use reusable_id_pool::{ReusableIdPoolError, ReusableIdPoolManual};
 use snafu::prelude::*;
 use snafu_cli_debug::SnafuCliDebug;
-use std::{convert::{TryFrom, TryInto}, collections::{HashMap, hash_map::Entry}, io, ops::{Deref, DerefMut}};
+use std::{collections::{HashMap, hash_map::Entry}, io, ops::{Deref, DerefMut}};
 
 use super::process_control_block::ProcessControlBlock;
 
