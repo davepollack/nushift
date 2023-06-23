@@ -113,10 +113,14 @@ impl PageTableLevel1 {
     const ENTRIES_BITS: u8 = 9;
     const NUM_ENTRIES: usize = 1 << Self::ENTRIES_BITS;
 
+    pub fn new() -> Self {
+        Self { entries: core::array::from_fn(|_| None) }
+    }
+
     /// Check `is_allowed()` on Acquisitions before calling this. This also
     /// doesn't check whether `address` is aligned nor fits within Sv39, which
     /// should be checked by something.
-    fn insert(&mut self, shm_cap_id: ShmCapId, shm_cap: &ShmCap, address: u64) -> Result<(), PageTableError> {
+    fn insert<B>(&mut self, shm_cap_id: ShmCapId, shm_cap: &ShmCap<B>, address: u64) -> Result<(), PageTableError> {
         let vpn2 = address >> 30;
         let vpn1 = (address >> 21) & ((1 << 9) - 1);
         let vpn0 = (address >> 12) & ((1 << 9) - 1);
@@ -360,5 +364,85 @@ mod tests {
         acquisitions.free(0x30000, 0x2000);
 
         assert!(acquisitions.is_allowed(0x30000, 0x2000));
+    }
+
+    #[test]
+    fn page_table_insert_one_gib_out_of_bounds() {
+        let mut page_table = PageTableLevel1::new();
+
+        // A 1 GiB type cap starting at 400 with length 200: overflows 512
+        let (shm_type, length, backing) = (ShmType::OneGiB, 200, &[0u8; 0]);
+        let address = 400u64 << PageTableLevel2::ENTRIES_BITS << PageTableLeaf::ENTRIES_BITS << 12;
+        assert!(matches!(
+            page_table.insert(1, &ShmCap::new(shm_type, length, backing), address),
+            Err(PageTableError::PageInsertOutOfBounds { shm_type: m_shm_type, length: m_length, address: m_address }) if m_shm_type == shm_type && m_length == length && m_address == address,
+        ));
+        // Assert that nothing was inserted
+        assert!(page_table.entries.iter().all(|entry| matches!(entry, None)));
+    }
+
+    #[test]
+    fn page_table_insert_one_gib_boundary_ok() {
+        let mut page_table = PageTableLevel1::new();
+
+        // A 1 GiB type cap starting at 0 with length 512: fits
+        assert!(matches!(
+            page_table.insert(1, &ShmCap::new(ShmType::OneGiB, 512, &[0u8; 0]), 0),
+            Ok(()),
+        ));
+        assert!(page_table.entries.iter().enumerate().all(|(i, entry)| {
+            let entry = match entry {
+                Some(entry) => entry,
+                None => return false,
+            };
+            match entry.as_ref() {
+                PageTableLevel2::OneGiBSuperpage(PageTableEntry { shm_cap_id: 1, shm_cap_offset: m_i }) if *m_i == i as u64 => true,
+                _ => false,
+            }
+        }));
+
+        // A 1 GiB type cap starting at 400 with length 112: fits
+        let mut page_table = PageTableLevel1::new();
+        assert!(matches!(
+            page_table.insert(1, &ShmCap::new(ShmType::OneGiB, 112, &[0u8; 0]), 400u64 << PageTableLevel2::ENTRIES_BITS << PageTableLeaf::ENTRIES_BITS << 12),
+            Ok(()),
+        ));
+        let mut prefix = page_table.entries.iter().take(400);
+        assert!(prefix.all(|entry| matches!(entry, None)));
+        let suffix = page_table.entries.iter().skip(400);
+        assert!(suffix.enumerate().all(|(i, entry)| {
+            let entry = match entry {
+                Some(entry) => entry,
+                None => return false,
+            };
+            match entry.as_ref() {
+                PageTableLevel2::OneGiBSuperpage(PageTableEntry { shm_cap_id: 1, shm_cap_offset: m_i }) if *m_i == i as u64 => true,
+                _ => false,
+            }
+        }));
+    }
+
+    #[test]
+    fn page_table_insert_one_gib_middle_ok() {
+        let mut page_table = PageTableLevel1::new();
+
+        assert!(matches!(
+            page_table.insert(1, &ShmCap::new(ShmType::OneGiB, 1, &[0u8; 0]), 100u64 << PageTableLevel2::ENTRIES_BITS << PageTableLeaf::ENTRIES_BITS << 12),
+            Ok(()),
+        ));
+        assert!(page_table.entries.iter().enumerate().all(|(i, entry)| {
+            if i != 100 {
+                matches!(entry, None)
+            } else {
+                let entry = match entry {
+                    Some(entry) => entry,
+                    None => return false,
+                };
+                match entry.as_ref() {
+                    PageTableLevel2::OneGiBSuperpage(PageTableEntry { shm_cap_id: 1, shm_cap_offset: 0 }) => true,
+                    _ => false,
+                }
+            }
+        }))
     }
 }

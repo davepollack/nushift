@@ -4,7 +4,7 @@ use num_enum::{TryFromPrimitive, IntoPrimitive};
 use reusable_id_pool::{ReusableIdPoolError, ReusableIdPoolManual};
 use snafu::prelude::*;
 use snafu_cli_debug::SnafuCliDebug;
-use std::{convert::{TryFrom, TryInto}, collections::{HashMap, hash_map::Entry}, io};
+use std::{convert::{TryFrom, TryInto}, collections::{HashMap, hash_map::Entry}, io, ops::{Deref, DerefMut}};
 
 use super::process_control_block::ProcessControlBlock;
 
@@ -85,13 +85,13 @@ impl ShmType {
 }
 
 #[derive(Debug)]
-pub struct ShmCap {
+pub struct ShmCap<B = MmapMut> {
     shm_type: ShmType,
     length: ShmCapLength,
-    backing: MmapMut,
+    backing: B,
 }
-impl ShmCap {
-    pub fn new(shm_type: ShmType, length: ShmCapLength, backing: MmapMut) -> Self {
+impl<B> ShmCap<B> {
+    pub fn new(shm_type: ShmType, length: ShmCapLength, backing: B) -> Self {
         ShmCap { shm_type, length, backing }
     }
 
@@ -102,9 +102,21 @@ impl ShmCap {
     pub fn length(&self) -> ShmCapLength {
         self.length
     }
-
+}
+impl<B> ShmCap<B>
+where
+    B: Deref<Target = [u8]>,
+{
     pub fn backing(&self) -> &[u8] {
         &self.backing
+    }
+}
+impl<B> ShmCap<B>
+where
+    B: DerefMut<Target = [u8]>,
+{
+    pub fn backing_mut(&mut self) -> &mut [u8] {
+        &mut self.backing
     }
 }
 pub type ShmCapId = u64;
