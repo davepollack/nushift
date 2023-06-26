@@ -394,10 +394,7 @@ mod tests {
         ));
         assert!(page_table.entries.iter().enumerate().all(|(i, entry)| {
             let Some(entry) = entry else { return false; };
-            match entry.as_ref() {
-                PageTableLevel2::OneGiBSuperpage(PageTableEntry { shm_cap_id: 1, shm_cap_offset: m_i }) if *m_i == i as u64 => true,
-                _ => false,
-            }
+            matches!(entry.as_ref(), PageTableLevel2::OneGiBSuperpage(PageTableEntry { shm_cap_id: 1, shm_cap_offset: m_i }) if *m_i == i as u64)
         }));
 
         // A 1 GiB type cap starting at 400 with length 112: fits
@@ -411,10 +408,7 @@ mod tests {
         let suffix = page_table.entries.iter().skip(400);
         assert!(suffix.enumerate().all(|(i, entry)| {
             let Some(entry) = entry else { return false; };
-            match entry.as_ref() {
-                PageTableLevel2::OneGiBSuperpage(PageTableEntry { shm_cap_id: 1, shm_cap_offset: m_i }) if *m_i == i as u64 => true,
-                _ => false,
-            }
+            matches!(entry.as_ref(), PageTableLevel2::OneGiBSuperpage(PageTableEntry { shm_cap_id: 1, shm_cap_offset: m_i }) if *m_i == i as u64)
         }));
     }
 
@@ -431,10 +425,7 @@ mod tests {
                 matches!(entry, None)
             } else {
                 let Some(entry) = entry else { return false; };
-                match entry.as_ref() {
-                    PageTableLevel2::OneGiBSuperpage(PageTableEntry { shm_cap_id: 1, shm_cap_offset: 0 }) => true,
-                    _ => false,
-                }
+                matches!(entry.as_ref(), PageTableLevel2::OneGiBSuperpage(PageTableEntry { shm_cap_id: 1, shm_cap_offset: 0 }))
             }
         }))
     }
@@ -456,11 +447,52 @@ mod tests {
                 matches!(entry, None)
             } else {
                 let Some(entry) = entry else { return false; };
-                match entry.as_ref() {
-                    PageTableLeaf::TwoMiBSuperpage(PageTableEntry { shm_cap_id: 1, shm_cap_offset: m_offset }) if *m_offset == (i - 100) as u64 => true,
-                    _ => false,
-                }
+                matches!(entry.as_ref(), PageTableLeaf::TwoMiBSuperpage(PageTableEntry { shm_cap_id: 1, shm_cap_offset: m_offset }) if *m_offset == (i - 100) as u64)
             }
         }));
+
+        assert!(page_table.entries.iter().skip(2).all(|entry| matches!(entry, None))); // Expect remaining 1 GiB pages to not be populated
+    }
+
+    #[test]
+    fn page_table_insert_two_mib_boundaries_crossed() {
+        let mut page_table = PageTableLevel1::new();
+
+        assert!(matches!(
+            page_table.insert(1, &ShmCap::new(ShmType::TwoMiB, 1000, &[0u8; 0]), ONE_ONE_GIB_PAGE + (510u64 << PageTableLeaf::ENTRIES_BITS << 12)),
+            Ok(()),
+        ));
+
+        assert!(matches!(page_table.entries[0], None)); // Expect first 1 GiB page to be not populated
+        let level_2_table = page_table.entries[1].as_ref().expect("Expected second 1 GiB page to be populated");
+        let PageTableLevel2::Entries(level_2_entries) = level_2_table.as_ref() else { panic!("Expected second 1 GiB page to be entries, not superpage"); };
+        assert!(level_2_entries.iter().enumerate().all(|(i, entry)| {
+            if i < 510 {
+                matches!(entry, None)
+            } else {
+                let Some(entry) = entry else { return false; };
+                matches!(entry.as_ref(), PageTableLeaf::TwoMiBSuperpage(PageTableEntry { shm_cap_id: 1, shm_cap_offset: m_offset }) if *m_offset == (i - 510) as u64)
+            }
+        }));
+
+        let level_2_table_2 = page_table.entries[2].as_ref().expect("Expected third 1 GiB page to be populated");
+        let PageTableLevel2::Entries(level_2_entries_2) = level_2_table_2.as_ref() else { panic!("Expected third 1 GiB page to be entries, not superpage"); };
+        assert!(level_2_entries_2.iter().enumerate().all(|(i, entry)| {
+            let Some(entry) = entry else { return false; };
+            matches!(entry.as_ref(), PageTableLeaf::TwoMiBSuperpage(PageTableEntry { shm_cap_id: 1, shm_cap_offset: m_offset }) if *m_offset == (i + 2) as u64)
+        }));
+
+        let level_2_table_3 = page_table.entries[3].as_ref().expect("Expected fourth 1 GiB page to be populated");
+        let PageTableLevel2::Entries(level_2_entries_3) = level_2_table_3.as_ref() else { panic!("Expected fourth 1 GiB page to be entries, not superpage"); };
+        assert!(level_2_entries_3.iter().enumerate().all(|(i, entry)| {
+            if i >= 486 {
+                matches!(entry, None)
+            } else {
+                let Some(entry) = entry else { return false; };
+                matches!(entry.as_ref(), PageTableLeaf::TwoMiBSuperpage(PageTableEntry{ shm_cap_id: 1, shm_cap_offset: m_offset }) if *m_offset == (i + 514) as u64)
+            }
+        }));
+
+        assert!(page_table.entries.iter().skip(4).all(|entry| matches!(entry, None))); // Expect remaining 1 GiB pages to not be populated
     }
 }
