@@ -302,6 +302,8 @@ pub enum PageTableError {
 mod tests {
     use super::*;
 
+    const ONE_ONE_GIB_PAGE: u64 = 1u64 << PageTableLevel2::ENTRIES_BITS << PageTableLeaf::ENTRIES_BITS << 12;
+
     #[test]
     fn acquisitions_is_allowed_empty_allowed() {
         let acquisitions = Acquisitions::new();
@@ -391,10 +393,7 @@ mod tests {
             Ok(()),
         ));
         assert!(page_table.entries.iter().enumerate().all(|(i, entry)| {
-            let entry = match entry {
-                Some(entry) => entry,
-                None => return false,
-            };
+            let Some(entry) = entry else { return false; };
             match entry.as_ref() {
                 PageTableLevel2::OneGiBSuperpage(PageTableEntry { shm_cap_id: 1, shm_cap_offset: m_i }) if *m_i == i as u64 => true,
                 _ => false,
@@ -411,10 +410,7 @@ mod tests {
         assert!(prefix.all(|entry| matches!(entry, None)));
         let suffix = page_table.entries.iter().skip(400);
         assert!(suffix.enumerate().all(|(i, entry)| {
-            let entry = match entry {
-                Some(entry) => entry,
-                None => return false,
-            };
+            let Some(entry) = entry else { return false; };
             match entry.as_ref() {
                 PageTableLevel2::OneGiBSuperpage(PageTableEntry { shm_cap_id: 1, shm_cap_offset: m_i }) if *m_i == i as u64 => true,
                 _ => false,
@@ -434,15 +430,37 @@ mod tests {
             if i != 100 {
                 matches!(entry, None)
             } else {
-                let entry = match entry {
-                    Some(entry) => entry,
-                    None => return false,
-                };
+                let Some(entry) = entry else { return false; };
                 match entry.as_ref() {
                     PageTableLevel2::OneGiBSuperpage(PageTableEntry { shm_cap_id: 1, shm_cap_offset: 0 }) => true,
                     _ => false,
                 }
             }
         }))
+    }
+
+    #[test]
+    fn page_table_insert_two_mib_no_boundaries_crossed() {
+        let mut page_table = PageTableLevel1::new();
+
+        assert!(matches!(
+            page_table.insert(1, &ShmCap::new(ShmType::TwoMiB, 50, &[0u8; 0]), ONE_ONE_GIB_PAGE + (100u64 << PageTableLeaf::ENTRIES_BITS << 12)),
+            Ok(()),
+        ));
+
+        assert!(matches!(page_table.entries[0], None)); // Expect first 1 GiB page to be not populated
+        let level_2_table = page_table.entries[1].as_ref().expect("Expected second 1 GiB page to be populated");
+        let PageTableLevel2::Entries(level_2_entries) = level_2_table.as_ref() else { panic!("Expected second 1 GiB page to be entries, not superpage"); };
+        assert!(level_2_entries.iter().enumerate().all(|(i, entry)| {
+            if i < 100 || i >= 150 {
+                matches!(entry, None)
+            } else {
+                let Some(entry) = entry else { return false; };
+                match entry.as_ref() {
+                    PageTableLeaf::TwoMiBSuperpage(PageTableEntry { shm_cap_id: 1, shm_cap_offset: m_offset }) if *m_offset == (i - 100) as u64 => true,
+                    _ => false,
+                }
+            }
+        }));
     }
 }
