@@ -516,4 +516,38 @@ mod tests {
 
         assert!(page_table.entries.iter().skip(4).all(|entry| matches!(entry, None))); // Expect remaining 1 GiB pages to not be populated
     }
+
+    #[test]
+    fn page_table_insert_two_mib_get_existing() {
+        let mut page_table = PageTableLevel1::new();
+
+        assert!(matches!(
+            page_table.insert(1, &ShmCap::new(ShmType::TwoMiB, 1, &[0u8; 0]), ONE_ONE_GIB_PAGE + (100u64 << PageTableLeaf::ENTRIES_BITS << 12)),
+            Ok(()),
+        ));
+
+        // Insert another one at 101. This should trigger the get case of
+        // get_or_insert_with, reusing the existing level 2 table.
+        assert!(matches!(
+            page_table.insert(2, &ShmCap::new(ShmType::TwoMiB, 1, &[0u8; 0]), ONE_ONE_GIB_PAGE + (101u64 << PageTableLeaf::ENTRIES_BITS << 12)),
+            Ok(()),
+        ));
+
+        assert!(matches!(page_table.entries[0], None)); // Expect first 1 GiB page to be not populated
+        let level_2_table = page_table.entries[1].as_ref().expect("Expected second 1 GiB page to be populated");
+        let PageTableLevel2::Entries(level_2_entries) = level_2_table.as_ref() else { panic!("Expected second 1 GiB page to be entries, not superpage"); };
+        assert!(level_2_entries.iter().enumerate().all(|(i, entry)| {
+            match i {
+                100 => {
+                    let Some(entry) = entry else { return false; };
+                    matches!(entry.as_ref(), PageTableLeaf::TwoMiBSuperpage(PageTableEntry{ shm_cap_id: 1, shm_cap_offset: 0 }))
+                },
+                101 => {
+                    let Some(entry) = entry else { return false; };
+                    matches!(entry.as_ref(), PageTableLeaf::TwoMiBSuperpage(PageTableEntry{ shm_cap_id: 2, shm_cap_offset: 0 }))
+                },
+                _ => matches!(entry, None),
+            }
+        }));
+    }
 }
