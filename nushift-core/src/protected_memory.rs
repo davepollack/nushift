@@ -403,10 +403,8 @@ mod tests {
             page_table.insert(1, &ShmCap::new(ShmType::OneGiB, 112, &[0u8; 0]), 400u64 << PageTableLevel2::ENTRIES_BITS << PageTableLeaf::ENTRIES_BITS << 12),
             Ok(()),
         ));
-        let mut prefix = page_table.entries.iter().take(400);
-        assert!(prefix.all(|entry| matches!(entry, None)));
-        let suffix = page_table.entries.iter().skip(400);
-        assert!(suffix.enumerate().all(|(i, entry)| {
+        assert!(page_table.entries[0..400].iter().all(|entry| matches!(entry, None)));
+        assert!(page_table.entries[400..].iter().enumerate().all(|(i, entry)| {
             let Some(entry) = entry else { return false; };
             matches!(entry.as_ref(), PageTableLevel2::OneGiBSuperpage(PageTableEntry { shm_cap_id: 1, shm_cap_offset: m_i }) if *m_i == i as u64)
         }));
@@ -472,7 +470,7 @@ mod tests {
             }
         }));
 
-        assert!(page_table.entries.iter().skip(2).all(|entry| matches!(entry, None))); // Expect remaining 1 GiB pages to not be populated
+        assert!(page_table.entries[2..].iter().all(|entry| matches!(entry, None))); // Expect remaining 1 GiB pages to not be populated
     }
 
     #[test]
@@ -514,7 +512,7 @@ mod tests {
             }
         }));
 
-        assert!(page_table.entries.iter().skip(4).all(|entry| matches!(entry, None))); // Expect remaining 1 GiB pages to not be populated
+        assert!(page_table.entries[4..].iter().all(|entry| matches!(entry, None))); // Expect remaining 1 GiB pages to not be populated
     }
 
     #[test]
@@ -590,13 +588,13 @@ mod tests {
             Ok(()),
         ));
 
-        assert!(page_table.entries.iter().take(509).all(|entry| matches!(entry, None))); // Expect first 509 1 GiB pages to not be populated
+        assert!(page_table.entries[0..509].iter().all(|entry| matches!(entry, None))); // Expect first 509 1 GiB pages to not be populated
 
         // Check 510th 1 GiB page
         let level_2_table = page_table.entries[509].as_ref().expect("Expected 510th 1 GiB page to be populated");
         let PageTableLevel2::Entries(level_2_entries) = level_2_table.as_ref() else { panic!("Expected 510th 1 GiB page to be entries, not superpage"); };
 
-        assert!(level_2_entries.iter().take(511).all(|entry| matches!(entry, None))); // Expect first 511 2 MiB pages to not be populated
+        assert!(level_2_entries[0..511].iter().all(|entry| matches!(entry, None))); // Expect first 511 2 MiB pages to not be populated
         let leaf_table = level_2_entries[511].as_ref().expect("Expected 512th 2 MiB page to be populated");
         let PageTableLeaf::Entries(leaf_entries) = leaf_table.as_ref() else { panic!("Expected 512th 2 MiB page to be entries, not superpage"); };
         assert!(leaf_entries.iter().enumerate().all(|(i, entry)| {
@@ -639,6 +637,6 @@ mod tests {
                 matches!(entry, PageTableEntry { shm_cap_id: 1, shm_cap_offset: m_offset } if *m_offset == (i + 262658) as u64)
             }
         }));
-        assert!(level_2_entries.iter().skip(2).all(|entry| matches!(entry, None))); // Expect remaining 2 MiB pages to not be populated
+        assert!(level_2_entries[2..].iter().all(|entry| matches!(entry, None))); // Expect remaining 2 MiB pages to not be populated
     }
 }
