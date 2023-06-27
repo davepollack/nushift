@@ -54,7 +54,7 @@ const RETURN_VAL_REGISTER: usize = A0;
 /// use a0 and a2 and the 64-bit will use a0 and a1. For now, using t0.
 const ERROR_RETURN_VAL_REGISTER: usize = T0;
 
-const SV39_BITS: u8 = 39;
+pub const SV39_BITS: u8 = 39;
 
 #[derive(TryFromPrimitive, Debug, Clone, Copy, PartialEq)]
 #[repr(u64)]

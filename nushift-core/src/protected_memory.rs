@@ -2,7 +2,7 @@ use std::{collections::BTreeMap, ops::Bound};
 use snafu::prelude::*;
 use snafu_cli_debug::SnafuCliDebug;
 
-use crate::nushift_subsystem::{ShmCapId, ShmCapLength, ShmSpace, ShmType, ShmCap};
+use crate::nushift_subsystem::{ShmCapId, ShmCapLength, ShmSpace, ShmType, ShmCap, SV39_BITS};
 
 // Costs of mapping, unmapping and accessing memory in this file:
 //
@@ -12,6 +12,60 @@ use crate::nushift_subsystem::{ShmCapId, ShmCapLength, ShmSpace, ShmType, ShmCap
 //
 // For accesses, we walk a page table which is technically constant time, though
 // far from free. Both the page table and the BST should be kept consistent.
+
+struct AcquisitionsAndPageTable {
+    acquisitions: Acquisitions,
+    page_table: PageTableLevel1,
+}
+
+impl AcquisitionsAndPageTable {
+    pub fn new() -> Self {
+        Self { acquisitions: Acquisitions::new(), page_table: PageTableLevel1::new() }
+    }
+
+    pub fn try_acquire(&mut self, shm_cap_id: ShmCapId, shm_cap: &ShmCap, address: u64) -> Result<(), AcquireError> {
+        // Check that it doesn't exceed Sv39. First check 2^64, then 2^39.
+        let end_address = address
+            .checked_add(shm_cap.shm_type().page_bytes() * shm_cap.length())
+            .ok_or_else(|| AcquireExceedsSv39Snafu.build())?;
+
+        if end_address > 1 << SV39_BITS {
+            return AcquireExceedsSv39Snafu.fail();
+        }
+
+        // Check that address is page aligned.
+        if address & (shm_cap.shm_type().page_bytes() - 1) != 0 {
+            return AcquireAddressNotPageAlignedSnafu.fail();
+        }
+
+        // Insert to acquisitions.
+        self.acquisitions.try_insert(address, shm_cap.shm_type().page_bytes() * shm_cap.length()).map_err(|_| AcquireIntersectsExistingAcquisitionSnafu.build())?;
+        // Insert to page table.
+        match self.page_table.insert(shm_cap_id, shm_cap, address).context(AcquirePageTableInsertSnafu) {
+            Ok(_) => {},
+            Err(err) => {
+                // Roll back the acquisitions insert.
+                //
+                // We shouldn't actually get here (i.e. an error when inserting
+                // the page table), this indicates data structure corruption and
+                // a bug in Nushift's code.
+                self.acquisitions.free(address, shm_cap.shm_type().page_bytes() * shm_cap.length());
+                // Now return the error.
+                return Err(err);
+            }
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Snafu, SnafuCliDebug)]
+pub enum AcquireError {
+    AcquireExceedsSv39,
+    AcquireAddressNotPageAligned,
+    AcquireIntersectsExistingAcquisition,
+    AcquirePageTableInsertError { source: PageTableError },
+}
 
 type ShmAcquisitionAddress = u64;
 type ShmAcquisitionLength = u64;
@@ -66,11 +120,13 @@ impl Acquisitions {
         self.0.insert(address, length_in_bytes);
     }
 
-    /// This function currently does not have the responsibility of checking if
-    /// address + length_in_bytes overflows and if address is page aligned,
-    /// which should be checked by something.
-    /// This function may also be assuming that length_in_bytes is not 0?
-    pub fn try_insert(&mut self, address: u64, length_in_bytes: u64) -> Result<(), ()> {
+    /// This function does not have the responsibility of checking if address +
+    /// length_in_bytes overflows and if address is page aligned, which is
+    /// checked by the call site.
+    /// This function also assumes that length_in_bytes is not 0. If it comes
+    /// from a ShmCap, it won't be, since length is validated to be greater than
+    /// 0 for an ShmCap to be registered.
+    fn try_insert(&mut self, address: u64, length_in_bytes: u64) -> Result<(), ()> {
         if self.is_allowed(address, length_in_bytes) {
             self.insert(address, length_in_bytes);
             Ok(())
