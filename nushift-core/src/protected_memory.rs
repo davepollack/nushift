@@ -550,4 +550,27 @@ mod tests {
             }
         }));
     }
+
+    #[test]
+    fn page_table_insert_four_kib_out_of_bounds() {
+        let mut page_table = PageTableLevel1::new();
+
+        // A 4 KiB cap starting at the second-last 4 KiB slot within the
+        // third-last 1 GiB region, with length 524291: overflows
+        let address = (509 * ONE_ONE_GIB_PAGE) + (511u64 << PageTableLeaf::ENTRIES_BITS << 12) + (510u64 << 12);
+        assert!(matches!(
+            page_table.insert(1, &ShmCap::new(ShmType::FourKiB, 524291, &[0u8; 0]), address),
+            Err(PageTableError::PageInsertOutOfBounds { shm_type: ShmType::FourKiB, length: 524291, address: m_address }) if m_address == address,
+        ));
+        assert!(page_table.entries.iter().all(|entry| matches!(entry, None))); // Expect all 1 GiB pages to not be populated
+
+        // A 4 KiB cap starting at the second-last 4 KiB slot within the
+        // third-last 1 GiB region, with length 524290: does NOT overflow
+        let mut page_table = PageTableLevel1::new();
+        let address = (509 * ONE_ONE_GIB_PAGE) + (511u64 << PageTableLeaf::ENTRIES_BITS << 12) + (510u64 << 12);
+        assert!(matches!(
+            page_table.insert(1, &ShmCap::new(ShmType::FourKiB, 524290, &[0u8; 0]), address),
+            Ok(()),
+        ));
+    }
 }
