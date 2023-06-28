@@ -49,7 +49,7 @@ impl AcquisitionsAndPageTable {
                 // We shouldn't actually get here (i.e. an error when inserting
                 // the page table), this indicates data structure corruption and
                 // a bug in Nushift's code.
-                self.acquisitions.free(address, shm_cap.shm_type().page_bytes() * shm_cap.length());
+                self.acquisitions.remove(address, shm_cap.shm_type().page_bytes() * shm_cap.length());
                 // Now return the error.
                 return Err(err);
             }
@@ -73,14 +73,12 @@ type ShmAcquisitionLength = u64;
 struct Acquisitions(BTreeMap<ShmAcquisitionAddress, ShmAcquisitionLength>);
 
 impl Acquisitions {
-    pub fn new() -> Self {
+    fn new() -> Self {
         Self(BTreeMap::new())
     }
 
-    /// This function currently does not have the responsibility of checking if
-    /// address + length_in_bytes overflows and if address is page aligned,
-    /// which should be checked by something.
-    /// This function may also be assuming that length_in_bytes is not 0?
+    /// address + length_in_bytes not overflowing, address being page aligned,
+    /// and length_in_bytes > 0, must be checked before this function is called.
     fn is_allowed(&self, address: u64, length_in_bytes: u64) -> bool {
         let mut equal_or_below = self.0.range((Bound::Unbounded, Bound::Included(&address)));
         let equal_or_below = equal_or_below.next_back();
@@ -105,8 +103,8 @@ impl Acquisitions {
 
         // Check if intersects the above entry.
         if let Some((above_addr, _)) = above {
-            // Assumes address + length_in_bytes does not overflow. Currently, I
-            // am thinking this should be checked before `is_allowed` is called.
+            // Assumes address + length_in_bytes does not overflow. This is
+            // checked before `is_allowed` is called.
             if address + length_in_bytes > *above_addr {
                 return false;
             }
@@ -138,7 +136,7 @@ impl Acquisitions {
     /// `length_in_bytes` is part of the interface because `free` interfaces
     /// should have that interface, even though it's not currently used in this
     /// case, but it could be in the future.
-    pub fn free(&mut self, address: u64, _length_in_bytes: u64) {
+    fn remove(&mut self, address: u64, _length_in_bytes: u64) {
         self.0.remove(&address);
     }
 }
@@ -169,7 +167,7 @@ impl PageTableLevel1 {
     const ENTRIES_BITS: u8 = 9;
     const NUM_ENTRIES: usize = 1 << Self::ENTRIES_BITS;
 
-    pub fn new() -> Self {
+    fn new() -> Self {
         Self { entries: core::array::from_fn(|_| None) }
     }
 
@@ -416,10 +414,10 @@ mod tests {
     }
 
     #[test]
-    fn acquisitions_free_frees() {
+    fn acquisitions_remove_removes() {
         let mut acquisitions = Acquisitions::new();
         acquisitions.try_insert(0x30000, 0x2000).expect("should work");
-        acquisitions.free(0x30000, 0x2000);
+        acquisitions.remove(0x30000, 0x2000);
 
         assert!(acquisitions.is_allowed(0x30000, 0x2000));
     }
