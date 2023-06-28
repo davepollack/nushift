@@ -22,6 +22,7 @@ use super::process_control_block::ProcessControlBlock;
 
 #[derive(TryFromPrimitive)]
 #[repr(u64)]
+#[non_exhaustive]
 enum Syscall {
     Exit = 0,
     ShmNew = 1,
@@ -34,6 +35,7 @@ enum Syscall {
 
 #[derive(IntoPrimitive)]
 #[repr(u64)]
+#[non_exhaustive]
 pub enum SyscallError {
     UnknownSyscall = 0,
 
@@ -58,6 +60,7 @@ pub const SV39_BITS: u8 = 39;
 
 #[derive(TryFromPrimitive, Debug, Clone, Copy, PartialEq)]
 #[repr(u64)]
+#[non_exhaustive] // Remove this if all of Sv32, Sv48 and Sv57 have been supported. Possibly.
 pub enum ShmType {
     // Support page sizes available in the Sv39 scheme.
     FourKiB = 0,
