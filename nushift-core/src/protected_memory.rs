@@ -135,10 +135,10 @@ impl Acquisitions {
         }
     }
 
-    fn remove(&mut self, shm_cap_id: ShmCapId) -> Result<(), ()> {
+    fn remove(&mut self, shm_cap_id: ShmCapId) -> Result<ShmAcquisitionAddress, ()> {
         let address = self.1.remove(&shm_cap_id).ok_or(())?;
         self.0.remove(&address);
-        Ok(())
+        Ok(address)
     }
 }
 
@@ -164,6 +164,12 @@ struct PageTableEntry {
     shm_cap_offset: ShmCapLength,
 }
 
+#[derive(Debug, Clone, Copy)]
+enum PageTableOp {
+    Insert,
+    Remove,
+}
+
 impl PageTableLevel1 {
     const ENTRIES_BITS: u8 = 9;
     const NUM_ENTRIES: usize = 1 << Self::ENTRIES_BITS;
@@ -176,6 +182,20 @@ impl PageTableLevel1 {
     /// doesn't check whether `address` is aligned nor fits within Sv39, which
     /// should be checked by something.
     fn insert<B>(&mut self, shm_cap_id: ShmCapId, shm_cap: &ShmCap<B>, address: u64) -> Result<(), PageTableError> {
+        self.insert_or_remove(PageTableOp::Insert, shm_cap_id, shm_cap, address)
+    }
+
+    /// Check `is_allowed()` on Acquisitions before calling this. This also
+    /// doesn't check whether `address` is aligned nor fits within Sv39, which
+    /// should be checked by something.
+    fn remove<B>(&mut self, shm_cap_id: ShmCapId, shm_cap: &ShmCap<B>, address: u64) -> Result<(), PageTableError> {
+        self.insert_or_remove(PageTableOp::Remove, shm_cap_id, shm_cap, address)
+    }
+
+    /// Check `is_allowed()` on Acquisitions before calling this. This also
+    /// doesn't check whether `address` is aligned nor fits within Sv39, which
+    /// should be checked by something.
+    fn insert_or_remove<B>(&mut self, op: PageTableOp, shm_cap_id: ShmCapId, shm_cap: &ShmCap<B>, address: u64) -> Result<(), PageTableError> {
         let vpn2 = address >> 30;
         let vpn1 = (address >> 21) & ((1 << 9) - 1);
         let vpn0 = (address >> 12) & ((1 << 9) - 1);
@@ -192,7 +212,10 @@ impl PageTableLevel1 {
                 }
                 for i in start..end {
                     let offset = i - start;
-                    self.entries[i as usize] = Some(Box::new(PageTableLevel2::OneGiBSuperpage(PageTableEntry { shm_cap_id, shm_cap_offset: offset })));
+                    match op {
+                        PageTableOp::Insert => self.entries[i as usize] = Some(Box::new(PageTableLevel2::OneGiBSuperpage(PageTableEntry { shm_cap_id, shm_cap_offset: offset }))),
+                        PageTableOp::Remove => self.entries[i as usize] = None,
+                    }
                 }
                 Ok(())
             },
@@ -220,8 +243,20 @@ impl PageTableLevel1 {
                     };
 
                     let current_vpn1_index = (current_vpn1 & ((1 << PageTableLevel2::ENTRIES_BITS) - 1)) as usize;
-                    // TODO: If you run this allocating line, 200,000 times, it is slow.
-                    level_2_table[current_vpn1_index] = Some(Box::new(PageTableLeaf::TwoMiBSuperpage(PageTableEntry { shm_cap_id, shm_cap_offset: (current_vpn1 - start_vpn1) })));
+                    match op {
+                        PageTableOp::Insert => {
+                            // TODO: If you run this allocating line, 200,000 times, it is slow.
+                            level_2_table[current_vpn1_index] = Some(Box::new(PageTableLeaf::TwoMiBSuperpage(PageTableEntry { shm_cap_id, shm_cap_offset: (current_vpn1 - start_vpn1) })));
+                        },
+                        PageTableOp::Remove => {
+                            // TODO: If you run this dropping line, 200,000 times, it is slow.
+                            level_2_table[current_vpn1_index] = None;
+
+                            // TODO: How can we free self.entries[current_vpn2
+                            // as usize] when no entries are occupied anymore,
+                            // without looping through all entries?
+                        },
+                    }
                 }
                 Ok(())
             },
@@ -259,7 +294,21 @@ impl PageTableLevel1 {
                     };
 
                     let current_vpn0_index = (current_vpn0 & ((1 << PageTableLeaf::ENTRIES_BITS) - 1)) as usize;
-                    leaf_table[current_vpn0_index] = Some(PageTableEntry { shm_cap_id, shm_cap_offset: (current_vpn0 - start_vpn0) });
+                    match op {
+                        PageTableOp::Insert => leaf_table[current_vpn0_index] = Some(PageTableEntry { shm_cap_id, shm_cap_offset: (current_vpn0 - start_vpn0) }),
+                        PageTableOp::Remove => {
+                            leaf_table[current_vpn0_index] = None;
+
+                            // TODO: How can we free self.entries[current_vpn2
+                            // as usize] when no entries are occupied anymore,
+                            // without looping through all entries?
+
+                            // TODO: How can we free
+                            // level_2_table[current_vpn1_index] when no entries
+                            // are occupied anymore, without looping through all
+                            // entries?
+                        }
+                    }
                 }
                 Ok(())
             },
