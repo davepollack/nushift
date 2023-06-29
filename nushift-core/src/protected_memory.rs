@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, ops::Bound};
+use std::{collections::{BTreeMap, HashMap}, ops::Bound};
 use snafu::prelude::*;
 use snafu_cli_debug::SnafuCliDebug;
 
@@ -39,7 +39,7 @@ impl AcquisitionsAndPageTable {
         }
 
         // Insert to acquisitions.
-        self.acquisitions.try_insert(address, shm_cap.shm_type().page_bytes() * shm_cap.length()).map_err(|_| AcquireIntersectsExistingAcquisitionSnafu.build())?;
+        self.acquisitions.try_insert(shm_cap_id, address, shm_cap.shm_type().page_bytes() * shm_cap.length()).map_err(|_| AcquireIntersectsExistingAcquisitionSnafu.build())?;
         // Insert to page table.
         match self.page_table.insert(shm_cap_id, shm_cap, address).context(AcquirePageTableInsertSnafu) {
             Ok(_) => {},
@@ -49,7 +49,7 @@ impl AcquisitionsAndPageTable {
                 // We shouldn't actually get here (i.e. an error when inserting
                 // the page table), this indicates data structure corruption and
                 // a bug in Nushift's code.
-                self.acquisitions.remove(address, shm_cap.shm_type().page_bytes() * shm_cap.length());
+                self.acquisitions.remove(shm_cap_id).map_err(|_| AcquireRollbackSnafu.build())?;
                 // Now return the error.
                 return Err(err);
             }
@@ -64,17 +64,18 @@ pub enum AcquireError {
     AcquireExceedsSv39,
     AcquireAddressNotPageAligned,
     AcquireIntersectsExistingAcquisition,
-    AcquirePageTableInsertError { source: PageTableError },
+    AcquirePageTableInsertError { source: PageTableError }, // Should never occur, indicates a bug in Nushift's code
+    AcquireRollbackError, // Should never occur, indicates a bug in Nushift's code
 }
 
 type ShmAcquisitionAddress = u64;
 type ShmAcquisitionLength = u64;
 
-struct Acquisitions(BTreeMap<ShmAcquisitionAddress, ShmAcquisitionLength>);
+struct Acquisitions(BTreeMap<ShmAcquisitionAddress, ShmAcquisitionLength>, HashMap<ShmCapId, ShmAcquisitionAddress>);
 
 impl Acquisitions {
     fn new() -> Self {
-        Self(BTreeMap::new())
+        Self(BTreeMap::new(), HashMap::new())
     }
 
     /// address + length_in_bytes not overflowing, address being page aligned,
@@ -114,8 +115,9 @@ impl Acquisitions {
     }
 
     /// Check `is_allowed()` before calling this.
-    fn insert(&mut self, address: u64, length_in_bytes: u64) {
+    fn insert(&mut self, shm_cap_id: ShmCapId, address: u64, length_in_bytes: u64) {
         self.0.insert(address, length_in_bytes);
+        self.1.insert(shm_cap_id, address);
     }
 
     /// This function does not have the responsibility of checking if address +
@@ -124,20 +126,19 @@ impl Acquisitions {
     /// This function also assumes that length_in_bytes is not 0. If it comes
     /// from a ShmCap, it won't be, since length is validated to be greater than
     /// 0 for an ShmCap to be registered.
-    fn try_insert(&mut self, address: u64, length_in_bytes: u64) -> Result<(), ()> {
+    fn try_insert(&mut self, shm_cap_id: ShmCapId, address: u64, length_in_bytes: u64) -> Result<(), ()> {
         if self.is_allowed(address, length_in_bytes) {
-            self.insert(address, length_in_bytes);
+            self.insert(shm_cap_id, address, length_in_bytes);
             Ok(())
         } else {
             Err(())
         }
     }
 
-    /// `length_in_bytes` is part of the interface because `free` interfaces
-    /// should have that interface, even though it's not currently used in this
-    /// case, but it could be in the future.
-    fn remove(&mut self, address: u64, _length_in_bytes: u64) {
+    fn remove(&mut self, shm_cap_id: ShmCapId) -> Result<(), ()> {
+        let address = self.1.remove(&shm_cap_id).ok_or(())?;
         self.0.remove(&address);
+        Ok(())
     }
 }
 
@@ -219,6 +220,7 @@ impl PageTableLevel1 {
                     };
 
                     let current_vpn1_index = (current_vpn1 & ((1 << PageTableLevel2::ENTRIES_BITS) - 1)) as usize;
+                    // TODO: If you run this allocating line, 200,000 times, it is slow.
                     level_2_table[current_vpn1_index] = Some(Box::new(PageTableLeaf::TwoMiBSuperpage(PageTableEntry { shm_cap_id, shm_cap_offset: (current_vpn1 - start_vpn1) })));
                 }
                 Ok(())
@@ -368,7 +370,7 @@ mod tests {
     #[test]
     fn acquisitions_is_allowed_boundary_of_previous_region_allowed() {
         let mut acquisitions = Acquisitions::new();
-        acquisitions.try_insert(0x30000, 0x2000).expect("should work");
+        acquisitions.try_insert(1, 0x30000, 0x2000).expect("should work");
 
         assert!(acquisitions.is_allowed(0x32000, 0x1000));
     }
@@ -376,7 +378,7 @@ mod tests {
     #[test]
     fn acquisitions_is_allowed_same_address_not_allowed() {
         let mut acquisitions = Acquisitions::new();
-        acquisitions.try_insert(0x30000, 0x2000).expect("should work");
+        acquisitions.try_insert(1, 0x30000, 0x2000).expect("should work");
 
         assert!(!acquisitions.is_allowed(0x30000, 0x1000));
     }
@@ -384,7 +386,7 @@ mod tests {
     #[test]
     fn acquisitions_is_allowed_boundary_of_above_region_allowed() {
         let mut acquisitions = Acquisitions::new();
-        acquisitions.try_insert(0x30000, 0x2000).expect("should work");
+        acquisitions.try_insert(1, 0x30000, 0x2000).expect("should work");
 
         assert!(acquisitions.is_allowed(0x2f000, 0x1000));
     }
@@ -392,7 +394,7 @@ mod tests {
     #[test]
     fn acquisitions_is_allowed_intersects_below_region_not_allowed() {
         let mut acquisitions = Acquisitions::new();
-        acquisitions.try_insert(0x30000, 0x2000).expect("should work");
+        acquisitions.try_insert(1, 0x30000, 0x2000).expect("should work");
 
         assert!(!acquisitions.is_allowed(0x31fff, 0x1000));
     }
@@ -400,7 +402,7 @@ mod tests {
     #[test]
     fn acquisitions_is_allowed_intersects_above_region_not_allowed() {
         let mut acquisitions = Acquisitions::new();
-        acquisitions.try_insert(0x30000, 0x2000).expect("should work");
+        acquisitions.try_insert(1, 0x30000, 0x2000).expect("should work");
 
         assert!(!acquisitions.is_allowed(0x2f001, 0x1000));
     }
@@ -409,17 +411,24 @@ mod tests {
     fn acquisitions_try_insert_is_ok_is_err() {
         let mut acquisitions = Acquisitions::new();
 
-        assert!(acquisitions.try_insert(0x30000, 0x2000).is_ok());
-        assert!(acquisitions.try_insert(0x30000, 0x1000).is_err());
+        assert!(acquisitions.try_insert(1, 0x30000, 0x2000).is_ok());
+        assert!(acquisitions.try_insert(2, 0x30000, 0x1000).is_err());
     }
 
     #[test]
     fn acquisitions_remove_removes() {
         let mut acquisitions = Acquisitions::new();
-        acquisitions.try_insert(0x30000, 0x2000).expect("should work");
-        acquisitions.remove(0x30000, 0x2000);
+        acquisitions.try_insert(1, 0x30000, 0x2000).expect("should work");
+        acquisitions.remove(1).expect("should not fail");
 
         assert!(acquisitions.is_allowed(0x30000, 0x2000));
+    }
+
+    #[test]
+    fn acquisitions_remove_non_existent_id() {
+        let mut acquisitions = Acquisitions::new();
+        acquisitions.try_insert(1, 0x30000, 0x2000).expect("should work");
+        assert!(matches!(acquisitions.remove(2), Err(())));
     }
 
     #[test]
