@@ -544,19 +544,19 @@ mod tests {
     fn page_table_insert_two_mib_out_of_bounds() {
         let mut page_table = PageTableLevel1::new();
 
-        // A 2 MiB cap starting at 1022 (2 MiB equivalent) and has length 261123: overflows
-        let address = ONE_ONE_GIB_PAGE + (510u64 << PageTableLeaf::ENTRIES_BITS << 12);
+        // A 2 MiB cap starting at 261118 (2 MiB equivalent) and has length 1027: overflows
+        let address = (509 * ONE_ONE_GIB_PAGE) + (510u64 << PageTableLeaf::ENTRIES_BITS << 12);
         assert!(matches!(
-            page_table.insert(1, &ShmCap::new(ShmType::TwoMiB, 261123, &[0u8; 0]), address),
-            Err(PageTableError::PageInsertOutOfBounds { shm_type: ShmType::TwoMiB, length: 261123, address: m_address }) if m_address == address,
+            page_table.insert(1, &ShmCap::new(ShmType::TwoMiB, 1027, &[0u8; 0]), address),
+            Err(PageTableError::PageInsertOutOfBounds { shm_type: ShmType::TwoMiB, length: 1027, address: m_address }) if m_address == address,
         ));
         assert!(page_table.entries.iter().all(|entry| matches!(entry, None))); // Expect all 1 GiB pages to not be populated
 
-        // A 2 MiB cap starting at 1022 (2 MiB equivalent) and has length 261122: does NOT overflow
+        // A 2 MiB cap starting at 261118 (2 MiB equivalent) and has length 1026: does NOT overflow
         let mut page_table = PageTableLevel1::new();
-        let address = ONE_ONE_GIB_PAGE + (510u64 << PageTableLeaf::ENTRIES_BITS << 12);
+        let address = (509 * ONE_ONE_GIB_PAGE) + (510u64 << PageTableLeaf::ENTRIES_BITS << 12);
         assert!(matches!(
-            page_table.insert(1, &ShmCap::new(ShmType::TwoMiB, 261122, &[0u8; 0]), address),
+            page_table.insert(1, &ShmCap::new(ShmType::TwoMiB, 1026, &[0u8; 0]), address),
             Ok(()),
         ));
     }
