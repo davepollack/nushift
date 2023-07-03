@@ -93,17 +93,20 @@ pub enum AcquireError {
 type ShmAcquisitionAddress = u64;
 type ShmAcquisitionLength = u64;
 
-struct Acquisitions(BTreeMap<ShmAcquisitionAddress, ShmAcquisitionLength>, HashMap<ShmCapId, ShmAcquisitionAddress>);
+struct Acquisitions {
+    cap_tracking: HashMap<ShmCapId, ShmAcquisitionAddress>,
+    acquisitions: BTreeMap<ShmAcquisitionAddress, ShmAcquisitionLength>,
+}
 
 impl Acquisitions {
     fn new() -> Self {
-        Self(BTreeMap::new(), HashMap::new())
+        Self { cap_tracking: HashMap::new(), acquisitions: BTreeMap::new() }
     }
 
     /// address + length_in_bytes not overflowing, address being page aligned,
     /// and length_in_bytes > 0, must be checked before this function is called.
     fn is_allowed(&self, address: u64, length_in_bytes: u64) -> bool {
-        let mut equal_or_below = self.0.range((Bound::Unbounded, Bound::Included(&address)));
+        let mut equal_or_below = self.acquisitions.range((Bound::Unbounded, Bound::Included(&address)));
         let equal_or_below = equal_or_below.next_back();
 
         // Check if the equal or below entry intersects.
@@ -121,7 +124,7 @@ impl Acquisitions {
             }
         }
 
-        let mut above = self.0.range((Bound::Excluded(&address), Bound::Unbounded));
+        let mut above = self.acquisitions.range((Bound::Excluded(&address), Bound::Unbounded));
         let above = above.next();
 
         // Check if intersects the above entry.
@@ -138,8 +141,8 @@ impl Acquisitions {
 
     /// Check `is_allowed()` before calling this.
     fn insert(&mut self, shm_cap_id: ShmCapId, address: u64, length_in_bytes: u64) {
-        self.0.insert(address, length_in_bytes);
-        self.1.insert(shm_cap_id, address);
+        self.cap_tracking.insert(shm_cap_id, address);
+        self.acquisitions.insert(address, length_in_bytes);
     }
 
     /// This function does not have the responsibility of checking if address +
@@ -158,8 +161,8 @@ impl Acquisitions {
     }
 
     fn remove(&mut self, shm_cap_id: ShmCapId) -> Result<ShmAcquisitionAddress, ()> {
-        let address = self.1.remove(&shm_cap_id).ok_or(())?;
-        self.0.remove(&address);
+        let address = self.cap_tracking.remove(&shm_cap_id).ok_or(())?;
+        self.acquisitions.remove(&address);
         Ok(address)
     }
 }
