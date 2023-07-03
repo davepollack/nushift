@@ -57,6 +57,27 @@ impl AcquisitionsAndPageTable {
 
         Ok(())
     }
+
+    pub fn try_release(&mut self, shm_cap_id: ShmCapId, shm_cap: &ShmCap) -> Result<(), AcquireError> {
+        // Remove from acquisitions.
+        let address = self.acquisitions.remove(shm_cap_id).map_err(|_| AcquireReleasingNonAcquiredCapSnafu.build())?;
+        // Remove from page table.
+        match self.page_table.remove(shm_cap_id, shm_cap, address).context(AcquirePageTableInsertSnafu) {
+            Ok(_) => {},
+            Err(err) => {
+                // Roll back the acquisitions remove.
+                //
+                // We shouldn't actually get here (i.e. an error when inserting
+                // the page table), this indicates data structure corruption and
+                // a bug in Nushift's code.
+                self.acquisitions.try_insert(shm_cap_id, address, shm_cap.shm_type().page_bytes() * shm_cap.length()).map_err(|_| AcquireRollbackSnafu.build())?;
+                // Now return the error.
+                return Err(err);
+            },
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Snafu, SnafuCliDebug)]
@@ -64,6 +85,7 @@ pub enum AcquireError {
     AcquireExceedsSv39,
     AcquireAddressNotPageAligned,
     AcquireIntersectsExistingAcquisition,
+    AcquireReleasingNonAcquiredCap,
     AcquirePageTableInsertError { source: PageTableError }, // Should never occur, indicates a bug in Nushift's code
     AcquireRollbackError, // Should never occur, indicates a bug in Nushift's code
 }
