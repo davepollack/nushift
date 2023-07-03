@@ -6,6 +6,8 @@ use snafu::prelude::*;
 use snafu_cli_debug::SnafuCliDebug;
 use std::{collections::{HashMap, hash_map::Entry}, io, ops::{Deref, DerefMut}};
 
+use crate::protected_memory::AcquisitionsAndPageTable;
+
 use super::process_control_block::ProcessControlBlock;
 
 // Regarding the use of `u64`s in this file:
@@ -39,11 +41,12 @@ enum Syscall {
 pub enum SyscallError {
     UnknownSyscall = 0,
 
-    ShmDuplicateId = 1,
+    ShmInternalError = 1, // Should never happen, and indicates a bug in Nushift's code.
     ShmExhausted = 2,
     ShmUnknownShmType = 3,
     ShmInvalidLength = 4,
     ShmCapacityNotAvailable = 5,
+    ShmCapCurrentlyAcquired = 6,
 }
 
 const SYSCALL_NUM_REGISTER: usize = A0;
@@ -130,6 +133,7 @@ type Sv39SpaceStats = [u32; 3];
 pub struct ShmSpace {
     id_pool: ReusableIdPoolManual,
     space: HashMap<ShmCapId, ShmCap>,
+    acquisitions: AcquisitionsAndPageTable,
     stats: Sv39SpaceStats,
 }
 
@@ -138,6 +142,7 @@ impl ShmSpace {
         ShmSpace {
             id_pool: ReusableIdPoolManual::new(),
             space: HashMap::new(),
+            acquisitions: AcquisitionsAndPageTable::new(),
             stats: [0; 3],
         }
     }
@@ -177,13 +182,20 @@ impl ShmSpace {
         Ok((id, shm_cap))
     }
 
-    pub fn destroy_shm_cap(&mut self, shm_cap_id: ShmCapId) {
-        // TODO: There needs to be checks here that the SHM has been released, etc.
+    pub fn destroy_shm_cap(&mut self, shm_cap_id: ShmCapId) -> Result<(), ShmSpaceError> {
+        match self.acquisitions.is_acquired(shm_cap_id) {
+            Some(address) => return DestroyingCurrentlyAcquiredCapSnafu { address: *address }.fail(),
+            None => {},
+        }
         let shm_cap = self.space.remove(&shm_cap_id);
         self.id_pool.release(shm_cap_id);
-        if let Some(shm_cap) = shm_cap {
-            Self::sv39_decrement_stats(&mut self.stats, shm_cap);
+        match shm_cap {
+            Some(shm_cap) => {
+                Self::sv39_decrement_stats(&mut self.stats, shm_cap);
+            },
+            None => {}, // Silently proceed if cap was not found in space
         }
+        Ok(())
     }
 
     pub fn get(&self, shm_cap_id: &ShmCapId) -> Option<&ShmCap> {
@@ -251,6 +263,8 @@ pub enum ShmSpaceError {
     BackingCapacityNotAvailable { source: io::Error },
     #[snafu(display("The requested capacity in bytes overflows either u64 or usize on this platform. Note that length in the system call arguments is number of this SHM type's pages, not number of bytes."))]
     BackingCapacityNotAvailableOverflows,
+    #[snafu(display("The requested cap is currently acquired at address 0x{address:x} and thus cannot be destroyed. Please release it first."))]
+    DestroyingCurrentlyAcquiredCap { address: u64 },
 }
 
 fn set_error<R: Register>(pcb: &mut ProcessControlBlock<R>, error: SyscallError) {
@@ -261,6 +275,18 @@ fn set_error<R: Register>(pcb: &mut ProcessControlBlock<R>, error: SyscallError)
 fn set_success<R: Register>(pcb: &mut ProcessControlBlock<R>, return_value: u64) {
     pcb.set_register(RETURN_VAL_REGISTER, R::from_u64(return_value));
     pcb.set_register(ERROR_RETURN_VAL_REGISTER, R::from_u64(u64::MAX));
+}
+
+fn marshall_shm_space_error<R: Register>(pcb: &mut ProcessControlBlock<R>, shm_space_error: ShmSpaceError) {
+    match shm_space_error {
+        ShmSpaceError::DuplicateId => { set_error(pcb, SyscallError::ShmInternalError); },
+        ShmSpaceError::Exhausted => { set_error(pcb, SyscallError::ShmExhausted); },
+        ShmSpaceError::InvalidLength => { set_error(pcb, SyscallError::ShmInvalidLength); },
+        ShmSpaceError::CapacityNotAvailable
+        | ShmSpaceError::BackingCapacityNotAvailable { source: _ }
+        | ShmSpaceError::BackingCapacityNotAvailableOverflows => { set_error(pcb, SyscallError::ShmCapacityNotAvailable); },
+        ShmSpaceError::DestroyingCurrentlyAcquiredCap { address: _ } => { set_error(pcb, SyscallError::ShmCapCurrentlyAcquired); },
+    }
 }
 
 pub struct NushiftSubsystem {
@@ -298,14 +324,7 @@ impl NushiftSubsystem {
 
                 let shm_cap_id = match pcb.subsystem.shm_space.new_shm_cap(shm_type, length) {
                     Ok((shm_cap_id, _)) => shm_cap_id,
-                    Err(shm_space_error) => match shm_space_error {
-                        ShmSpaceError::DuplicateId => { set_error(pcb, SyscallError::ShmDuplicateId); return Ok(()); },
-                        ShmSpaceError::Exhausted => { set_error(pcb, SyscallError::ShmExhausted); return Ok(()); },
-                        ShmSpaceError::InvalidLength => { set_error(pcb, SyscallError::ShmInvalidLength); return Ok(()); },
-                        ShmSpaceError::CapacityNotAvailable
-                        | ShmSpaceError::BackingCapacityNotAvailable { source: _ }
-                        | ShmSpaceError::BackingCapacityNotAvailableOverflows => { set_error(pcb, SyscallError::ShmCapacityNotAvailable); return Ok(()); },
-                    },
+                    Err(shm_space_error) => { marshall_shm_space_error(pcb, shm_space_error); return Ok(()); },
                 };
 
                 set_success(pcb, shm_cap_id);
@@ -313,7 +332,10 @@ impl NushiftSubsystem {
             },
             Ok(Syscall::ShmDestroy) => {
                 let shm_cap_id = pcb.registers()[FIRST_ARG_REGISTER].to_u64();
-                pcb.subsystem.shm_space.destroy_shm_cap(shm_cap_id);
+                match pcb.subsystem.shm_space.destroy_shm_cap(shm_cap_id) {
+                    Ok(_) => {},
+                    Err(shm_space_error) => { marshall_shm_space_error(pcb, shm_space_error); return Ok(()); },
+                }
                 set_success(pcb, 0);
                 Ok(())
             },

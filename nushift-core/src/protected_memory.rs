@@ -13,14 +13,14 @@ use crate::nushift_subsystem::{ShmCapId, ShmCapLength, ShmSpace, ShmType, ShmCap
 // For accesses, we walk a page table which is technically constant time, though
 // far from free. Both the page table and the BST should be kept consistent.
 
-struct AcquisitionsAndPageTable {
+pub struct AcquisitionsAndPageTable {
     acquisitions: Acquisitions,
-    page_table: PageTableLevel1,
+    page_table: Box<PageTableLevel1>,
 }
 
 impl AcquisitionsAndPageTable {
     pub fn new() -> Self {
-        Self { acquisitions: Acquisitions::new(), page_table: PageTableLevel1::new() }
+        Self { acquisitions: Acquisitions::new(), page_table: Box::new(PageTableLevel1::new()) }
     }
 
     pub fn try_acquire(&mut self, shm_cap_id: ShmCapId, shm_cap: &ShmCap, address: u64) -> Result<(), AcquireError> {
@@ -56,6 +56,10 @@ impl AcquisitionsAndPageTable {
         }
 
         Ok(())
+    }
+
+    pub fn is_acquired(&self, shm_cap_id: ShmCapId) -> Option<&ShmAcquisitionAddress> {
+        self.acquisitions.is_acquired(shm_cap_id)
     }
 
     pub fn try_release(&mut self, shm_cap_id: ShmCapId, shm_cap: &ShmCap) -> Result<(), AcquireError> {
@@ -145,9 +149,9 @@ impl Acquisitions {
         self.acquisitions.insert(address, length_in_bytes);
     }
 
-    /// This function does not have the responsibility of checking if address +
-    /// length_in_bytes overflows and if address is page aligned, which is
-    /// checked by the call site.
+    /// Before calling this function, checking that address + length_in_bytes
+    /// doesn't overflow and that address is page aligned, MUST be performed by
+    /// the call site.
     /// This function also assumes that length_in_bytes is not 0. If it comes
     /// from a ShmCap, it won't be, since length is validated to be greater than
     /// 0 for an ShmCap to be registered.
@@ -158,6 +162,10 @@ impl Acquisitions {
         } else {
             Err(())
         }
+    }
+
+    fn is_acquired(&self, shm_cap_id: ShmCapId) -> Option<&ShmAcquisitionAddress> {
+        self.cap_tracking.get(&shm_cap_id)
     }
 
     fn remove(&mut self, shm_cap_id: ShmCapId) -> Result<ShmAcquisitionAddress, ()> {
