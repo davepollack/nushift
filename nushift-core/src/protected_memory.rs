@@ -25,8 +25,11 @@ impl AcquisitionsAndPageTable {
 
     pub fn try_acquire(&mut self, shm_cap_id: ShmCapId, shm_cap: &ShmCap, address: u64) -> Result<(), AcquireError> {
         // Check that it doesn't exceed Sv39. First check 2^64, then 2^39.
+        let length_in_bytes = shm_cap.shm_type().page_bytes()
+            .checked_mul(shm_cap.length())
+            .ok_or_else(|| AcquireExceedsSv39Snafu.build())?;
         let end_address = address
-            .checked_add(shm_cap.shm_type().page_bytes() * shm_cap.length())
+            .checked_add(length_in_bytes)
             .ok_or_else(|| AcquireExceedsSv39Snafu.build())?;
 
         if end_address > 1 << SV39_BITS {
@@ -39,7 +42,7 @@ impl AcquisitionsAndPageTable {
         }
 
         // Insert to acquisitions.
-        self.acquisitions.try_insert(shm_cap_id, address, shm_cap.shm_type().page_bytes() * shm_cap.length()).map_err(|_| AcquireIntersectsExistingAcquisitionSnafu.build())?;
+        self.acquisitions.try_insert(shm_cap_id, address, length_in_bytes).map_err(|_| AcquireIntersectsExistingAcquisitionSnafu.build())?;
         // Insert to page table.
         match self.page_table.insert(shm_cap_id, shm_cap, address).context(AcquirePageTableInsertSnafu) {
             Ok(_) => {},
@@ -74,7 +77,10 @@ impl AcquisitionsAndPageTable {
                 // We shouldn't actually get here (i.e. an error when inserting
                 // the page table), this indicates data structure corruption and
                 // a bug in Nushift's code.
-                self.acquisitions.try_insert(shm_cap_id, address, shm_cap.shm_type().page_bytes() * shm_cap.length()).map_err(|_| AcquireRollbackSnafu.build())?;
+                let length_in_bytes = shm_cap.shm_type().page_bytes()
+                    .checked_mul(shm_cap.length())
+                    .ok_or_else(|| AcquireRollbackSnafu.build())?;
+                self.acquisitions.try_insert(shm_cap_id, address, length_in_bytes).map_err(|_| AcquireRollbackSnafu.build())?;
                 // Now return the error.
                 return Err(err);
             },
