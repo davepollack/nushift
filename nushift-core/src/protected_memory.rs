@@ -371,7 +371,7 @@ pub fn walk<'space>(vaddr: u64, page_table: &PageTableLevel1, shm_space: &'space
     let (entry, shm_cap) = 'superpage_check: {
         let leaf_table = match level_2_table.as_ref() {
             PageTableLevel2::OneGiBSuperpage(pte) => {
-                let shm_cap = shm_space.get(&pte.shm_cap_id).ok_or_else(|| PageEntryCorruptedSnafu { shm_cap_id: pte.shm_cap_id, mismatched_entry_found_at_level: None, shm_cap_offset: None, shm_cap_length: None }.build())?;
+                let shm_cap = shm_space.get(pte.shm_cap_id).ok_or_else(|| PageEntryCorruptedSnafu { shm_cap_id: pte.shm_cap_id, mismatched_entry_found_at_level: None, shm_cap_offset: None, shm_cap_length: None }.build())?;
                 check_shm_type_mismatch(1, &pte, shm_cap, ShmType::OneGiB)?;
                 break 'superpage_check (pte, shm_cap);
             },
@@ -380,13 +380,13 @@ pub fn walk<'space>(vaddr: u64, page_table: &PageTableLevel1, shm_space: &'space
 
         let four_k_entry = match leaf_table.as_ref() {
             PageTableLeaf::TwoMiBSuperpage(pte) => {
-                let shm_cap = shm_space.get(&pte.shm_cap_id).ok_or_else(|| PageEntryCorruptedSnafu { shm_cap_id: pte.shm_cap_id, mismatched_entry_found_at_level: None, shm_cap_offset: None, shm_cap_length: None }.build())?;
+                let shm_cap = shm_space.get(pte.shm_cap_id).ok_or_else(|| PageEntryCorruptedSnafu { shm_cap_id: pte.shm_cap_id, mismatched_entry_found_at_level: None, shm_cap_offset: None, shm_cap_length: None }.build())?;
                 check_shm_type_mismatch(2, &pte, shm_cap, ShmType::TwoMiB)?;
                 break 'superpage_check (pte, shm_cap);
             },
             PageTableLeaf::Entries(entries) => entries[((vpn >> 18) & ((1 << 9) - 1)) as usize].as_ref().ok_or(PageNotFoundSnafu.build())?,
         };
-        let shm_cap = shm_space.get(&four_k_entry.shm_cap_id).ok_or_else(|| PageEntryCorruptedSnafu { shm_cap_id: four_k_entry.shm_cap_id, mismatched_entry_found_at_level: None, shm_cap_offset: None, shm_cap_length: None }.build())?;
+        let shm_cap = shm_space.get(four_k_entry.shm_cap_id).ok_or_else(|| PageEntryCorruptedSnafu { shm_cap_id: four_k_entry.shm_cap_id, mismatched_entry_found_at_level: None, shm_cap_offset: None, shm_cap_length: None }.build())?;
         check_shm_type_mismatch(3, &four_k_entry, shm_cap, ShmType::FourKiB)?;
 
         (four_k_entry, shm_cap)

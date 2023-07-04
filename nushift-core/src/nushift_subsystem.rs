@@ -6,9 +6,8 @@ use snafu::prelude::*;
 use snafu_cli_debug::SnafuCliDebug;
 use std::{collections::{HashMap, hash_map::Entry}, io, ops::{Deref, DerefMut}};
 
-use crate::protected_memory::AcquisitionsAndPageTable;
-
 use super::process_control_block::ProcessControlBlock;
+use super::protected_memory::{AcquisitionsAndPageTable, AcquireError};
 
 // Regarding the use of `u64`s in this file:
 //
@@ -47,6 +46,10 @@ pub enum SyscallError {
     ShmInvalidLength = 4,
     ShmCapacityNotAvailable = 5,
     ShmCapCurrentlyAcquired = 6,
+    ShmCapNotFound = 7,
+    ShmAddressOutOfBounds = 8,
+    ShmAddressNotAligned = 9,
+    ShmOverlapsExistingAcquisition = 10,
 }
 
 const SYSCALL_NUM_REGISTER: usize = A0;
@@ -182,6 +185,29 @@ impl ShmSpace {
         Ok((id, shm_cap))
     }
 
+    pub fn acquire_shm_cap(&mut self, shm_cap_id: ShmCapId, address: u64) -> Result<(), ShmSpaceError> {
+        let shm_cap = self.space.get(&shm_cap_id).ok_or_else(|| CapNotFoundSnafu.build())?;
+
+        // try_acquire does the out-of-bounds and alignment checks. We map the errors here.
+        self.acquisitions.try_acquire(shm_cap_id, shm_cap, address)
+            .map_err(|acquire_error| match acquire_error {
+                AcquireError::AcquireExceedsSv39 => AddressOutOfBoundsSnafu.build(),
+                AcquireError::AcquireAddressNotPageAligned => AddressNotAlignedSnafu.build(),
+                AcquireError::AcquireIntersectsExistingAcquisition => OverlapsExistingAcquisitionSnafu.build(),
+                _ => AcquireInternalSnafu.build(),
+            })
+    }
+
+    pub fn release_shm_cap(&mut self, shm_cap_id: ShmCapId) -> Result<(), ShmSpaceError> {
+        let shm_cap = self.space.get(&shm_cap_id).ok_or_else(|| CapNotFoundSnafu.build())?;
+
+        match self.acquisitions.try_release(shm_cap_id, shm_cap) {
+            Ok(_) => Ok(()),
+            Err(AcquireError::AcquireReleasingNonAcquiredCap) => Ok(()), // Silently allow releasing non-acquired cap.
+            Err(_) => AcquireInternalSnafu.fail(),
+        }
+    }
+
     pub fn destroy_shm_cap(&mut self, shm_cap_id: ShmCapId) -> Result<(), ShmSpaceError> {
         match self.acquisitions.is_acquired(shm_cap_id) {
             Some(address) => return DestroyingCurrentlyAcquiredCapSnafu { address: *address }.fail(),
@@ -198,8 +224,8 @@ impl ShmSpace {
         Ok(())
     }
 
-    pub fn get(&self, shm_cap_id: &ShmCapId) -> Option<&ShmCap> {
-        self.space.get(shm_cap_id)
+    pub fn get(&self, shm_cap_id: ShmCapId) -> Option<&ShmCap> {
+        self.space.get(&shm_cap_id)
     }
 
     /// This assumes that all pages can be arranged as: all 1 GiB ones first,
@@ -265,6 +291,16 @@ pub enum ShmSpaceError {
     BackingCapacityNotAvailableOverflows,
     #[snafu(display("The requested cap is currently acquired at address 0x{address:x} and thus cannot be destroyed. Please release it first."))]
     DestroyingCurrentlyAcquiredCap { address: u64 },
+    #[snafu(display("A cap with the requested cap ID was not found."))]
+    CapNotFound,
+    #[snafu(display("The requested acquisition address is not within Sv39 (39-bit virtual addressing) bounds."))]
+    AddressOutOfBounds,
+    #[snafu(display("The requested acquisition address is not aligned at the SHM cap's type (e.g. 4 KiB-aligned, 2 MiB-aligned or 1 GiB-aligned)."))]
+    AddressNotAligned,
+    #[snafu(display("The specified address combined with the length in the cap forms a range that overlaps an existing acquisition. Please choose a different address."))]
+    OverlapsExistingAcquisition,
+    #[snafu(display("An internal error occurred while acquiring. This should never happen and indicates a bug in Nushift's code."))]
+    AcquireInternalError,
 }
 
 fn set_error<R: Register>(pcb: &mut ProcessControlBlock<R>, error: SyscallError) {
@@ -279,13 +315,18 @@ fn set_success<R: Register>(pcb: &mut ProcessControlBlock<R>, return_value: u64)
 
 fn marshall_shm_space_error<R: Register>(pcb: &mut ProcessControlBlock<R>, shm_space_error: ShmSpaceError) {
     match shm_space_error {
-        ShmSpaceError::DuplicateId => { set_error(pcb, SyscallError::ShmInternalError); },
+        ShmSpaceError::DuplicateId
+        | ShmSpaceError::AcquireInternalError => { set_error(pcb, SyscallError::ShmInternalError); },
         ShmSpaceError::Exhausted => { set_error(pcb, SyscallError::ShmExhausted); },
         ShmSpaceError::InvalidLength => { set_error(pcb, SyscallError::ShmInvalidLength); },
         ShmSpaceError::CapacityNotAvailable
         | ShmSpaceError::BackingCapacityNotAvailable { source: _ }
         | ShmSpaceError::BackingCapacityNotAvailableOverflows => { set_error(pcb, SyscallError::ShmCapacityNotAvailable); },
         ShmSpaceError::DestroyingCurrentlyAcquiredCap { address: _ } => { set_error(pcb, SyscallError::ShmCapCurrentlyAcquired); },
+        ShmSpaceError::CapNotFound => { set_error(pcb, SyscallError::ShmCapNotFound); },
+        ShmSpaceError::AddressOutOfBounds => { set_error(pcb, SyscallError::ShmAddressOutOfBounds); },
+        ShmSpaceError::AddressNotAligned => { set_error(pcb, SyscallError::ShmAddressNotAligned); },
+        ShmSpaceError::OverlapsExistingAcquisition => { set_error(pcb, SyscallError::ShmOverlapsExistingAcquisition); },
     }
 }
 
@@ -330,14 +371,29 @@ impl NushiftSubsystem {
                 set_success(pcb, shm_cap_id);
                 Ok(())
             },
+            Ok(Syscall::ShmAcquire) => {
+                let shm_cap_id = pcb.registers()[FIRST_ARG_REGISTER].to_u64();
+                let address = pcb.registers()[SECOND_ARG_REGISTER].to_u64();
+
+                match pcb.subsystem.shm_space.acquire_shm_cap(shm_cap_id, address) {
+                    Ok(_) => { set_success(pcb, 0); Ok(()) },
+                    Err(shm_space_error) => { marshall_shm_space_error(pcb, shm_space_error); Ok(()) },
+                }
+            },
+            Ok(Syscall::ShmRelease) => {
+                let shm_cap_id = pcb.registers()[FIRST_ARG_REGISTER].to_u64();
+
+                match pcb.subsystem.shm_space.release_shm_cap(shm_cap_id) {
+                    Ok(_) => { set_success(pcb, 0); Ok(()) },
+                    Err(shm_space_error) => { marshall_shm_space_error(pcb, shm_space_error); Ok(()) },
+                }
+            }
             Ok(Syscall::ShmDestroy) => {
                 let shm_cap_id = pcb.registers()[FIRST_ARG_REGISTER].to_u64();
                 match pcb.subsystem.shm_space.destroy_shm_cap(shm_cap_id) {
-                    Ok(_) => {},
-                    Err(shm_space_error) => { marshall_shm_space_error(pcb, shm_space_error); return Ok(()); },
+                    Ok(_) => { set_success(pcb, 0); Ok(()) },
+                    Err(shm_space_error) => { marshall_shm_space_error(pcb, shm_space_error); Ok(()) },
                 }
-                set_success(pcb, 0);
-                Ok(())
             },
 
             _ => {

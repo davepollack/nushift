@@ -3,6 +3,8 @@ const std = @import("std");
 pub const Syscall = enum(usize) {
     exit = 0,
     shm_new = 1,
+    shm_acquire = 2,
+    shm_release = 4,
     shm_destroy = 5,
 };
 
@@ -15,6 +17,10 @@ pub const SyscallError = enum(usize) {
     shm_invalid_length = 4,
     shm_capacity_not_available = 5,
     shm_cap_currently_acquired = 6,
+    shm_cap_not_found = 7,
+    shm_address_out_of_bounds = 8,
+    shm_address_not_aligned = 9,
+    shm_overlaps_existing_acquisition = 10,
 };
 
 pub const SyscallResult = union(enum) {
@@ -26,7 +32,8 @@ pub fn SyscallArgs(comptime sys: Syscall) type {
     return switch (sys) {
         .exit => struct { exit_reason: usize },
         .shm_new => struct { shm_type: ShmType, length: usize },
-        .shm_destroy => struct { shm_cap_id: usize },
+        .shm_acquire => struct { shm_cap_id: usize, address: usize },
+        .shm_release, .shm_destroy => struct { shm_cap_id: usize },
     };
 }
 
@@ -48,7 +55,8 @@ fn syscall_internal(comptime sys: Syscall, sys_args: SyscallArgs(sys), comptime 
     return switch (sys) {
         .exit => syscall_internal_args(@enumToInt(sys), 1, [_]usize{sys_args.exit_reason}, ignore_errors, ReturnType),
         .shm_new => syscall_internal_args(@enumToInt(sys), 2, [_]usize{ @enumToInt(sys_args.shm_type), sys_args.length }, ignore_errors, ReturnType),
-        .shm_destroy => syscall_internal_args(@enumToInt(sys), 1, [_]usize{sys_args.shm_cap_id}, ignore_errors, ReturnType),
+        .shm_acquire => syscall_internal_args(@enumToInt(sys), 2, [_]usize{ sys_args.shm_cap_id, sys_args.address }, ignore_errors, ReturnType),
+        .shm_release, .shm_destroy => syscall_internal_args(@enumToInt(sys), 1, [_]usize{sys_args.shm_cap_id}, ignore_errors, ReturnType),
     };
 }
 
