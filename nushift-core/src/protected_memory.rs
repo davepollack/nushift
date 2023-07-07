@@ -28,6 +28,7 @@ impl AcquisitionsAndPageTable {
         let length_in_bytes = shm_cap.shm_type().page_bytes()
             .checked_mul(shm_cap.length())
             .ok_or_else(|| AcquireExceedsSv39Snafu.build())?;
+
         let end_address = address
             .checked_add(length_in_bytes)
             .ok_or_else(|| AcquireExceedsSv39Snafu.build())?;
@@ -87,6 +88,10 @@ impl AcquisitionsAndPageTable {
         }
 
         Ok(())
+    }
+
+    pub fn walk<'space>(&self, vaddr: u64, shm_space: &'space ShmSpace) -> Result<WalkResult<'space>, PageTableError> {
+        walk(vaddr, &self.page_table, shm_space)
     }
 }
 
@@ -366,6 +371,8 @@ impl PageTableLeaf {
 }
 
 pub struct WalkResult<'space> {
+    /// This is always one page. The page size depends on the SHM cap that was
+    /// walked.
     space_slice: &'space [u8],
     byte_offset_in_space_slice: usize,
 }
@@ -440,6 +447,58 @@ pub enum PageTableError {
     PageEntryCorrupted { shm_cap_id: ShmCapId, mismatched_entry_found_at_level: Option<(u8, ShmType)>, shm_cap_offset: Option<ShmCapLength>, shm_cap_length: Option<ShmCapLength> },
     #[snafu(display("A large superpage {shm_type:?} offset at {offset}, does not fit into the host platform's usize of {} bytes. For example, running some 64-bit Nushift apps on a 32-bit host platform. This limitation of Nushift could be resolved in the future.", core::mem::size_of::<usize>()))]
     PageTooLargeToFitInHostPlatformWord { shm_cap_id: ShmCapId, shm_type: ShmType, offset: ShmCapLength },
+}
+
+struct ProtectedMemory;
+
+impl ProtectedMemory {
+    fn check_in_sv39(addr: u64, word_bytes: u8) -> Result<(), ProtectedMemoryError> {
+        if addr > (1 << SV39_BITS) - (word_bytes as u64) {
+            OutOfSv39Snafu.fail()
+        } else {
+            Ok(())
+        }
+    }
+
+    pub fn load8(&self, shm_space: &ShmSpace, addr: u64) -> Result<u8, ProtectedMemoryError> {
+        Self::check_in_sv39(addr, 1)?;
+        let walked = shm_space.acquisitions().walk(addr, shm_space).context(WalkSnafu)?;
+        Ok(walked.space_slice[walked.byte_offset_in_space_slice])
+    }
+
+    pub fn load16(&self, shm_space: &ShmSpace, addr: u64) -> Result<u16, ProtectedMemoryError> {
+        Self::check_in_sv39(addr, 2)?;
+        let walked = shm_space.acquisitions().walk(addr, shm_space).context(WalkSnafu)?;
+
+        // Fits in page (all aligned accesses are this, and some unaligned accesses).
+        let diff_to_end_of_space_slice = walked.space_slice.len() - walked.byte_offset_in_space_slice;
+        if diff_to_end_of_space_slice >= 2 {
+            let bytes: [u8; 2] = walked.space_slice[walked.byte_offset_in_space_slice..walked.byte_offset_in_space_slice+2].try_into().unwrap();
+            let word = u16::from_le_bytes(bytes);
+            return Ok(word);
+        }
+
+        // Goes onto next page. Not common, only unaligned accesses can do this.
+
+        // Doesn't overflow, and is a valid argument to `walk`, because we
+        // called `check_in_sv39` at the beginning.
+        //
+        // Casting to u64 is OK because a page size can't be more than u64 as
+        // long as `addr` is still u64.
+        let next_page = addr + (diff_to_end_of_space_slice as u64);
+        let walked_next_page = shm_space.acquisitions().walk(next_page, shm_space).context(WalkSnafu)?;
+
+        let bytes: [u8; 2] = [&walked.space_slice[walked.byte_offset_in_space_slice..], &walked_next_page.space_slice[..(2 - diff_to_end_of_space_slice)]]
+            .concat().try_into().unwrap();
+        let word = u16::from_le_bytes(bytes);
+        Ok(word)
+    }
+}
+
+#[derive(Snafu, SnafuCliDebug)]
+pub enum ProtectedMemoryError {
+    OutOfSv39,
+    WalkError { source: PageTableError },
 }
 
 #[cfg(test)]

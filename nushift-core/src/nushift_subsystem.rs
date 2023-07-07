@@ -228,6 +228,10 @@ impl ShmSpace {
         self.space.get(&shm_cap_id)
     }
 
+    pub fn acquisitions(&self) -> &AcquisitionsAndPageTable {
+        &self.acquisitions
+    }
+
     /// This assumes that all pages can be arranged as: all 1 GiB ones first,
     /// then all 2 MiB ones, then all 4 KiB ones. This is probably a very dumb
     /// assumption and I might regret it later.
