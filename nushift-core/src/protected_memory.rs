@@ -515,7 +515,7 @@ pub enum ProtectedMemoryError {
 
 /// Alternatively, could use the `funty` crate for this.
 trait Numeric {
-    type ByteArray: TryFrom<Vec<u8>, Error = Vec<u8>> + for<'a> TryFrom<&'a [u8], Error = TryFromSliceError>;
+    type ByteArray: for<'a> TryFrom<&'a [u8], Error = TryFromSliceError> + TryFrom<Vec<u8>, Error = Vec<u8>>;
     fn from_le_bytes(bytes: Self::ByteArray) -> Self;
 }
 macro_rules! impl_numeric {
