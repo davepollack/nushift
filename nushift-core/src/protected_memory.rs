@@ -1,4 +1,4 @@
-use std::{collections::{BTreeMap, HashMap}, ops::Bound};
+use std::{collections::{BTreeMap, HashMap}, ops::Bound, array::TryFromSliceError};
 use snafu::prelude::*;
 use snafu_cli_debug::SnafuCliDebug;
 
@@ -466,15 +466,15 @@ impl ProtectedMemory {
         Ok(walked.space_slice[walked.byte_offset_in_space_slice])
     }
 
-    pub fn load16(&self, shm_space: &ShmSpace, addr: u64) -> Result<u16, ProtectedMemoryError> {
-        Self::check_in_sv39(addr, 2)?;
+    pub fn load_multi_byte<T: Numeric>(&self, shm_space: &ShmSpace, addr: u64) -> Result<T, ProtectedMemoryError> {
+        Self::check_in_sv39(addr, T::BYTES)?;
         let walked = shm_space.acquisitions().walk(addr, shm_space).context(WalkSnafu)?;
 
         // Fits in page (all aligned accesses are this, and some unaligned accesses).
         let diff_to_end_of_space_slice = walked.space_slice.len() - walked.byte_offset_in_space_slice;
-        if diff_to_end_of_space_slice >= 2 {
-            let bytes: [u8; 2] = walked.space_slice[walked.byte_offset_in_space_slice..walked.byte_offset_in_space_slice+2].try_into().unwrap();
-            let word = u16::from_le_bytes(bytes);
+        if diff_to_end_of_space_slice >= (T::BYTES as usize) {
+            let bytes: T::ByteArray = walked.space_slice[walked.byte_offset_in_space_slice..walked.byte_offset_in_space_slice+(T::BYTES as usize)].try_into().unwrap();
+            let word = T::from_le_bytes(bytes);
             return Ok(word);
         }
 
@@ -488,10 +488,22 @@ impl ProtectedMemory {
         let next_page = addr + (diff_to_end_of_space_slice as u64);
         let walked_next_page = shm_space.acquisitions().walk(next_page, shm_space).context(WalkSnafu)?;
 
-        let bytes: [u8; 2] = [&walked.space_slice[walked.byte_offset_in_space_slice..], &walked_next_page.space_slice[..(2 - diff_to_end_of_space_slice)]]
+        let bytes: T::ByteArray = [&walked.space_slice[walked.byte_offset_in_space_slice..], &walked_next_page.space_slice[..((T::BYTES as usize) - diff_to_end_of_space_slice)]]
             .concat().try_into().unwrap();
-        let word = u16::from_le_bytes(bytes);
+        let word = T::from_le_bytes(bytes);
         Ok(word)
+    }
+
+    pub fn load16(&self, shm_space: &ShmSpace, addr: u64) -> Result<u16, ProtectedMemoryError> {
+        self.load_multi_byte(shm_space, addr)
+    }
+
+    pub fn load32(&self, shm_space: &ShmSpace, addr: u64) -> Result<u32, ProtectedMemoryError> {
+        self.load_multi_byte(shm_space, addr)
+    }
+
+    pub fn load64(&self, shm_space: &ShmSpace, addr: u64) -> Result<u64, ProtectedMemoryError> {
+        self.load_multi_byte(shm_space, addr)
     }
 }
 
@@ -500,6 +512,25 @@ pub enum ProtectedMemoryError {
     OutOfSv39,
     WalkError { source: PageTableError },
 }
+
+/// Alternatively, could use the `funty` crate for this.
+trait Numeric {
+    type ByteArray: TryFrom<Vec<u8>, Error = Vec<u8>> + for<'a> TryFrom<&'a [u8], Error = TryFromSliceError>;
+    const BYTES: u8;
+    fn from_le_bytes(bytes: Self::ByteArray) -> Self;
+}
+macro_rules! impl_numeric {
+    ($t:ty, $bytes:literal) => {
+        impl Numeric for $t {
+            type ByteArray = [u8; $bytes];
+            const BYTES: u8 = $bytes;
+            fn from_le_bytes(bytes: Self::ByteArray) -> Self { Self::from_le_bytes(bytes) }
+        }
+    };
+}
+impl_numeric!(u16, 2);
+impl_numeric!(u32, 4);
+impl_numeric!(u64, 8);
 
 #[cfg(test)]
 mod tests {
