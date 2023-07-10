@@ -385,75 +385,69 @@ pub struct WalkResultMut<'space> {
 }
 
 pub trait SpaceRef {
-    type Result<'space>: 'space;
-    type Ref<'space>: 'space;
-    type ShmCapRef<'space>: 'space;
-    type SpaceSlice<'space>: 'space;
+    type Result;
+    type ShmCapRef;
+    type SpaceSlice;
 
-    fn get_shm_cap<'space>(space_ref: Self::Ref<'space>, shm_cap_id: ShmCapId) -> Option<Self::ShmCapRef<'space>>;
-    fn shm_cap_ref<'space, 'walk_func>(shm_cap: &'walk_func Self::ShmCapRef<'space>) -> &'walk_func ShmCap;
-    fn backing_reslice<'space>(shm_cap: Self::ShmCapRef<'space>, byte_start: usize, byte_end: usize) -> Self::SpaceSlice<'space>;
-    fn result<'space>(space_slice: Self::SpaceSlice<'space>, byte_offset_in_space_slice: usize) -> Self::Result<'space>;
+    fn get_shm_cap(self, shm_cap_id: ShmCapId) -> Option<Self::ShmCapRef>;
+    fn shm_cap_ref(shm_cap: &Self::ShmCapRef) -> &ShmCap;
+    fn backing_reslice(shm_cap: Self::ShmCapRef, byte_start: usize, byte_end: usize) -> Self::SpaceSlice;
+    fn result(space_slice: Self::SpaceSlice, byte_offset_in_space_slice: usize) -> Self::Result;
 }
 
-struct Immutable;
-struct Mutable;
+impl<'space> SpaceRef for &'space ShmSpace {
+    type Result = WalkResult<'space>;
+    type ShmCapRef = &'space ShmCap;
+    type SpaceSlice = &'space [u8];
 
-impl SpaceRef for Immutable {
-    type Result<'space> = WalkResult<'space>;
-    type Ref<'space> = &'space ShmSpace;
-    type ShmCapRef<'space> = &'space ShmCap;
-    type SpaceSlice<'space> = &'space [u8];
-
-    fn get_shm_cap<'space>(space_ref: Self::Ref<'space>, shm_cap_id: ShmCapId) -> Option<Self::ShmCapRef<'space>> {
-        space_ref.get(shm_cap_id)
+    fn get_shm_cap(self, shm_cap_id: ShmCapId) -> Option<Self::ShmCapRef> {
+        self.get(shm_cap_id)
     }
 
-    fn shm_cap_ref<'space, 'walk_func>(shm_cap: &'walk_func Self::ShmCapRef<'space>) -> &'walk_func ShmCap {
+    fn shm_cap_ref(shm_cap: &Self::ShmCapRef) -> &ShmCap {
         shm_cap
     }
 
-    fn backing_reslice<'space>(shm_cap: Self::ShmCapRef<'space>, byte_start: usize, byte_end: usize) -> Self::SpaceSlice<'space> {
+    fn backing_reslice(shm_cap: Self::ShmCapRef, byte_start: usize, byte_end: usize) -> Self::SpaceSlice {
         &shm_cap.backing()[byte_start..byte_end]
     }
 
-    fn result<'space>(space_slice: Self::SpaceSlice<'space>, byte_offset_in_space_slice: usize) -> Self::Result<'space> {
+    fn result(space_slice: Self::SpaceSlice, byte_offset_in_space_slice: usize) -> Self::Result {
         WalkResult { space_slice, byte_offset_in_space_slice }
     }
 }
 
-impl SpaceRef for Mutable {
-    type Result<'space> = WalkResultMut<'space>;
-    type Ref<'space> = &'space mut ShmSpace;
-    type ShmCapRef<'space> = &'space mut ShmCap;
-    type SpaceSlice<'space> = &'space mut [u8];
+impl<'space> SpaceRef for &'space mut ShmSpace {
+    type Result = WalkResultMut<'space>;
+    type ShmCapRef = &'space mut ShmCap;
+    type SpaceSlice = &'space mut [u8];
 
-    fn get_shm_cap<'space>(space_ref: Self::Ref<'space>, shm_cap_id: ShmCapId) -> Option<Self::ShmCapRef<'space>> {
-        space_ref.get_mut(shm_cap_id)
+    fn get_shm_cap(self, shm_cap_id: ShmCapId) -> Option<Self::ShmCapRef> {
+        self.get_mut(shm_cap_id)
     }
 
-    fn shm_cap_ref<'space, 'walk_func>(shm_cap: &'walk_func Self::ShmCapRef<'space>) -> &'walk_func ShmCap {
+    fn shm_cap_ref(shm_cap: &Self::ShmCapRef) -> &ShmCap {
         shm_cap
     }
 
-    fn backing_reslice<'space>(shm_cap: Self::ShmCapRef<'space>, byte_start: usize, byte_end: usize) -> Self::SpaceSlice<'space> {
+    fn backing_reslice(shm_cap: Self::ShmCapRef, byte_start: usize, byte_end: usize) -> Self::SpaceSlice {
         &mut shm_cap.backing_mut()[byte_start..byte_end]
     }
 
-    fn result<'space>(space_slice: Self::SpaceSlice<'space>, byte_offset_in_space_slice: usize) -> Self::Result<'space> {
+    fn result(space_slice: Self::SpaceSlice, byte_offset_in_space_slice: usize) -> Self::Result {
         WalkResultMut { space_slice, byte_offset_in_space_slice }
     }
 }
 
 pub fn walk<'space>(vaddr: u64, page_table: &PageTableLevel1, shm_space: &'space ShmSpace) -> Result<WalkResult<'space>, PageTableError> {
-    walk_generic::<Immutable>(vaddr, page_table, shm_space)
+    walk_generic(vaddr, page_table, shm_space)
 }
 
 pub fn walk_mut<'space>(vaddr: u64, page_table: &PageTableLevel1, shm_space: &'space mut ShmSpace) -> Result<WalkResultMut<'space>, PageTableError> {
-    walk_generic::<Mutable>(vaddr, page_table, shm_space)
+    walk_generic(vaddr, page_table, shm_space)
 }
 
-pub fn walk_generic<'space, SR: SpaceRef>(vaddr: u64, page_table: &PageTableLevel1, shm_space: SR::Ref<'space>) -> Result<SR::Result<'space>, PageTableError> {
+pub fn walk_generic<SR: SpaceRef>(vaddr: u64, page_table: &PageTableLevel1, shm_space: SR) -> Result<SR::Result, PageTableError> {
     let vpn = vaddr >> 12;
     let level_2_table = page_table.entries[(vpn & ((1 << 9) - 1)) as usize].as_ref().ok_or(PageNotFoundSnafu.build())?;
 
