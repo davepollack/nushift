@@ -228,6 +228,10 @@ impl ShmSpace {
         self.space.get(&shm_cap_id)
     }
 
+    pub fn get_mut(&mut self, shm_cap_id: ShmCapId) -> Option<&mut ShmCap> {
+        self.space.get_mut(&shm_cap_id)
+    }
+
     pub fn acquisitions(&self) -> &AcquisitionsAndPageTable {
         &self.acquisitions
     }
