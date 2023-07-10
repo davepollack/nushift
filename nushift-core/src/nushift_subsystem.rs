@@ -7,7 +7,7 @@ use snafu_cli_debug::SnafuCliDebug;
 use std::{collections::{HashMap, hash_map::Entry}, io, ops::{Deref, DerefMut}};
 
 use super::process_control_block::ProcessControlBlock;
-use super::protected_memory::{AcquisitionsAndPageTable, AcquireError};
+use super::protected_memory::{self, AcquisitionsAndPageTable, AcquireError, WalkResult, PageTableError, WalkResultMut};
 
 // Regarding the use of `u64`s in this file:
 //
@@ -130,12 +130,13 @@ where
 }
 pub type ShmCapId = u64;
 pub type ShmCapLength = u64;
+pub type ShmSpaceMap = HashMap<ShmCapId, ShmCap>;
 /// 0 = number of 1 GiB caps, 1 = number of 2 MiB caps, 2 = number of 4 KiB caps
 type Sv39SpaceStats = [u32; 3];
 
 pub struct ShmSpace {
     id_pool: ReusableIdPoolManual,
-    space: HashMap<ShmCapId, ShmCap>,
+    space: ShmSpaceMap,
     acquisitions: AcquisitionsAndPageTable,
     stats: Sv39SpaceStats,
 }
@@ -224,16 +225,12 @@ impl ShmSpace {
         Ok(())
     }
 
-    pub fn get(&self, shm_cap_id: ShmCapId) -> Option<&ShmCap> {
-        self.space.get(&shm_cap_id)
+    pub fn walk<'space>(&'space self, vaddr: u64) -> Result<WalkResult<'space>, PageTableError> {
+        protected_memory::walk(vaddr, self.acquisitions.page_table(), &self.space)
     }
 
-    pub fn get_mut(&mut self, shm_cap_id: ShmCapId) -> Option<&mut ShmCap> {
-        self.space.get_mut(&shm_cap_id)
-    }
-
-    pub fn acquisitions(&self) -> &AcquisitionsAndPageTable {
-        &self.acquisitions
+    pub fn walk_mut<'space>(&'space mut self, vaddr: u64) -> Result<WalkResultMut<'space>, PageTableError> {
+        protected_memory::walk_mut(vaddr, self.acquisitions.page_table(), &mut self.space)
     }
 
     /// This assumes that all pages can be arranged as: all 1 GiB ones first,

@@ -2,7 +2,7 @@ use std::{collections::{BTreeMap, HashMap}, ops::Bound, array::TryFromSliceError
 use snafu::prelude::*;
 use snafu_cli_debug::SnafuCliDebug;
 
-use crate::nushift_subsystem::{ShmCapId, ShmCapLength, ShmSpace, ShmType, ShmCap, SV39_BITS};
+use crate::nushift_subsystem::{ShmCapId, ShmCapLength, ShmSpaceMap, ShmSpace, ShmType, ShmCap, SV39_BITS};
 
 // Costs of mapping, unmapping and accessing memory in this file:
 //
@@ -90,8 +90,8 @@ impl AcquisitionsAndPageTable {
         Ok(())
     }
 
-    pub fn walk<'space>(&self, vaddr: u64, shm_space: &'space ShmSpace) -> Result<WalkResult<'space>, PageTableError> {
-        walk(vaddr, &self.page_table, shm_space)
+    pub(crate) fn page_table(&self) -> &PageTableLevel1 {
+        &self.page_table
     }
 }
 
@@ -384,7 +384,7 @@ pub struct WalkResultMut<'space> {
     byte_offset_in_space_slice: usize,
 }
 
-pub trait SpaceRef {
+pub trait SpaceMapRef {
     type Result;
     type ShmCapRef;
     type SpaceSlice;
@@ -395,13 +395,13 @@ pub trait SpaceRef {
     fn result(space_slice: Self::SpaceSlice, byte_offset_in_space_slice: usize) -> Self::Result;
 }
 
-impl<'space> SpaceRef for &'space ShmSpace {
+impl<'space> SpaceMapRef for &'space ShmSpaceMap {
     type Result = WalkResult<'space>;
     type ShmCapRef = &'space ShmCap;
     type SpaceSlice = &'space [u8];
 
     fn get_shm_cap(self, shm_cap_id: ShmCapId) -> Option<Self::ShmCapRef> {
-        self.get(shm_cap_id)
+        self.get(&shm_cap_id)
     }
 
     fn shm_cap_ref(shm_cap: &Self::ShmCapRef) -> &ShmCap {
@@ -417,13 +417,13 @@ impl<'space> SpaceRef for &'space ShmSpace {
     }
 }
 
-impl<'space> SpaceRef for &'space mut ShmSpace {
+impl<'space> SpaceMapRef for &'space mut ShmSpaceMap {
     type Result = WalkResultMut<'space>;
     type ShmCapRef = &'space mut ShmCap;
     type SpaceSlice = &'space mut [u8];
 
     fn get_shm_cap(self, shm_cap_id: ShmCapId) -> Option<Self::ShmCapRef> {
-        self.get_mut(shm_cap_id)
+        self.get_mut(&shm_cap_id)
     }
 
     fn shm_cap_ref(shm_cap: &Self::ShmCapRef) -> &ShmCap {
@@ -439,23 +439,23 @@ impl<'space> SpaceRef for &'space mut ShmSpace {
     }
 }
 
-pub fn walk<'space>(vaddr: u64, page_table: &PageTableLevel1, shm_space: &'space ShmSpace) -> Result<WalkResult<'space>, PageTableError> {
-    walk_generic(vaddr, page_table, shm_space)
+pub fn walk<'space>(vaddr: u64, page_table: &PageTableLevel1, shm_space_map: &'space ShmSpaceMap) -> Result<WalkResult<'space>, PageTableError> {
+    walk_generic(vaddr, page_table, shm_space_map)
 }
 
-pub fn walk_mut<'space>(vaddr: u64, page_table: &PageTableLevel1, shm_space: &'space mut ShmSpace) -> Result<WalkResultMut<'space>, PageTableError> {
-    walk_generic(vaddr, page_table, shm_space)
+pub fn walk_mut<'space>(vaddr: u64, page_table: &PageTableLevel1, shm_space_map: &'space mut ShmSpaceMap) -> Result<WalkResultMut<'space>, PageTableError> {
+    walk_generic(vaddr, page_table, shm_space_map)
 }
 
-pub fn walk_generic<SR: SpaceRef>(vaddr: u64, page_table: &PageTableLevel1, shm_space: SR) -> Result<SR::Result, PageTableError> {
+pub fn walk_generic<SMR: SpaceMapRef>(vaddr: u64, page_table: &PageTableLevel1, shm_space_map: SMR) -> Result<SMR::Result, PageTableError> {
     let vpn = vaddr >> 12;
     let level_2_table = page_table.entries[(vpn & ((1 << 9) - 1)) as usize].as_ref().ok_or(PageNotFoundSnafu.build())?;
 
     let (entry, shm_cap) = 'superpage_check: {
         let leaf_table = match level_2_table.as_ref() {
             PageTableLevel2::OneGiBSuperpage(pte) => {
-                let shm_cap = SR::get_shm_cap(shm_space, pte.shm_cap_id).ok_or_else(|| PageEntryCorruptedSnafu { shm_cap_id: pte.shm_cap_id, mismatched_entry_found_at_level: None, shm_cap_offset: None, shm_cap_length: None }.build())?;
-                check_shm_type_mismatch(1, &pte, SR::shm_cap_ref(&shm_cap), ShmType::OneGiB)?;
+                let shm_cap = SMR::get_shm_cap(shm_space_map, pte.shm_cap_id).ok_or_else(|| PageEntryCorruptedSnafu { shm_cap_id: pte.shm_cap_id, mismatched_entry_found_at_level: None, shm_cap_offset: None, shm_cap_length: None }.build())?;
+                check_shm_type_mismatch(1, &pte, SMR::shm_cap_ref(&shm_cap), ShmType::OneGiB)?;
                 break 'superpage_check (pte, shm_cap);
             },
             PageTableLevel2::Entries(entries) => entries[((vpn >> 9) & ((1 << 9) - 1)) as usize].as_ref().ok_or(PageNotFoundSnafu.build())?,
@@ -463,19 +463,19 @@ pub fn walk_generic<SR: SpaceRef>(vaddr: u64, page_table: &PageTableLevel1, shm_
 
         let four_k_entry = match leaf_table.as_ref() {
             PageTableLeaf::TwoMiBSuperpage(pte) => {
-                let shm_cap = SR::get_shm_cap(shm_space, pte.shm_cap_id).ok_or_else(|| PageEntryCorruptedSnafu { shm_cap_id: pte.shm_cap_id, mismatched_entry_found_at_level: None, shm_cap_offset: None, shm_cap_length: None }.build())?;
-                check_shm_type_mismatch(2, &pte, SR::shm_cap_ref(&shm_cap), ShmType::TwoMiB)?;
+                let shm_cap = SMR::get_shm_cap(shm_space_map, pte.shm_cap_id).ok_or_else(|| PageEntryCorruptedSnafu { shm_cap_id: pte.shm_cap_id, mismatched_entry_found_at_level: None, shm_cap_offset: None, shm_cap_length: None }.build())?;
+                check_shm_type_mismatch(2, &pte, SMR::shm_cap_ref(&shm_cap), ShmType::TwoMiB)?;
                 break 'superpage_check (pte, shm_cap);
             },
             PageTableLeaf::Entries(entries) => entries[((vpn >> 18) & ((1 << 9) - 1)) as usize].as_ref().ok_or(PageNotFoundSnafu.build())?,
         };
-        let shm_cap = SR::get_shm_cap(shm_space, four_k_entry.shm_cap_id).ok_or_else(|| PageEntryCorruptedSnafu { shm_cap_id: four_k_entry.shm_cap_id, mismatched_entry_found_at_level: None, shm_cap_offset: None, shm_cap_length: None }.build())?;
-        check_shm_type_mismatch(3, &four_k_entry, SR::shm_cap_ref(&shm_cap), ShmType::FourKiB)?;
+        let shm_cap = SMR::get_shm_cap(shm_space_map, four_k_entry.shm_cap_id).ok_or_else(|| PageEntryCorruptedSnafu { shm_cap_id: four_k_entry.shm_cap_id, mismatched_entry_found_at_level: None, shm_cap_offset: None, shm_cap_length: None }.build())?;
+        check_shm_type_mismatch(3, &four_k_entry, SMR::shm_cap_ref(&shm_cap), ShmType::FourKiB)?;
 
         (four_k_entry, shm_cap)
     };
 
-    let shm_cap_ref = SR::shm_cap_ref(&shm_cap);
+    let shm_cap_ref = SMR::shm_cap_ref(&shm_cap);
     if entry.shm_cap_offset >= shm_cap_ref.length() {
         return PageEntryCorruptedSnafu { shm_cap_id: entry.shm_cap_id, mismatched_entry_found_at_level: None, shm_cap_offset: Some(entry.shm_cap_offset), shm_cap_length: Some(shm_cap_ref.length()) }.fail();
     }
@@ -493,9 +493,9 @@ pub fn walk_generic<SR: SpaceRef>(vaddr: u64, page_table: &PageTableLevel1, shm_
     let byte_offset_in_space_slice = (vaddr & (shm_cap_ref.shm_type().page_bytes() - 1))
         .try_into()
         .map_err(|_| PageTooLargeToFitInHostPlatformWordSnafu { shm_cap_id: entry.shm_cap_id, shm_type: shm_cap_ref.shm_type(), offset: entry.shm_cap_offset }.build())?;
-    let space_slice = SR::backing_reslice(shm_cap, byte_start, byte_end);
+    let space_slice = SMR::backing_reslice(shm_cap, byte_start, byte_end);
 
-    Ok(SR::result(space_slice, byte_offset_in_space_slice))
+    Ok(SMR::result(space_slice, byte_offset_in_space_slice))
 }
 
 fn check_shm_type_mismatch(current_level: u8, entry: &PageTableEntry, shm_cap: &ShmCap, expected_shm_type: ShmType) -> Result<(), PageTableError> {
@@ -531,15 +531,15 @@ impl ProtectedMemory {
         }
     }
 
-    pub fn load8(&self, shm_space: &ShmSpace, addr: u64) -> Result<u8, ProtectedMemoryError> {
+    pub fn load8(shm_space: &ShmSpace, addr: u64) -> Result<u8, ProtectedMemoryError> {
         Self::check_within_sv39(addr, 1)?;
-        let walked = shm_space.acquisitions().walk(addr, shm_space).context(WalkSnafu)?;
+        let walked = shm_space.walk(addr).context(WalkSnafu)?;
         Ok(walked.space_slice[walked.byte_offset_in_space_slice])
     }
 
-    pub fn load_multi_byte<T: Numeric>(&self, shm_space: &ShmSpace, addr: u64) -> Result<T, ProtectedMemoryError> {
+    pub fn load_multi_byte<T: Numeric>(shm_space: &ShmSpace, addr: u64) -> Result<T, ProtectedMemoryError> {
         Self::check_within_sv39(addr, mem::size_of::<T>())?;
-        let walked = shm_space.acquisitions().walk(addr, shm_space).context(WalkSnafu)?;
+        let walked = shm_space.walk(addr).context(WalkSnafu)?;
 
         // Fits in page (all aligned accesses are this, and some unaligned accesses).
         let diff_to_end_of_space_slice = walked.space_slice.len() - walked.byte_offset_in_space_slice;
@@ -557,7 +557,7 @@ impl ProtectedMemory {
         // Casting to u64 is OK because a page size can't be more than u64 as
         // long as `addr` is still u64.
         let next_page = addr + (diff_to_end_of_space_slice as u64);
-        let walked_next_page = shm_space.acquisitions().walk(next_page, shm_space).context(WalkSnafu)?;
+        let walked_next_page = shm_space.walk(next_page).context(WalkSnafu)?;
 
         let bytes: T::ByteArray = [&walked.space_slice[walked.byte_offset_in_space_slice..], &walked_next_page.space_slice[..(mem::size_of::<T>() - diff_to_end_of_space_slice)]]
             .concat().try_into().unwrap();
@@ -565,16 +565,23 @@ impl ProtectedMemory {
         Ok(word)
     }
 
-    pub fn load16(&self, shm_space: &ShmSpace, addr: u64) -> Result<u16, ProtectedMemoryError> {
-        self.load_multi_byte(shm_space, addr)
+    pub fn load16(shm_space: &ShmSpace, addr: u64) -> Result<u16, ProtectedMemoryError> {
+        Self::load_multi_byte(shm_space, addr)
     }
 
-    pub fn load32(&self, shm_space: &ShmSpace, addr: u64) -> Result<u32, ProtectedMemoryError> {
-        self.load_multi_byte(shm_space, addr)
+    pub fn load32(shm_space: &ShmSpace, addr: u64) -> Result<u32, ProtectedMemoryError> {
+        Self::load_multi_byte(shm_space, addr)
     }
 
-    pub fn load64(&self, shm_space: &ShmSpace, addr: u64) -> Result<u64, ProtectedMemoryError> {
-        self.load_multi_byte(shm_space, addr)
+    pub fn load64(shm_space: &ShmSpace, addr: u64) -> Result<u64, ProtectedMemoryError> {
+        Self::load_multi_byte(shm_space, addr)
+    }
+
+    pub fn store8(shm_space: &mut ShmSpace, addr: u64, value: u8) -> Result<(), ProtectedMemoryError> {
+        Self::check_within_sv39(addr, 1)?;
+        let walked_mut = shm_space.walk_mut(addr).context(WalkSnafu)?;
+        walked_mut.space_slice[walked_mut.byte_offset_in_space_slice] = value;
+        Ok(())
     }
 }
 
