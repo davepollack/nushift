@@ -4,7 +4,7 @@ use num_enum::{TryFromPrimitive, IntoPrimitive};
 use reusable_id_pool::{ReusableIdPoolError, ReusableIdPoolManual};
 use snafu::prelude::*;
 use snafu_cli_debug::SnafuCliDebug;
-use std::{collections::{HashMap, hash_map::Entry}, io, ops::{Deref, DerefMut}};
+use std::{collections::{HashMap, hash_map::Entry}, io, ops::{Deref, DerefMut}, num::NonZeroU64};
 
 use super::process_control_block::ProcessControlBlock;
 use super::protected_memory::{self, AcquisitionsAndPageTable, AcquireError, WalkResult, PageTableError, WalkResultMut};
@@ -111,6 +111,10 @@ impl<B> ShmCap<B> {
     pub fn length(&self) -> ShmCapLength {
         self.length
     }
+
+    pub fn length_u64(&self) -> u64 {
+        self.length.get()
+    }
 }
 impl<B> ShmCap<B>
 where
@@ -129,7 +133,8 @@ where
     }
 }
 pub type ShmCapId = u64;
-pub type ShmCapLength = u64;
+pub type ShmCapLength = NonZeroU64;
+pub type ShmCapOffset = u64;
 pub type ShmSpaceMap = HashMap<ShmCapId, ShmCap>;
 /// 0 = number of 1 GiB caps, 1 = number of 2 MiB caps, 2 = number of 4 KiB caps
 type Sv39SpaceStats = [u32; 3];
@@ -152,22 +157,21 @@ impl ShmSpace {
     }
 
     // TODO: Probably should add shm_resize. And the validation that has for length should be consistent with here.
-    pub fn new_shm_cap(&mut self, shm_type: ShmType, length: ShmCapLength) -> Result<(ShmCapId, &ShmCap), ShmSpaceError> {
-        if length == 0 {
-            return InvalidLengthSnafu.fail();
-        }
+    pub fn new_shm_cap(&mut self, shm_type: ShmType, length: u64) -> Result<(ShmCapId, &ShmCap), ShmSpaceError> {
+        let length = NonZeroU64::new(length).ok_or(InvalidLengthSnafu.build())?;
+        let length_u64 = length.get();
 
-        if length > self.sv39_available_pages(shm_type).into() {
+        if length_u64 > self.sv39_available_pages(shm_type).into() {
             return CapacityNotAvailableSnafu.fail();
         }
 
         // Since we have got past the sv39_available_pages check and it returns
         // a u32, we now know length is < 2^32.
-        let sv39_length = length as u32;
+        let sv39_length = length_u64 as u32;
 
         let mmap_mut = MmapMut::map_anon(
             shm_type.page_bytes()
-                .checked_mul(length)
+                .checked_mul(length_u64)
                 .ok_or(BackingCapacityNotAvailableOverflowsSnafu.build())?
                 .try_into()
                 .map_err(|_| BackingCapacityNotAvailableOverflowsSnafu.build())?
@@ -273,9 +277,9 @@ impl ShmSpace {
     /// this, this accepts a ShmCap that is moved in, not borrowed.
     fn sv39_decrement_stats(stats: &mut Sv39SpaceStats, shm_cap: ShmCap) {
         match shm_cap.shm_type {
-            ShmType::FourKiB => stats[2] -= shm_cap.length as u32,
-            ShmType::TwoMiB => stats[1] -= shm_cap.length as u32,
-            ShmType::OneGiB => stats[0] -= shm_cap.length as u32,
+            ShmType::FourKiB => stats[2] -= shm_cap.length.get() as u32,
+            ShmType::TwoMiB => stats[1] -= shm_cap.length.get() as u32,
+            ShmType::OneGiB => stats[0] -= shm_cap.length.get() as u32,
         }
     }
 }
