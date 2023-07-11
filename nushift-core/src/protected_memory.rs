@@ -605,20 +605,34 @@ impl ProtectedMemory {
 
             // Goes onto next page. Not common, only unaligned accesses can do this.
 
-            // Because of borrow checker, we write the first bit, then walk the
-            // next page, then write the next bit.
-            walked_mut.space_slice[walked_mut.byte_offset_in_space_slice..].copy_from_slice(&le_bytes_slice[..diff_to_end_of_space_slice]);
-            drop(walked_mut); // Not necessary if I reuse the binding name, but I don't want to reuse the binding name
-
             // Doesn't overflow, and is a valid argument to `walk_mut`, because we
             // called `check_within_sv39` at the beginning.
             //
             // Casting to u64 is OK because a page size can't be more than u64 as
             // long as `addr` is still u64.
             let next_page = addr + (diff_to_end_of_space_slice as u64);
-            let walked_next_page_mut = shm_space.walk_mut(next_page).context(WalkSnafu)?;
 
+            // Check walking of the next page is OK. After this point, all
+            // operations will be infallible.
+            //
+            // We have to do it this way because we can't save the results from
+            // both walks like we did in `load_multi_byte` because we can't
+            // mutably borrow at the same time, and we can't just do a write to
+            // the first page and then do a fallible walk of the next page
+            // because that might fail resulting in a partial write. So we have
+            // to do it this way.
+            shm_space.walk_mut(next_page).context(WalkSnafu)?;
+
+            // Infallible because it succeeded before
+            let walked_mut = shm_space.walk_mut(addr).expect("First page walk: infallible because it succeeded before");
+            // Write first part
+            walked_mut.space_slice[walked_mut.byte_offset_in_space_slice..].copy_from_slice(&le_bytes_slice[..diff_to_end_of_space_slice]);
+
+            // Infallible because it succeeded before
+            let walked_next_page_mut = shm_space.walk_mut(next_page).expect("Next page walk: infallible because it succeeded before");
+            // Write second part
             walked_next_page_mut.space_slice[..(word_bytes - diff_to_end_of_space_slice)].copy_from_slice(&le_bytes_slice[diff_to_end_of_space_slice..]);
+
             Ok(())
         }
         inner(shm_space, addr, le_bytes.as_ref(), word_bytes)?;
