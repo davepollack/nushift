@@ -440,14 +440,14 @@ impl<'space> SpaceMapRef for &'space mut ShmSpaceMap {
 }
 
 pub fn walk<'space>(vaddr: u64, page_table: &PageTableLevel1, shm_space_map: &'space ShmSpaceMap) -> Result<WalkResult<'space>, PageTableError> {
-    walk_generic(vaddr, page_table, shm_space_map)
+    walk_immut_or_mut(vaddr, page_table, shm_space_map)
 }
 
 pub fn walk_mut<'space>(vaddr: u64, page_table: &PageTableLevel1, shm_space_map: &'space mut ShmSpaceMap) -> Result<WalkResultMut<'space>, PageTableError> {
-    walk_generic(vaddr, page_table, shm_space_map)
+    walk_immut_or_mut(vaddr, page_table, shm_space_map)
 }
 
-pub fn walk_generic<SMR: SpaceMapRef>(vaddr: u64, page_table: &PageTableLevel1, shm_space_map: SMR) -> Result<SMR::Result, PageTableError> {
+pub fn walk_immut_or_mut<SMR: SpaceMapRef>(vaddr: u64, page_table: &PageTableLevel1, shm_space_map: SMR) -> Result<SMR::Result, PageTableError> {
     let vpn = vaddr >> 12;
     let level_2_table = page_table.entries[(vpn & ((1 << 9) - 1)) as usize].as_ref().ok_or(PageNotFoundSnafu.build())?;
 
@@ -583,6 +583,59 @@ impl ProtectedMemory {
         walked_mut.space_slice[walked_mut.byte_offset_in_space_slice] = value;
         Ok(())
     }
+
+    pub fn store_multi_byte<T: Numeric>(shm_space: &mut ShmSpace, addr: u64, value: T) -> Result<(), ProtectedMemoryError> {
+        Self::check_within_sv39(addr, mem::size_of::<T>())?;
+        let le_bytes = T::to_le_bytes(value);
+        let word_bytes = mem::size_of::<T>();
+
+        // Non-generic inner function. We can't quite do this with
+        // `load_multi_byte`, because there we can't call `from_le_bytes` at the
+        // beginning of the routine like we can with `to_le_bytes` here.
+        fn inner(shm_space: &mut ShmSpace, addr: u64, le_bytes_slice: &[u8], word_bytes: usize) -> Result<(), ProtectedMemoryError> {
+            let walked_mut = shm_space.walk_mut(addr).context(WalkSnafu)?;
+
+            // Fits in page (all aligned accesses are this, and some unaligned accesses).
+            let diff_to_end_of_space_slice = walked_mut.space_slice.len() - walked_mut.byte_offset_in_space_slice;
+            if diff_to_end_of_space_slice >= word_bytes {
+                walked_mut.space_slice[walked_mut.byte_offset_in_space_slice..walked_mut.byte_offset_in_space_slice+word_bytes]
+                    .copy_from_slice(le_bytes_slice);
+                return Ok(());
+            }
+
+            // Goes onto next page. Not common, only unaligned accesses can do this.
+
+            // Because of borrow checker, we write the first bit, then walk the
+            // next page, then write the next bit.
+            walked_mut.space_slice[walked_mut.byte_offset_in_space_slice..].copy_from_slice(&le_bytes_slice[..diff_to_end_of_space_slice]);
+            drop(walked_mut); // Not necessary if I reuse the binding name, but I don't want to reuse the binding name
+
+            // Doesn't overflow, and is a valid argument to `walk_mut`, because we
+            // called `check_within_sv39` at the beginning.
+            //
+            // Casting to u64 is OK because a page size can't be more than u64 as
+            // long as `addr` is still u64.
+            let next_page = addr + (diff_to_end_of_space_slice as u64);
+            let walked_next_page_mut = shm_space.walk_mut(next_page).context(WalkSnafu)?;
+
+            walked_next_page_mut.space_slice[..(word_bytes - diff_to_end_of_space_slice)].copy_from_slice(&le_bytes_slice[diff_to_end_of_space_slice..]);
+            Ok(())
+        }
+        inner(shm_space, addr, le_bytes.as_ref(), word_bytes)?;
+        Ok(())
+    }
+
+    pub fn store16(shm_space: &mut ShmSpace, addr: u64, value: u16) -> Result<(), ProtectedMemoryError> {
+        Self::store_multi_byte(shm_space, addr, value)
+    }
+
+    pub fn store32(shm_space: &mut ShmSpace, addr: u64, value: u32) -> Result<(), ProtectedMemoryError> {
+        Self::store_multi_byte(shm_space, addr, value)
+    }
+
+    pub fn store64(shm_space: &mut ShmSpace, addr: u64, value: u64) -> Result<(), ProtectedMemoryError> {
+        Self::store_multi_byte(shm_space, addr, value)
+    }
 }
 
 #[derive(Snafu, SnafuCliDebug)]
@@ -593,14 +646,18 @@ pub enum ProtectedMemoryError {
 
 /// Alternatively, could use the `funty` crate for this.
 trait Numeric {
-    type ByteArray: for<'a> TryFrom<&'a [u8], Error = TryFromSliceError> + TryFrom<Vec<u8>, Error = Vec<u8>>;
+    type ByteArray: for<'a> TryFrom<&'a [u8], Error = TryFromSliceError> + TryFrom<Vec<u8>, Error = Vec<u8>> + AsRef<[u8]>;
+
     fn from_le_bytes(bytes: Self::ByteArray) -> Self;
+    fn to_le_bytes(self) -> Self::ByteArray;
 }
 macro_rules! impl_numeric {
     ($($t:ty),+) => { $(
         impl Numeric for $t {
             type ByteArray = [u8; mem::size_of::<Self>()];
+
             fn from_le_bytes(bytes: Self::ByteArray) -> Self { Self::from_le_bytes(bytes) }
+            fn to_le_bytes(self) -> Self::ByteArray { self.to_le_bytes() }
         }
     )+ };
 }
