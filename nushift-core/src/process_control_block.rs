@@ -7,7 +7,6 @@ use ckb_vm::{
     Register,
     Error as CKBVMError,
     Bytes,
-    machine::VERSION1,
     registers::SP,
     decoder::build_decoder,
     instructions::execute,
@@ -56,9 +55,9 @@ impl<R: Register> ProcessControlBlock<R> {
         // it as loaded on this line.
         self.machine = MachineState::Loaded(core_machine);
 
-        // Use self.load_elf() and self.initialize_stack(), this is why we
-        // implemented SupportMachine, so we don't have to convert the loader
-        // code in riscv_machine_wrapper.rs, otherwise, remove the
+        // Use self.load_elf(), this is why we implemented SupportMachine, so we
+        // don't have to convert the loader code in riscv_machine_wrapper.rs (a
+        // file that doesn't exist anymore), otherwise, remove the
         // SupportMachine implementation.
 
         self.load_elf(&Bytes::from(image), true).context(ElfLoadingSnafu)?;
@@ -68,12 +67,8 @@ impl<R: Register> ProcessControlBlock<R> {
         // Should the location and size be determined by app metadata? Should
         // the location be randomised?
         const STACK_BASE: u64 = 0x80000000;
-        const STACK_SIZE: u64 = 0x40000;
-        self.initialize_stack(&[], STACK_BASE, STACK_SIZE).context(StackInitializationSnafu)?;
-        // Make sure SP is 16 byte aligned
-        if self.version() >= VERSION1 {
-            debug_assert!(self.registers()[SP].to_u64() % 16 == 0);
-        }
+        const STACK_SIZE: u64 = 0x40000; // TODO: Use
+        self.set_register(SP, R::from_u64(STACK_BASE));
 
         Ok(())
     }
