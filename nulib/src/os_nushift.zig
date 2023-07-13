@@ -53,10 +53,10 @@ pub fn syscall_ignore_errors(comptime sys: Syscall, sys_args: SyscallArgs(sys)) 
 
 fn syscall_internal(comptime sys: Syscall, sys_args: SyscallArgs(sys), comptime ignore_errors: bool, comptime ReturnType: type) ReturnType {
     return switch (sys) {
-        .exit => syscall_internal_args(@enumToInt(sys), 1, [_]usize{sys_args.exit_reason}, ignore_errors, ReturnType),
-        .shm_new => syscall_internal_args(@enumToInt(sys), 2, [_]usize{ @enumToInt(sys_args.shm_type), sys_args.length }, ignore_errors, ReturnType),
-        .shm_acquire => syscall_internal_args(@enumToInt(sys), 2, [_]usize{ sys_args.shm_cap_id, sys_args.address }, ignore_errors, ReturnType),
-        .shm_release, .shm_destroy => syscall_internal_args(@enumToInt(sys), 1, [_]usize{sys_args.shm_cap_id}, ignore_errors, ReturnType),
+        .exit => syscall_internal_args(@intFromEnum(sys), 1, [_]usize{sys_args.exit_reason}, ignore_errors, ReturnType),
+        .shm_new => syscall_internal_args(@intFromEnum(sys), 2, [_]usize{ @intFromEnum(sys_args.shm_type), sys_args.length }, ignore_errors, ReturnType),
+        .shm_acquire => syscall_internal_args(@intFromEnum(sys), 2, [_]usize{ sys_args.shm_cap_id, sys_args.address }, ignore_errors, ReturnType),
+        .shm_release, .shm_destroy => syscall_internal_args(@intFromEnum(sys), 1, [_]usize{sys_args.shm_cap_id}, ignore_errors, ReturnType),
     };
 }
 
@@ -116,7 +116,7 @@ fn syscall_internal_args(syscall_number: usize, comptime num_args: comptime_int,
     }
 
     if (a0_output == std.math.maxInt(usize)) {
-        return SyscallResult{ .fail = @intToEnum(SyscallError, t0_output) };
+        return SyscallResult{ .fail = @enumFromInt(t0_output) };
     }
 
     return SyscallResult{ .ok = a0_output };

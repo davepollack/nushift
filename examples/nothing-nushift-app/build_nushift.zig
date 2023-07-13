@@ -42,9 +42,9 @@ pub fn buildWithOptions(b: *std.Build, appName: []const u8, mainPath: []const u8
     exe.addModule("main", main_module);
     exe.addModule("os_nushift", os_nushift_module);
     exe.strip = strip;
-    exe.install();
+    b.installArtifact(exe);
 
-    const run_cmd = exe.run();
+    const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
     if (b.args) |args| {
         run_cmd.addArgs(args);

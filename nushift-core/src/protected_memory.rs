@@ -449,7 +449,8 @@ pub fn walk_mut<'space>(vaddr: u64, page_table: &PageTableLevel1, shm_space_map:
 
 pub fn walk_immut_or_mut<SMR: SpaceMapRef>(vaddr: u64, page_table: &PageTableLevel1, shm_space_map: SMR) -> Result<SMR::Result, PageTableError> {
     let vpn = vaddr >> 12;
-    let level_2_table = page_table.entries[(vpn & ((1 << 9) - 1)) as usize].as_ref().ok_or(PageNotFoundSnafu.build())?;
+    let vpn2 = vpn >> 18;
+    let level_2_table = page_table.entries[vpn2 as usize].as_ref().ok_or(PageNotFoundSnafu.build())?;
 
     let (entry, shm_cap) = 'superpage_check: {
         let leaf_table = match level_2_table.as_ref() {
@@ -458,7 +459,10 @@ pub fn walk_immut_or_mut<SMR: SpaceMapRef>(vaddr: u64, page_table: &PageTableLev
                 check_shm_type_mismatch(1, &pte, SMR::shm_cap_ref(&shm_cap), ShmType::OneGiB)?;
                 break 'superpage_check (pte, shm_cap);
             },
-            PageTableLevel2::Entries(entries) => entries[((vpn >> 9) & ((1 << 9) - 1)) as usize].as_ref().ok_or(PageNotFoundSnafu.build())?,
+            PageTableLevel2::Entries(entries) => {
+                let vpn1 = (vpn >> 9) & ((1 << 9) - 1);
+                entries[vpn1 as usize].as_ref().ok_or(PageNotFoundSnafu.build())?
+            },
         };
 
         let four_k_entry = match leaf_table.as_ref() {
@@ -467,7 +471,10 @@ pub fn walk_immut_or_mut<SMR: SpaceMapRef>(vaddr: u64, page_table: &PageTableLev
                 check_shm_type_mismatch(2, &pte, SMR::shm_cap_ref(&shm_cap), ShmType::TwoMiB)?;
                 break 'superpage_check (pte, shm_cap);
             },
-            PageTableLeaf::Entries(entries) => entries[((vpn >> 18) & ((1 << 9) - 1)) as usize].as_ref().ok_or(PageNotFoundSnafu.build())?,
+            PageTableLeaf::Entries(entries) => {
+                let vpn0 = vpn & ((1 << 9) - 1);
+                entries[vpn0 as usize].as_ref().ok_or(PageNotFoundSnafu.build())?
+            }
         };
         let shm_cap = SMR::get_shm_cap(shm_space_map, four_k_entry.shm_cap_id).ok_or_else(|| PageEntryCorruptedSnafu { shm_cap_id: four_k_entry.shm_cap_id, mismatched_entry_found_at_level: None, shm_cap_offset: None, shm_cap_length: None }.build())?;
         check_shm_type_mismatch(3, &four_k_entry, SMR::shm_cap_ref(&shm_cap), ShmType::FourKiB)?;

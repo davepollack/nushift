@@ -18,7 +18,7 @@ fn init_stack() usize {
     const shm_cap_id = switch (new_result) {
         .ok => |val| val,
         .fail => |err_enum| {
-            _ = OsNushift.syscall_ignore_errors(.exit, .{ .exit_reason = @enumToInt(err_enum) });
+            _ = OsNushift.syscall_ignore_errors(.exit, .{ .exit_reason = @intFromEnum(err_enum) });
             unreachable;
         },
     };
@@ -27,7 +27,7 @@ fn init_stack() usize {
     switch (acquire_result) {
         .ok => {},
         .fail => |err_enum| {
-            _ = OsNushift.syscall_ignore_errors(.exit, .{ .exit_reason = @enumToInt(err_enum) });
+            _ = OsNushift.syscall_ignore_errors(.exit, .{ .exit_reason = @intFromEnum(err_enum) });
             unreachable;
         },
     }
