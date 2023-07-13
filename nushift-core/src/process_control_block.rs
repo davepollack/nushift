@@ -1,3 +1,5 @@
+use std::marker::PhantomData;
+
 use ckb_vm::{
     DefaultCoreMachine,
     SparseMemory,
@@ -7,14 +9,15 @@ use ckb_vm::{
     Register,
     Error as CKBVMError,
     Bytes,
-    registers::SP,
     decoder::build_decoder,
     instructions::execute,
+    Memory,
 };
 use snafu::prelude::*;
 use snafu_cli_debug::SnafuCliDebug;
 
 use super::nushift_subsystem::NushiftSubsystem;
+use super::protected_memory::ProtectedMemory;
 
 pub struct ProcessControlBlock<R> {
     machine: MachineState<R>,
@@ -24,7 +27,10 @@ pub struct ProcessControlBlock<R> {
 
 enum MachineState<R> {
     Unloaded,
-    Loaded(DefaultCoreMachine<R, SparseMemory<R>>),
+    Loaded {
+        machine: DefaultCoreMachine<R, StubMemory<R>>,
+        executable_machine: DefaultCoreMachine<R, SparseMemory<R>>,
+    },
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -43,38 +49,35 @@ impl<R: Register> ProcessControlBlock<R> {
     }
 
     pub fn load_machine(&mut self, image: Vec<u8>) -> Result<(), ProcessControlBlockError> {
-        let core_machine = DefaultCoreMachine::<R, SparseMemory<R>>::new(
+        let mut core_machine = DefaultCoreMachine::<R, StubMemory<R>>::new(
+            ckb_vm::ISA_IMC,
+            ckb_vm::machine::VERSION1,
+            u64::MAX,
+        );
+        let mut executable_machine = DefaultCoreMachine::<R, SparseMemory<R>>::new(
             ckb_vm::ISA_IMC,
             ckb_vm::machine::VERSION1,
             u64::MAX,
         );
 
-        // We have to set it as loaded here for the below support methods to
-        // work. If we remove the SupportMachine implementation and use our own
-        // methods that can take a CoreMachine directly, we may not have to set
-        // it as loaded on this line.
-        self.machine = MachineState::Loaded(core_machine);
-
-        // Use self.load_elf(), this is why we implemented SupportMachine, so we
-        // don't have to convert the loader code in riscv_machine_wrapper.rs (a
-        // file that doesn't exist anymore), otherwise, remove the
-        // SupportMachine implementation.
-
-        self.load_elf(&Bytes::from(image), true).context(ElfLoadingSnafu)?;
+        executable_machine.load_elf(&Bytes::from(image), true).context(ElfLoadingSnafu)?;
+        core_machine.update_pc(executable_machine.pc().clone());
+        core_machine.commit_pc();
 
         // The stack. 256 KiB.
         //
         // Should the location and size be determined by app metadata? Should
         // the location be randomised?
-        const STACK_BASE: u64 = 0x80000000;
-        const STACK_SIZE: u64 = 0x40000; // TODO: Use
-        self.set_register(SP, R::from_u64(STACK_BASE));
+        // const STACK_BASE: u64 = 0x80000000;
+        // const STACK_SIZE: u64 = 0x40000; // TODO: Use
+        // self.set_register(SP, R::from_u64(STACK_BASE));
 
+        self.machine = MachineState::Loaded { machine: core_machine, executable_machine };
         Ok(())
     }
 
     pub fn run(&mut self) -> Result<ExitReason, ProcessControlBlockError> {
-        if !matches!(self.machine, MachineState::Loaded(_)) {
+        if !matches!(self.machine, MachineState::Loaded { .. }) {
             return RunMachineNotLoadedSnafu.fail();
         }
 
@@ -86,7 +89,10 @@ impl<R: Register> ProcessControlBlock<R> {
             // We don't have `if self.reset_signal()` here because we're not supporting reset right now
             let instruction = {
                 let pc = self.pc().to_u64();
-                let memory = self.memory_mut();
+                let memory = match self.machine {
+                    MachineState::Loaded { ref mut executable_machine, .. } => executable_machine.memory_mut(),
+                    _ => panic!("must be loaded since it was checked before"),
+                };
                 decoder.decode(memory, pc).context(DecodeSnafu)?
             };
             execute(instruction, self).context(ExecuteSnafu)?;
@@ -96,15 +102,18 @@ impl<R: Register> ProcessControlBlock<R> {
     }
 
     pub fn user_exit(&mut self, exit_reason: u64) {
-        if let MachineState::Loaded(machine) = &mut self.machine {
-            self.exit_reason = ExitReason::UserExit { exit_reason };
-            machine.set_running(false);
+        match self.machine {
+            MachineState::Loaded { ref mut machine, .. } => {
+                self.exit_reason = ExitReason::UserExit { exit_reason };
+                machine.set_running(false);
+            },
+            _ => {},
         }
     }
 
     fn set_running(&mut self) -> Result<(), ProcessControlBlockError> {
-        match &mut self.machine {
-            MachineState::Loaded(machine) => {
+        match self.machine {
+            MachineState::Loaded { ref mut machine, .. } => {
                 machine.set_running(true);
                 Ok(())
             },
@@ -113,8 +122,8 @@ impl<R: Register> ProcessControlBlock<R> {
     }
 
     fn is_running(&self) -> Result<bool, ProcessControlBlockError> {
-        match &self.machine {
-            MachineState::Loaded(machine) => Ok(machine.running()),
+        match self.machine {
+            MachineState::Loaded { ref machine, .. } => Ok(machine.running()),
             _ => RunMachineNotLoadedSnafu.fail(),
         }
     }
@@ -134,13 +143,13 @@ const PANIC_MESSAGE: &str = "process_control_block.rs: Machine attempted to be u
 macro_rules! proxy_to_self_machine {
     ($self:ident, $name:ident$(, $arg:expr)*) => {
         match &$self.machine {
-            MachineState::Loaded(core_machine) => core_machine.$name($($arg),*),
+            MachineState::Loaded { machine, .. } => machine.$name($($arg),*),
             _ => panic!("{}", PANIC_MESSAGE),
         }
     };
     (mut $self:ident, $name:ident$(, $arg:expr)*) => {
         match &mut $self.machine {
-            MachineState::Loaded(core_machine) => core_machine.$name($($arg),*),
+            MachineState::Loaded{ machine, .. } => machine.$name($($arg),*),
             _ => panic!("{}", PANIC_MESSAGE),
         }
     };
@@ -148,7 +157,7 @@ macro_rules! proxy_to_self_machine {
 
 impl<R: Register> CoreMachine for ProcessControlBlock<R> {
     type REG = R;
-    type MEM = SparseMemory<R>;
+    type MEM = Self;
 
     fn pc(&self) -> &Self::REG {
         proxy_to_self_machine!(self, pc)
@@ -163,11 +172,11 @@ impl<R: Register> CoreMachine for ProcessControlBlock<R> {
     }
 
     fn memory(&self) -> &Self::MEM {
-        proxy_to_self_machine!(self, memory)
+        self
     }
 
     fn memory_mut(&mut self) -> &mut Self::MEM {
-        proxy_to_self_machine!(mut self, memory_mut)
+        self
     }
 
     fn registers(&self) -> &[Self::REG] {
@@ -187,36 +196,6 @@ impl<R: Register> CoreMachine for ProcessControlBlock<R> {
     }
 }
 
-impl<R: Register> SupportMachine for ProcessControlBlock<R> {
-    fn cycles(&self) -> u64 {
-        proxy_to_self_machine!(self, cycles)
-    }
-
-    fn set_cycles(&mut self, cycles: u64) {
-        proxy_to_self_machine!(mut self, set_cycles, cycles)
-    }
-
-    fn max_cycles(&self) -> u64 {
-        proxy_to_self_machine!(self, max_cycles)
-    }
-
-    fn running(&self) -> bool {
-        proxy_to_self_machine!(self, running)
-    }
-
-    fn set_running(&mut self, running: bool) {
-        proxy_to_self_machine!(mut self, set_running, running)
-    }
-
-    fn reset(&mut self, max_cycles: u64) {
-        proxy_to_self_machine!(mut self, reset, max_cycles)
-    }
-
-    fn reset_signal(&mut self) -> bool {
-        proxy_to_self_machine!(mut self, reset_signal)
-    }
-}
-
 impl<R: Register> CKBVMMachine for ProcessControlBlock<R> {
     fn ecall(&mut self) -> Result<(), CKBVMError> {
         NushiftSubsystem::ecall(self)
@@ -224,5 +203,170 @@ impl<R: Register> CKBVMMachine for ProcessControlBlock<R> {
 
     fn ebreak(&mut self) -> Result<(), CKBVMError> {
         NushiftSubsystem::ebreak(self)
+    }
+}
+
+impl<R: Register> Memory for ProcessControlBlock<R> {
+    type REG = R;
+
+    fn init_pages(
+        &mut self,
+        _addr: u64,
+        _size: u64,
+        _flags: u8,
+        _source: Option<Bytes>,
+        _offset_from_addr: u64,
+    ) -> Result<(), CKBVMError> {
+        unimplemented!()
+    }
+
+    fn fetch_flag(&mut self, _page: u64) -> Result<u8, CKBVMError> {
+        unimplemented!()
+    }
+
+    fn set_flag(&mut self, _page: u64,_flag: u8) -> Result<(), CKBVMError> {
+        unimplemented!()
+    }
+
+    fn clear_flag(&mut self, _page: u64, _flag: u8) -> Result<(), CKBVMError> {
+        unimplemented!()
+    }
+
+    fn store_byte(&mut self, _addr: u64, _size: u64, _value: u8) -> Result<(), CKBVMError> {
+        unimplemented!()
+    }
+
+    fn store_bytes(&mut self, _addr: u64, _value: &[u8]) -> Result<(), CKBVMError> {
+        unimplemented!()
+    }
+
+    fn execute_load16(&mut self, _addr: u64) -> Result<u16, CKBVMError> {
+        unimplemented!()
+    }
+
+    fn execute_load32(&mut self, _addr: u64) -> Result<u32, CKBVMError> {
+        unimplemented!()
+    }
+
+    fn load8(&mut self, addr: &Self::REG) -> Result<Self::REG, CKBVMError> {
+        ProtectedMemory::load8(self.subsystem.shm_space(), R::to_u64(addr))
+            .map(|value| R::from_u8(value))
+            .map_err(|_| CKBVMError::MemOutOfBound)
+    }
+
+    fn load16(&mut self, addr: &Self::REG) -> Result<Self::REG, CKBVMError> {
+        ProtectedMemory::load16(self.subsystem.shm_space(), R::to_u64(addr))
+            .map(|value| R::from_u16(value))
+            .map_err(|_| CKBVMError::MemOutOfBound)
+    }
+
+    fn load32(&mut self, addr: &Self::REG) -> Result<Self::REG, CKBVMError> {
+        ProtectedMemory::load32(self.subsystem.shm_space(), R::to_u64(addr))
+            .map(|value| R::from_u32(value))
+            .map_err(|_| CKBVMError::MemOutOfBound)
+    }
+
+    fn load64(&mut self, addr: &Self::REG) -> Result<Self::REG, CKBVMError> {
+        ProtectedMemory::load64(self.subsystem.shm_space(), R::to_u64(addr))
+            .map(|value| R::from_u64(value))
+            .map_err(|_| CKBVMError::MemOutOfBound)
+    }
+
+    fn store8(&mut self, addr: &Self::REG, value: &Self::REG) -> Result<(), CKBVMError> {
+        ProtectedMemory::store8(self.subsystem.shm_space_mut(), R::to_u64(addr), R::to_u8(value))
+            .map_err(|_| CKBVMError::MemOutOfBound)
+    }
+
+    fn store16(&mut self, addr: &Self::REG, value: &Self::REG) -> Result<(), CKBVMError> {
+        ProtectedMemory::store16(self.subsystem.shm_space_mut(), R::to_u64(addr), R::to_u16(value))
+            .map_err(|_| CKBVMError::MemOutOfBound)
+    }
+
+    fn store32(&mut self, addr: &Self::REG, value: &Self::REG) -> Result<(), CKBVMError> {
+        ProtectedMemory::store32(self.subsystem.shm_space_mut(), R::to_u64(addr), R::to_u32(value))
+            .map_err(|_| CKBVMError::MemOutOfBound)
+    }
+
+    fn store64(&mut self, addr: &Self::REG, value: &Self::REG) -> Result<(), CKBVMError> {
+        ProtectedMemory::store64(self.subsystem.shm_space_mut(), R::to_u64(addr), R::to_u64(value))
+            .map_err(|_| CKBVMError::MemOutOfBound)
+    }
+}
+
+#[derive(Default)]
+struct StubMemory<R>(PhantomData<R>);
+
+impl<R: Register> Memory for StubMemory<R> {
+    type REG = R;
+
+    fn init_pages(
+        &mut self,
+        _addr: u64,
+        _size: u64,
+        _flags: u8,
+        _source: Option<Bytes>,
+        _offset_from_addr: u64,
+    ) -> Result<(), CKBVMError> {
+        unimplemented!()
+    }
+
+    fn fetch_flag(&mut self, _page: u64) -> Result<u8, CKBVMError> {
+        unimplemented!()
+    }
+
+    fn set_flag(&mut self, _page: u64, _flag: u8) -> Result<(), CKBVMError> {
+        unimplemented!()
+    }
+
+    fn clear_flag(&mut self, _page: u64, _flag: u8) -> Result<(), CKBVMError> {
+        unimplemented!()
+    }
+
+    fn store_byte(&mut self, _addr: u64, _size: u64, _value: u8) -> Result<(), CKBVMError> {
+        unimplemented!()
+    }
+
+    fn store_bytes(&mut self, _addr: u64, _value: &[u8]) -> Result<(), CKBVMError> {
+        unimplemented!()
+    }
+
+    fn execute_load16(&mut self, _addr: u64) -> Result<u16, CKBVMError> {
+        unimplemented!()
+    }
+
+    fn execute_load32(&mut self, _addr: u64) -> Result<u32, CKBVMError> {
+        unimplemented!()
+    }
+
+    fn load8(&mut self, _addr: &Self::REG) -> Result<Self::REG, CKBVMError> {
+        unimplemented!()
+    }
+
+    fn load16(&mut self, _addr: &Self::REG) -> Result<Self::REG, CKBVMError> {
+        unimplemented!()
+    }
+
+    fn load32(&mut self, _addr: &Self::REG) -> Result<Self::REG, CKBVMError> {
+        unimplemented!()
+    }
+
+    fn load64(&mut self, _addr: &Self::REG) -> Result<Self::REG, CKBVMError> {
+        unimplemented!()
+    }
+
+    fn store8(&mut self, _addr: &Self::REG, _value: &Self::REG) -> Result<(), CKBVMError> {
+        unimplemented!()
+    }
+
+    fn store16(&mut self, _addr: &Self::REG, _value: &Self::REG) -> Result<(), CKBVMError> {
+        unimplemented!()
+    }
+
+    fn store32(&mut self, _addr: &Self::REG, _value: &Self::REG) -> Result<(), CKBVMError> {
+        unimplemented!()
+    }
+
+    fn store64(&mut self, _addr: &Self::REG, _value: &Self::REG) -> Result<(), CKBVMError> {
+        unimplemented!()
     }
 }

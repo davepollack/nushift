@@ -1,10 +1,11 @@
+use std::{collections::{HashMap, hash_map::Entry}, io, ops::{Deref, DerefMut}, num::NonZeroU64};
+
 use ckb_vm::{Error as CKBVMError, registers::{A0, A1, A2, T0}, Register, CoreMachine};
 use memmap2::MmapMut;
 use num_enum::{TryFromPrimitive, IntoPrimitive};
 use reusable_id_pool::{ReusableIdPoolError, ReusableIdPoolManual};
 use snafu::prelude::*;
 use snafu_cli_debug::SnafuCliDebug;
-use std::{collections::{HashMap, hash_map::Entry}, io, ops::{Deref, DerefMut}, num::NonZeroU64};
 
 use super::process_control_block::ProcessControlBlock;
 use super::protected_memory::{self, AcquisitionsAndPageTable, AcquireError, WalkResult, PageTableError, WalkResultMut};
@@ -346,6 +347,14 @@ pub struct NushiftSubsystem {
 impl NushiftSubsystem {
     pub fn new() -> Self {
         NushiftSubsystem { shm_space: ShmSpace::new() }
+    }
+
+    pub(crate) fn shm_space(&self) -> &ShmSpace {
+        &self.shm_space
+    }
+
+    pub(crate) fn shm_space_mut(&mut self) -> &mut ShmSpace {
+        &mut self.shm_space
     }
 
     pub fn ecall<R: Register>(pcb: &mut ProcessControlBlock<R>) -> Result<(), CKBVMError> {

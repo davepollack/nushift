@@ -520,7 +520,7 @@ pub enum PageTableError {
     PageTooLargeToFitInHostPlatformWord { shm_cap_id: ShmCapId, shm_type: ShmType, offset: ShmCapOffset },
 }
 
-struct ProtectedMemory;
+pub struct ProtectedMemory;
 
 impl ProtectedMemory {
     fn check_within_sv39(addr: u64, word_bytes: usize) -> Result<(), ProtectedMemoryError> {
@@ -659,7 +659,7 @@ pub enum ProtectedMemoryError {
 }
 
 /// Alternatively, could use the `funty` crate for this.
-trait Numeric {
+pub trait Numeric {
     type ByteArray: for<'a> TryFrom<&'a [u8], Error = TryFromSliceError> + TryFrom<Vec<u8>, Error = Vec<u8>> + AsRef<[u8]>;
 
     fn from_le_bytes(bytes: Self::ByteArray) -> Self;
