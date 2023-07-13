@@ -16,8 +16,8 @@ fn init_stack() usize {
     // TODO: Use shm_new_and_acquire when that is implemented.
     const new_result = OsNushift.syscall(.shm_new, .{ .shm_type = OsNushift.ShmType.four_kib, .length = 64 });
     const shm_cap_id = switch (new_result) {
-        .success => |val| val,
-        .@"error" => |err_enum| {
+        .ok => |val| val,
+        .fail => |err_enum| {
             _ = OsNushift.syscall_ignore_errors(.exit, .{ .exit_reason = @enumToInt(err_enum) });
             unreachable;
         },
@@ -25,8 +25,8 @@ fn init_stack() usize {
 
     const acquire_result = OsNushift.syscall(.shm_acquire, .{ .shm_cap_id = shm_cap_id, .address = (0x80000000 - (4096 * 64)) });
     switch (acquire_result) {
-        .success => {},
-        .@"error" => |err_enum| {
+        .ok => {},
+        .fail => |err_enum| {
             _ = OsNushift.syscall_ignore_errors(.exit, .{ .exit_reason = @enumToInt(err_enum) });
             unreachable;
         },

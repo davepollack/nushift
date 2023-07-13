@@ -24,8 +24,8 @@ pub const SyscallError = enum(usize) {
 };
 
 pub const SyscallResult = union(enum) {
-    success: usize,
-    @"error": SyscallError,
+    ok: usize,
+    fail: SyscallError,
 };
 
 pub fn SyscallArgs(comptime sys: Syscall) type {
@@ -116,8 +116,8 @@ fn syscall_internal_args(syscall_number: usize, comptime num_args: comptime_int,
     }
 
     if (a0_output == std.math.maxInt(usize)) {
-        return SyscallResult{ .@"error" = @intToEnum(SyscallError, t0_output) };
+        return SyscallResult{ .fail = @intToEnum(SyscallError, t0_output) };
     }
 
-    return SyscallResult{ .success = a0_output };
+    return SyscallResult{ .ok = a0_output };
 }
