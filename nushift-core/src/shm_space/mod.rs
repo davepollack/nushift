@@ -104,7 +104,6 @@ impl ShmSpace {
         }
     }
 
-    // TODO: Probably should add shm_resize. And the validation that has for length should be consistent with here.
     pub fn new_shm_cap(&mut self, shm_type: ShmType, length: u64) -> Result<(ShmCapId, &ShmCap), ShmSpaceError> {
         let length = NonZeroU64::new(length).ok_or(InvalidLengthSnafu.build())?;
         let length_u64 = length.get();
