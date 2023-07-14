@@ -169,8 +169,8 @@ impl NushiftSubsystem {
     }
 
     pub fn ebreak<R: Register>(_pcb: &mut ProcessControlBlock<R>) -> Result<(), CKBVMError> {
-        // TODO: Terminate app, not the hypervisor.
+        // Terminate app.
         // TODO: As an improvement to terminating the app, provide debugging functionality.
-        todo!()
+        Err(CKBVMError::External(String::from("ebreak encountered; terminating app.")))
     }
 }

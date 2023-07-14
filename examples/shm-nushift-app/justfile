@@ -1,0 +1,4 @@
+set windows-shell := ["pwsh.exe", "-NoLogo", "-Command"]
+
+build:
+  zig build -Doptimize=ReleaseSafe
