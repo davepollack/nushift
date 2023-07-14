@@ -64,14 +64,6 @@ impl<R: Register> ProcessControlBlock<R> {
         core_machine.update_pc(executable_machine.pc().clone());
         core_machine.commit_pc();
 
-        // The stack. 256 KiB.
-        //
-        // Should the location and size be determined by app metadata? Should
-        // the location be randomised?
-        // const STACK_BASE: u64 = 0x80000000;
-        // const STACK_SIZE: u64 = 0x40000; // TODO: Use
-        // self.set_register(SP, R::from_u64(STACK_BASE));
-
         self.machine = MachineState::Loaded { machine: core_machine, executable_machine };
         Ok(())
     }

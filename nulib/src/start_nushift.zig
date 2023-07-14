@@ -32,6 +32,7 @@ fn init_stack() usize {
         },
     }
 
+    // Set SP to base
     asm volatile (""
         :
         : [sp_val] "{sp}" (0x80000000),
