@@ -1,4 +1,4 @@
-use ckb_vm::{Error as CKBVMError, registers::{A0, A1, A2, T0}, Register, CoreMachine};
+use ckb_vm::{Error as CKBVMError, registers::{A0, A1, A2, A3, T0}, Register, CoreMachine};
 use num_enum::{TryFromPrimitive, IntoPrimitive};
 
 use super::process_control_block::ProcessControlBlock;
@@ -50,6 +50,7 @@ pub enum SyscallError {
 const SYSCALL_NUM_REGISTER: usize = A0;
 const FIRST_ARG_REGISTER: usize = A1;
 const SECOND_ARG_REGISTER: usize = A2;
+const THIRD_ARG_REGISTER: usize = A3;
 const RETURN_VAL_REGISTER: usize = A0;
 /// a1 is used by the RISC-V calling conventions for a second return value,
 /// rather than t0, but my concern is with the whole 32-bit app thing using
@@ -70,7 +71,7 @@ fn set_success<R: Register>(pcb: &mut ProcessControlBlock<R>, return_value: u64)
 fn marshall_shm_space_error<R: Register>(pcb: &mut ProcessControlBlock<R>, shm_space_error: ShmSpaceError) {
     match shm_space_error {
         ShmSpaceError::DuplicateId
-        | ShmSpaceError::AcquireInternalError => { set_error(pcb, SyscallError::ShmInternalError); },
+        | ShmSpaceError::AcquireReleaseInternalError => { set_error(pcb, SyscallError::ShmInternalError); },
         ShmSpaceError::Exhausted => { set_error(pcb, SyscallError::ShmExhausted); },
         ShmSpaceError::InvalidLength => { set_error(pcb, SyscallError::ShmInvalidLength); },
         ShmSpaceError::CapacityNotAvailable
@@ -125,7 +126,7 @@ impl NushiftSubsystem {
                 };
                 let length = pcb.registers()[SECOND_ARG_REGISTER].to_u64();
 
-                let shm_cap_id = match pcb.subsystem.shm_space.new_shm_cap(shm_type, length) {
+                let shm_cap_id = match pcb.subsystem.shm_space_mut().new_shm_cap(shm_type, length) {
                     Ok((shm_cap_id, _)) => shm_cap_id,
                     Err(shm_space_error) => { marshall_shm_space_error(pcb, shm_space_error); return Ok(()); },
                 };
@@ -137,33 +138,72 @@ impl NushiftSubsystem {
                 let shm_cap_id = pcb.registers()[FIRST_ARG_REGISTER].to_u64();
                 let address = pcb.registers()[SECOND_ARG_REGISTER].to_u64();
 
-                match pcb.subsystem.shm_space.acquire_shm_cap(shm_cap_id, address) {
-                    Ok(_) => { set_success(pcb, 0); Ok(()) },
-                    Err(shm_space_error) => { marshall_shm_space_error(pcb, shm_space_error); Ok(()) },
-                }
+                match pcb.subsystem.shm_space_mut().acquire_shm_cap(shm_cap_id, address) {
+                    Ok(_) => {},
+                    Err(shm_space_error) => { marshall_shm_space_error(pcb, shm_space_error); return Ok(()); },
+                };
+
+                set_success(pcb, 0);
+                Ok(())
+            },
+            Ok(Syscall::ShmNewAndAcquire) => {
+                let shm_type = match ShmType::try_from(pcb.registers()[FIRST_ARG_REGISTER].to_u64()) {
+                    Ok(shm_type) => shm_type,
+                    Err(_) => { set_error(pcb, SyscallError::ShmUnknownShmType); return Ok(()); },
+                };
+                let length = pcb.registers()[SECOND_ARG_REGISTER].to_u64();
+                let address = pcb.registers()[THIRD_ARG_REGISTER].to_u64();
+
+                let shm_cap_id = match pcb.subsystem.shm_space_mut().new_shm_cap(shm_type, length) {
+                    Ok((shm_cap_id, _)) => shm_cap_id,
+                    Err(shm_space_error) => { marshall_shm_space_error(pcb, shm_space_error); return Ok(()); },
+                };
+
+                match pcb.subsystem.shm_space_mut().acquire_shm_cap(shm_cap_id, address) {
+                    Ok(_) => {},
+                    Err(shm_space_error) => { marshall_shm_space_error(pcb, shm_space_error); return Ok(()); },
+                };
+
+                set_success(pcb, 0);
+                Ok(())
             },
             Ok(Syscall::ShmRelease) => {
                 let shm_cap_id = pcb.registers()[FIRST_ARG_REGISTER].to_u64();
 
-                match pcb.subsystem.shm_space.release_shm_cap(shm_cap_id) {
-                    Ok(_) => { set_success(pcb, 0); Ok(()) },
-                    Err(shm_space_error) => { marshall_shm_space_error(pcb, shm_space_error); Ok(()) },
-                }
+                match pcb.subsystem.shm_space_mut().release_shm_cap(shm_cap_id) {
+                    Ok(_) => {},
+                    Err(shm_space_error) => { marshall_shm_space_error(pcb, shm_space_error); return Ok(()); },
+                };
+
+                set_success(pcb, 0);
+                Ok(())
             }
             Ok(Syscall::ShmDestroy) => {
                 let shm_cap_id = pcb.registers()[FIRST_ARG_REGISTER].to_u64();
-                match pcb.subsystem.shm_space.destroy_shm_cap(shm_cap_id) {
-                    Ok(_) => { set_success(pcb, 0); Ok(()) },
-                    Err(shm_space_error) => { marshall_shm_space_error(pcb, shm_space_error); Ok(()) },
-                }
-            },
 
-            _ => {
-                // I don't think I should return an unimplemented syscall
-                // SyscallError here. I think I should implement the
-                // not-that-many-remaining syscalls. And then remove this match
-                // arm.
-                todo!("Unimplemented syscall")
+                match pcb.subsystem.shm_space_mut().destroy_shm_cap(shm_cap_id) {
+                    Ok(_) => {},
+                    Err(shm_space_error) => { marshall_shm_space_error(pcb, shm_space_error); return Ok(()); },
+                };
+
+                set_success(pcb, 0);
+                Ok(())
+            },
+            Ok(Syscall::ShmReleaseAndDestroy) => {
+                let shm_cap_id = pcb.registers()[FIRST_ARG_REGISTER].to_u64();
+
+                match pcb.subsystem.shm_space_mut().release_shm_cap(shm_cap_id) {
+                    Ok(_) => {},
+                    Err(shm_space_error) => { marshall_shm_space_error(pcb, shm_space_error); return Ok(()); },
+                };
+
+                match pcb.subsystem.shm_space_mut().destroy_shm_cap(shm_cap_id) {
+                    Ok(_) => {},
+                    Err(shm_space_error) => { marshall_shm_space_error(pcb, shm_space_error); return Ok(()); },
+                };
+
+                set_success(pcb, 0);
+                Ok(())
             },
         }
     }

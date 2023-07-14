@@ -46,7 +46,7 @@ impl AcquisitionsAndPageTable {
         // Insert to acquisitions.
         self.acquisitions.try_insert(shm_cap_id, address, length_in_bytes).map_err(|_| AcquireIntersectsExistingAcquisitionSnafu.build())?;
         // Insert to page table.
-        match self.page_table.insert(shm_cap_id, shm_cap, address).context(AcquirePageTableInsertSnafu) {
+        match self.page_table.insert(shm_cap_id, shm_cap, address).context(PageTableInsertOrRemoveSnafu) {
             Ok(_) => {},
             Err(err) => {
                 // Roll back the acquisitions insert.
@@ -54,7 +54,7 @@ impl AcquisitionsAndPageTable {
                 // We shouldn't actually get here (i.e. an error when inserting
                 // the page table), this indicates data structure corruption and
                 // a bug in Nushift's code.
-                self.acquisitions.remove(shm_cap_id).map_err(|_| AcquireRollbackSnafu.build())?;
+                self.acquisitions.remove(shm_cap_id).map_err(|_| RollbackSnafu.build())?;
                 // Now return the error.
                 return Err(err);
             }
@@ -69,9 +69,9 @@ impl AcquisitionsAndPageTable {
 
     pub fn try_release(&mut self, shm_cap_id: ShmCapId, shm_cap: &ShmCap) -> Result<(), AcquireError> {
         // Remove from acquisitions.
-        let address = self.acquisitions.remove(shm_cap_id).map_err(|_| AcquireReleasingNonAcquiredCapSnafu.build())?;
+        let address = self.acquisitions.remove(shm_cap_id).map_err(|_| ReleasingNonAcquiredCapSnafu.build())?;
         // Remove from page table.
-        match self.page_table.remove(shm_cap_id, shm_cap, address).context(AcquirePageTableInsertSnafu) {
+        match self.page_table.remove(shm_cap_id, shm_cap, address).context(PageTableInsertOrRemoveSnafu) {
             Ok(_) => {},
             Err(err) => {
                 // Roll back the acquisitions remove.
@@ -81,8 +81,8 @@ impl AcquisitionsAndPageTable {
                 // a bug in Nushift's code.
                 let length_in_bytes = shm_cap.shm_type().page_bytes()
                     .checked_mul(shm_cap.length_u64())
-                    .ok_or_else(|| AcquireRollbackSnafu.build())?;
-                self.acquisitions.try_insert(shm_cap_id, address, length_in_bytes).map_err(|_| AcquireRollbackSnafu.build())?;
+                    .ok_or_else(|| RollbackSnafu.build())?;
+                self.acquisitions.try_insert(shm_cap_id, address, length_in_bytes).map_err(|_| RollbackSnafu.build())?;
                 // Now return the error.
                 return Err(err);
             },
@@ -101,9 +101,9 @@ pub enum AcquireError {
     AcquireExceedsSv39,
     AcquireAddressNotPageAligned,
     AcquireIntersectsExistingAcquisition,
-    AcquireReleasingNonAcquiredCap,
-    AcquirePageTableInsertError { source: PageTableError }, // Should never occur, indicates a bug in Nushift's code
-    AcquireRollbackError, // Should never occur, indicates a bug in Nushift's code
+    ReleasingNonAcquiredCap,
+    PageTableInsertOrRemoveError { source: PageTableError }, // Should never occur, indicates a bug in Nushift's code
+    RollbackError, // Should never occur, indicates a bug in Nushift's code
 }
 
 type ShmAcquisitionAddress = u64;

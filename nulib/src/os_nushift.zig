@@ -4,8 +4,10 @@ pub const Syscall = enum(usize) {
     exit = 0,
     shm_new = 1,
     shm_acquire = 2,
+    shm_new_and_acquire = 3,
     shm_release = 4,
     shm_destroy = 5,
+    shm_release_and_destroy = 6,
 };
 
 pub const SyscallError = enum(usize) {
@@ -33,7 +35,8 @@ pub fn SyscallArgs(comptime sys: Syscall) type {
         .exit => struct { exit_reason: usize },
         .shm_new => struct { shm_type: ShmType, length: usize },
         .shm_acquire => struct { shm_cap_id: usize, address: usize },
-        .shm_release, .shm_destroy => struct { shm_cap_id: usize },
+        .shm_new_and_acquire => struct { shm_type: ShmType, length: usize, address: usize },
+        .shm_release, .shm_destroy, .shm_release_and_destroy => struct { shm_cap_id: usize },
     };
 }
 
@@ -56,63 +59,79 @@ fn syscall_internal(comptime sys: Syscall, sys_args: SyscallArgs(sys), comptime 
         .exit => syscall_internal_args(@intFromEnum(sys), 1, [_]usize{sys_args.exit_reason}, ignore_errors, ReturnType),
         .shm_new => syscall_internal_args(@intFromEnum(sys), 2, [_]usize{ @intFromEnum(sys_args.shm_type), sys_args.length }, ignore_errors, ReturnType),
         .shm_acquire => syscall_internal_args(@intFromEnum(sys), 2, [_]usize{ sys_args.shm_cap_id, sys_args.address }, ignore_errors, ReturnType),
-        .shm_release, .shm_destroy => syscall_internal_args(@intFromEnum(sys), 1, [_]usize{sys_args.shm_cap_id}, ignore_errors, ReturnType),
+        .shm_new_and_acquire => syscall_internal_args(@intFromEnum(sys), 3, [_]usize{ @intFromEnum(sys_args.shm_type), sys_args.length, sys_args.address }, ignore_errors, ReturnType),
+        .shm_release, .shm_destroy, .shm_release_and_destroy => syscall_internal_args(@intFromEnum(sys), 1, [_]usize{sys_args.shm_cap_id}, ignore_errors, ReturnType),
     };
 }
 
 fn syscall_internal_args(syscall_number: usize, comptime num_args: comptime_int, args: [num_args]usize, comptime ignore_errors: bool, comptime ReturnType: type) ReturnType {
     if (ignore_errors) {
-        if (num_args >= 2) {
-            return asm volatile ("ecall"
+        return switch (num_args) {
+            0 => asm volatile ("ecall"
+                : [ret] "={a0}" (-> usize),
+                : [syscall_number] "{a0}" (syscall_number),
+                : "memory"
+            ),
+            1 => asm volatile ("ecall"
+                : [ret] "={a0}" (-> usize),
+                : [syscall_number] "{a0}" (syscall_number),
+                  [arg1] "{a1}" (args[0]),
+                : "memory"
+            ),
+            2 => asm volatile ("ecall"
                 : [ret] "={a0}" (-> usize),
                 : [syscall_number] "{a0}" (syscall_number),
                   [arg1] "{a1}" (args[0]),
                   [arg2] "{a2}" (args[1]),
                 : "memory"
-            );
-        }
-        if (num_args == 1) {
-            return asm volatile ("ecall"
+            ),
+            3 => asm volatile ("ecall"
                 : [ret] "={a0}" (-> usize),
                 : [syscall_number] "{a0}" (syscall_number),
                   [arg1] "{a1}" (args[0]),
+                  [arg2] "{a2}" (args[1]),
+                  [arg3] "{a3}" (args[2]),
                 : "memory"
-            );
-        }
-        return asm volatile ("ecall"
-            : [ret] "={a0}" (-> usize),
-            : [syscall_number] "{a0}" (syscall_number),
-            : "memory"
-        );
+            ),
+            else => @compileError("syscall_internal_args does not support " ++ std.fmt.comptimePrint("{}", .{num_args}) ++ " args, please add support if needed"),
+        };
     }
 
     var a0_output: usize = undefined;
     var t0_output: usize = undefined;
 
-    if (num_args >= 2) {
-        asm volatile ("ecall"
+    switch (num_args) {
+        0 => asm volatile ("ecall"
+            : [ret_a0] "={a0}" (a0_output),
+              [ret_t0] "={t0}" (t0_output),
+            : [syscall_number] "{a0}" (syscall_number),
+            : "memory"
+        ),
+        1 => asm volatile ("ecall"
+            : [ret_a0] "={a0}" (a0_output),
+              [ret_t0] "={t0}" (t0_output),
+            : [syscall_number] "{a0}" (syscall_number),
+              [arg1] "{a1}" (args[0]),
+            : "memory"
+        ),
+        2 => asm volatile ("ecall"
             : [ret_a0] "={a0}" (a0_output),
               [ret_t0] "={t0}" (t0_output),
             : [syscall_number] "{a0}" (syscall_number),
               [arg1] "{a1}" (args[0]),
               [arg2] "{a2}" (args[1]),
             : "memory"
-        );
-    } else if (num_args == 1) {
-        asm volatile ("ecall"
+        ),
+        3 => asm volatile ("ecall"
             : [ret_a0] "={a0}" (a0_output),
               [ret_t0] "={t0}" (t0_output),
             : [syscall_number] "{a0}" (syscall_number),
               [arg1] "{a1}" (args[0]),
+              [arg2] "{a2}" (args[1]),
+              [arg3] "{a3}" (args[2]),
             : "memory"
-        );
-    } else {
-        asm volatile ("ecall"
-            : [ret_a0] "={a0}" (a0_output),
-              [ret_t0] "={t0}" (t0_output),
-            : [syscall_number] "{a0}" (syscall_number),
-            : "memory"
-        );
+        ),
+        else => @compileError("syscall_internal_args does not support " ++ std.fmt.comptimePrint("{}", .{num_args}) ++ " args, please add support if needed"),
     }
 
     if (a0_output == std.math.maxInt(usize)) {

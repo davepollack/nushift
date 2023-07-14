@@ -146,7 +146,7 @@ impl ShmSpace {
                 AcquireError::AcquireExceedsSv39 => AddressOutOfBoundsSnafu.build(),
                 AcquireError::AcquireAddressNotPageAligned => AddressNotAlignedSnafu.build(),
                 AcquireError::AcquireIntersectsExistingAcquisition => OverlapsExistingAcquisitionSnafu.build(),
-                _ => AcquireInternalSnafu.build(),
+                _ => AcquireReleaseInternalSnafu.build(),
             })
     }
 
@@ -155,8 +155,8 @@ impl ShmSpace {
 
         match self.acquisitions.try_release(shm_cap_id, shm_cap) {
             Ok(_) => Ok(()),
-            Err(AcquireError::AcquireReleasingNonAcquiredCap) => Ok(()), // Silently allow releasing non-acquired cap.
-            Err(_) => AcquireInternalSnafu.fail(),
+            Err(AcquireError::ReleasingNonAcquiredCap) => Ok(()), // Silently allow releasing non-acquired cap.
+            Err(_) => AcquireReleaseInternalSnafu.fail(),
         }
     }
 
@@ -255,8 +255,8 @@ pub enum ShmSpaceError {
     AddressNotAligned,
     #[snafu(display("The specified address combined with the length in the cap forms a range that overlaps an existing acquisition. Please choose a different address."))]
     OverlapsExistingAcquisition,
-    #[snafu(display("An internal error occurred while acquiring. This should never happen and indicates a bug in Nushift's code."))]
-    AcquireInternalError,
+    #[snafu(display("An internal error occurred while acquiring or releasing. This should never happen and indicates a bug in Nushift's code."))]
+    AcquireReleaseInternalError,
 }
 
 #[cfg(test)]
