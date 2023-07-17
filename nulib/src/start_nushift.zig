@@ -12,14 +12,10 @@ export fn _start() callconv(.Naked) noreturn {
 
 fn init_stack() usize {
     // The stack. 256 KiB, but you can change it if you want.
-    const STACK_BASE: usize = 0x80000000;
+    const STACK_END: usize = 0x80000000;
     const STACK_NUMBER_OF_4_KIB_PAGES: usize = 64;
 
-    const new_and_acquire_result = OsNushift.syscall(.shm_new_and_acquire, .{
-        .shm_type = OsNushift.ShmType.four_kib,
-        .length = STACK_NUMBER_OF_4_KIB_PAGES,
-        .address = STACK_BASE - (4096 * STACK_NUMBER_OF_4_KIB_PAGES),
-    });
+    const new_and_acquire_result = OsNushift.syscall(.shm_new_and_acquire, .{ .shm_type = OsNushift.ShmType.four_kib, .length = STACK_NUMBER_OF_4_KIB_PAGES, .address = STACK_END });
     const shm_cap_id = switch (new_and_acquire_result) {
         .ok => |val| val,
         .fail => |err_enum| {
@@ -31,7 +27,7 @@ fn init_stack() usize {
     // Set SP to base
     asm volatile (""
         :
-        : [sp_val] "{sp}" (STACK_BASE),
+        : [sp_val] "{sp}" (STACK_END + (4096 * STACK_NUMBER_OF_4_KIB_PAGES)),
         : "sp"
     );
 
