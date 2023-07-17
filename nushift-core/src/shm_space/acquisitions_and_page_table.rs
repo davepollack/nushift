@@ -91,8 +91,78 @@ impl AcquisitionsAndPageTable {
         Ok(())
     }
 
-    pub(super) fn page_table(&self) -> &PageTableLevel1 {
-        &self.page_table
+    pub fn walk<'space>(&self, vaddr: u64, shm_space_map: &'space ShmSpaceMap) -> Result<WalkResult<'space>, PageTableError> {
+        self.walk_immut_or_mut(vaddr, shm_space_map)
+    }
+
+    pub fn walk_mut<'space>(&self, vaddr: u64, shm_space_map: &'space mut ShmSpaceMap) -> Result<WalkResultMut<'space>, PageTableError> {
+        self.walk_immut_or_mut(vaddr, shm_space_map)
+    }
+
+    fn walk_immut_or_mut<SMR: SpaceMapRef>(&self, vaddr: u64, shm_space_map: SMR) -> Result<SMR::Result, PageTableError> {
+        let vpn = vaddr >> 12;
+        let vpn2 = vpn >> 18;
+        let level_2_table = self.page_table.entries[vpn2 as usize].as_ref().ok_or(PageNotFoundSnafu.build())?;
+
+        let (entry, shm_cap) = 'superpage_check: {
+            let leaf_table = match level_2_table.as_ref() {
+                PageTableLevel2::OneGiBSuperpage(pte) => {
+                    let shm_cap = SMR::get_shm_cap(shm_space_map, pte.shm_cap_id).ok_or_else(|| PageEntryCorruptedSnafu { shm_cap_id: pte.shm_cap_id, mismatched_entry_found_at_level: None, shm_cap_offset: None, shm_cap_length: None }.build())?;
+                    Self::check_shm_type_mismatch(1, &pte, SMR::shm_cap_ref(&shm_cap), ShmType::OneGiB)?;
+                    break 'superpage_check (pte, shm_cap);
+                },
+                PageTableLevel2::Entries(entries) => {
+                    let vpn1 = (vpn >> 9) & ((1 << 9) - 1);
+                    entries[vpn1 as usize].as_ref().ok_or(PageNotFoundSnafu.build())?
+                },
+            };
+
+            let four_k_entry = match leaf_table.as_ref() {
+                PageTableLeaf::TwoMiBSuperpage(pte) => {
+                    let shm_cap = SMR::get_shm_cap(shm_space_map, pte.shm_cap_id).ok_or_else(|| PageEntryCorruptedSnafu { shm_cap_id: pte.shm_cap_id, mismatched_entry_found_at_level: None, shm_cap_offset: None, shm_cap_length: None }.build())?;
+                    Self::check_shm_type_mismatch(2, &pte, SMR::shm_cap_ref(&shm_cap), ShmType::TwoMiB)?;
+                    break 'superpage_check (pte, shm_cap);
+                },
+                PageTableLeaf::Entries(entries) => {
+                    let vpn0 = vpn & ((1 << 9) - 1);
+                    entries[vpn0 as usize].as_ref().ok_or(PageNotFoundSnafu.build())?
+                }
+            };
+            let shm_cap = SMR::get_shm_cap(shm_space_map, four_k_entry.shm_cap_id).ok_or_else(|| PageEntryCorruptedSnafu { shm_cap_id: four_k_entry.shm_cap_id, mismatched_entry_found_at_level: None, shm_cap_offset: None, shm_cap_length: None }.build())?;
+            Self::check_shm_type_mismatch(3, &four_k_entry, SMR::shm_cap_ref(&shm_cap), ShmType::FourKiB)?;
+
+            (four_k_entry, shm_cap)
+        };
+
+        let shm_cap_ref = SMR::shm_cap_ref(&shm_cap);
+        if entry.shm_cap_offset >= shm_cap_ref.length_u64() {
+            return PageEntryCorruptedSnafu { shm_cap_id: entry.shm_cap_id, mismatched_entry_found_at_level: None, shm_cap_offset: Some(entry.shm_cap_offset), shm_cap_length: Some(shm_cap_ref.length()) }.fail();
+        }
+        let byte_start: usize = entry.shm_cap_offset
+            .checked_mul(shm_cap_ref.shm_type().page_bytes())
+            .ok_or(PageEntryCorruptedSnafu { shm_cap_id: entry.shm_cap_id, mismatched_entry_found_at_level: None, shm_cap_offset: Some(entry.shm_cap_offset), shm_cap_length: Some(shm_cap_ref.length()) }.build())?
+            .try_into()
+            .map_err(|_| PageTooLargeToFitInHostPlatformWordSnafu { shm_cap_id: entry.shm_cap_id, shm_type: shm_cap_ref.shm_type(), offset: entry.shm_cap_offset }.build())?;
+        let byte_end = byte_start
+            .checked_add(
+                shm_cap_ref.shm_type().page_bytes().try_into().map_err(|_| PageTooLargeToFitInHostPlatformWordSnafu { shm_cap_id: entry.shm_cap_id, shm_type: shm_cap_ref.shm_type(), offset: entry.shm_cap_offset }.build())?
+            )
+            .ok_or(PageEntryCorruptedSnafu { shm_cap_id: entry.shm_cap_id, mismatched_entry_found_at_level: None, shm_cap_offset: Some(entry.shm_cap_offset), shm_cap_length: Some(shm_cap_ref.length()) }.build())?;
+
+        let byte_offset_in_space_slice = (vaddr & (shm_cap_ref.shm_type().page_bytes() - 1))
+            .try_into()
+            .map_err(|_| PageTooLargeToFitInHostPlatformWordSnafu { shm_cap_id: entry.shm_cap_id, shm_type: shm_cap_ref.shm_type(), offset: entry.shm_cap_offset }.build())?;
+        let space_slice = SMR::backing_reslice(shm_cap, byte_start, byte_end);
+
+        Ok(SMR::result(space_slice, byte_offset_in_space_slice))
+    }
+
+    fn check_shm_type_mismatch(current_level: u8, entry: &PageTableEntry, shm_cap: &ShmCap, expected_shm_type: ShmType) -> Result<(), PageTableError> {
+        if shm_cap.shm_type() != expected_shm_type {
+            PageEntryCorruptedSnafu { shm_cap_id: entry.shm_cap_id, mismatched_entry_found_at_level: Some((current_level, shm_cap.shm_type())), shm_cap_offset: None, shm_cap_length: None }.fail()
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -371,6 +441,20 @@ impl PageTableLeaf {
     const NUM_ENTRIES: usize = 1 << Self::ENTRIES_BITS;
 }
 
+#[derive(Snafu, SnafuCliDebug)]
+pub enum PageTableError {
+    #[snafu(display("Page insert out of bounds due to cap length being too high. This can certainly be caused by the user, but it should have been checked before we got to this page insert function."))]
+    PageInsertOutOfBounds { shm_type: ShmType, length: ShmCapLength, address: u64 },
+    #[snafu(display("Could not insert page due to pages already being present. Although attempting to map to an already-mapped range is a user-visible error, this particular variant should never occur and indicates a bug in Nushift's code."))]
+    PageInsertCorrupted { shm_cap_id: ShmCapId, vpn2: u64, current_vpn1: Option<u64>, current_vpn0: Option<u64> },
+    #[snafu(display("The requested page was not present"))]
+    PageNotFound,
+    #[snafu(display("The SHM cap ID was not found or the offset was higher than the cap's length, both of which should never happen, and this indicates a bug in Nushift's code."))]
+    PageEntryCorrupted { shm_cap_id: ShmCapId, mismatched_entry_found_at_level: Option<(u8, ShmType)>, shm_cap_offset: Option<ShmCapOffset>, shm_cap_length: Option<ShmCapLength> },
+    #[snafu(display("A large superpage {shm_type:?} offset at {offset}, does not fit into the host platform's usize of {} bytes. For example, running some 64-bit Nushift apps on a 32-bit host platform. This limitation of Nushift could be resolved in the future.", core::mem::size_of::<usize>()))]
+    PageTooLargeToFitInHostPlatformWord { shm_cap_id: ShmCapId, shm_type: ShmType, offset: ShmCapOffset },
+}
+
 pub struct WalkResult<'space> {
     /// This is always one page. The page size depends on the SHM cap that was
     /// walked.
@@ -385,7 +469,7 @@ pub struct WalkResultMut<'space> {
     pub(crate) byte_offset_in_space_slice: usize,
 }
 
-pub trait SpaceMapRef {
+trait SpaceMapRef {
     type Result;
     type ShmCapRef;
     type SpaceSlice;
@@ -438,94 +522,6 @@ impl<'space> SpaceMapRef for &'space mut ShmSpaceMap {
     fn result(space_slice: Self::SpaceSlice, byte_offset_in_space_slice: usize) -> Self::Result {
         WalkResultMut { space_slice, byte_offset_in_space_slice }
     }
-}
-
-pub fn walk<'space>(vaddr: u64, page_table: &PageTableLevel1, shm_space_map: &'space ShmSpaceMap) -> Result<WalkResult<'space>, PageTableError> {
-    walk_immut_or_mut(vaddr, page_table, shm_space_map)
-}
-
-pub fn walk_mut<'space>(vaddr: u64, page_table: &PageTableLevel1, shm_space_map: &'space mut ShmSpaceMap) -> Result<WalkResultMut<'space>, PageTableError> {
-    walk_immut_or_mut(vaddr, page_table, shm_space_map)
-}
-
-pub fn walk_immut_or_mut<SMR: SpaceMapRef>(vaddr: u64, page_table: &PageTableLevel1, shm_space_map: SMR) -> Result<SMR::Result, PageTableError> {
-    let vpn = vaddr >> 12;
-    let vpn2 = vpn >> 18;
-    let level_2_table = page_table.entries[vpn2 as usize].as_ref().ok_or(PageNotFoundSnafu.build())?;
-
-    let (entry, shm_cap) = 'superpage_check: {
-        let leaf_table = match level_2_table.as_ref() {
-            PageTableLevel2::OneGiBSuperpage(pte) => {
-                let shm_cap = SMR::get_shm_cap(shm_space_map, pte.shm_cap_id).ok_or_else(|| PageEntryCorruptedSnafu { shm_cap_id: pte.shm_cap_id, mismatched_entry_found_at_level: None, shm_cap_offset: None, shm_cap_length: None }.build())?;
-                check_shm_type_mismatch(1, &pte, SMR::shm_cap_ref(&shm_cap), ShmType::OneGiB)?;
-                break 'superpage_check (pte, shm_cap);
-            },
-            PageTableLevel2::Entries(entries) => {
-                let vpn1 = (vpn >> 9) & ((1 << 9) - 1);
-                entries[vpn1 as usize].as_ref().ok_or(PageNotFoundSnafu.build())?
-            },
-        };
-
-        let four_k_entry = match leaf_table.as_ref() {
-            PageTableLeaf::TwoMiBSuperpage(pte) => {
-                let shm_cap = SMR::get_shm_cap(shm_space_map, pte.shm_cap_id).ok_or_else(|| PageEntryCorruptedSnafu { shm_cap_id: pte.shm_cap_id, mismatched_entry_found_at_level: None, shm_cap_offset: None, shm_cap_length: None }.build())?;
-                check_shm_type_mismatch(2, &pte, SMR::shm_cap_ref(&shm_cap), ShmType::TwoMiB)?;
-                break 'superpage_check (pte, shm_cap);
-            },
-            PageTableLeaf::Entries(entries) => {
-                let vpn0 = vpn & ((1 << 9) - 1);
-                entries[vpn0 as usize].as_ref().ok_or(PageNotFoundSnafu.build())?
-            }
-        };
-        let shm_cap = SMR::get_shm_cap(shm_space_map, four_k_entry.shm_cap_id).ok_or_else(|| PageEntryCorruptedSnafu { shm_cap_id: four_k_entry.shm_cap_id, mismatched_entry_found_at_level: None, shm_cap_offset: None, shm_cap_length: None }.build())?;
-        check_shm_type_mismatch(3, &four_k_entry, SMR::shm_cap_ref(&shm_cap), ShmType::FourKiB)?;
-
-        (four_k_entry, shm_cap)
-    };
-
-    let shm_cap_ref = SMR::shm_cap_ref(&shm_cap);
-    if entry.shm_cap_offset >= shm_cap_ref.length_u64() {
-        return PageEntryCorruptedSnafu { shm_cap_id: entry.shm_cap_id, mismatched_entry_found_at_level: None, shm_cap_offset: Some(entry.shm_cap_offset), shm_cap_length: Some(shm_cap_ref.length()) }.fail();
-    }
-    let byte_start: usize = entry.shm_cap_offset
-        .checked_mul(shm_cap_ref.shm_type().page_bytes())
-        .ok_or(PageEntryCorruptedSnafu { shm_cap_id: entry.shm_cap_id, mismatched_entry_found_at_level: None, shm_cap_offset: Some(entry.shm_cap_offset), shm_cap_length: Some(shm_cap_ref.length()) }.build())?
-        .try_into()
-        .map_err(|_| PageTooLargeToFitInHostPlatformWordSnafu { shm_cap_id: entry.shm_cap_id, shm_type: shm_cap_ref.shm_type(), offset: entry.shm_cap_offset }.build())?;
-    let byte_end = byte_start
-        .checked_add(
-            shm_cap_ref.shm_type().page_bytes().try_into().map_err(|_| PageTooLargeToFitInHostPlatformWordSnafu { shm_cap_id: entry.shm_cap_id, shm_type: shm_cap_ref.shm_type(), offset: entry.shm_cap_offset }.build())?
-        )
-        .ok_or(PageEntryCorruptedSnafu { shm_cap_id: entry.shm_cap_id, mismatched_entry_found_at_level: None, shm_cap_offset: Some(entry.shm_cap_offset), shm_cap_length: Some(shm_cap_ref.length()) }.build())?;
-
-    let byte_offset_in_space_slice = (vaddr & (shm_cap_ref.shm_type().page_bytes() - 1))
-        .try_into()
-        .map_err(|_| PageTooLargeToFitInHostPlatformWordSnafu { shm_cap_id: entry.shm_cap_id, shm_type: shm_cap_ref.shm_type(), offset: entry.shm_cap_offset }.build())?;
-    let space_slice = SMR::backing_reslice(shm_cap, byte_start, byte_end);
-
-    Ok(SMR::result(space_slice, byte_offset_in_space_slice))
-}
-
-fn check_shm_type_mismatch(current_level: u8, entry: &PageTableEntry, shm_cap: &ShmCap, expected_shm_type: ShmType) -> Result<(), PageTableError> {
-    if shm_cap.shm_type() != expected_shm_type {
-        PageEntryCorruptedSnafu { shm_cap_id: entry.shm_cap_id, mismatched_entry_found_at_level: Some((current_level, shm_cap.shm_type())), shm_cap_offset: None, shm_cap_length: None }.fail()
-    } else {
-        Ok(())
-    }
-}
-
-#[derive(Snafu, SnafuCliDebug)]
-pub enum PageTableError {
-    #[snafu(display("Page insert out of bounds due to cap length being too high. This can certainly be caused by the user, but it should have been checked before we got to this page insert function."))]
-    PageInsertOutOfBounds { shm_type: ShmType, length: ShmCapLength, address: u64 },
-    #[snafu(display("Could not insert page due to pages already being present. Although attempting to map to an already-mapped range is a user-visible error, this particular variant should never occur and indicates a bug in Nushift's code."))]
-    PageInsertCorrupted { shm_cap_id: ShmCapId, vpn2: u64, current_vpn1: Option<u64>, current_vpn0: Option<u64> },
-    #[snafu(display("The requested page was not present"))]
-    PageNotFound,
-    #[snafu(display("The SHM cap ID was not found or the offset was higher than the cap's length, both of which should never happen, and this indicates a bug in Nushift's code."))]
-    PageEntryCorrupted { shm_cap_id: ShmCapId, mismatched_entry_found_at_level: Option<(u8, ShmType)>, shm_cap_offset: Option<ShmCapOffset>, shm_cap_length: Option<ShmCapLength> },
-    #[snafu(display("A large superpage {shm_type:?} offset at {offset}, does not fit into the host platform's usize of {} bytes. For example, running some 64-bit Nushift apps on a 32-bit host platform. This limitation of Nushift could be resolved in the future.", core::mem::size_of::<usize>()))]
-    PageTooLargeToFitInHostPlatformWord { shm_cap_id: ShmCapId, shm_type: ShmType, offset: ShmCapOffset },
 }
 
 #[cfg(test)]

@@ -177,11 +177,11 @@ impl ShmSpace {
     }
 
     pub fn walk<'space>(&'space self, vaddr: u64) -> Result<WalkResult<'space>, PageTableError> {
-        acquisitions_and_page_table::walk(vaddr, self.acquisitions.page_table(), &self.space)
+        self.acquisitions.walk(vaddr, &self.space)
     }
 
     pub fn walk_mut<'space>(&'space mut self, vaddr: u64) -> Result<WalkResultMut<'space>, PageTableError> {
-        acquisitions_and_page_table::walk_mut(vaddr, self.acquisitions.page_table(), &mut self.space)
+        self.acquisitions.walk_mut(vaddr, &mut self.space)
     }
 
     /// This assumes that all pages can be arranged as: all 1 GiB ones first,
