@@ -143,6 +143,7 @@ impl ShmSpace {
         // try_acquire does the out-of-bounds and alignment checks. We map the errors here.
         self.acquisitions.try_acquire(shm_cap_id, shm_cap, address)
             .map_err(|acquire_error| match acquire_error {
+                AcquireError::AcquiringAlreadyAcquiredCap { address } => CurrentlyAcquiredCapSnafu { address }.build(),
                 AcquireError::AcquireExceedsSv39 => AddressOutOfBoundsSnafu.build(),
                 AcquireError::AcquireAddressNotPageAligned => AddressNotAlignedSnafu.build(),
                 AcquireError::AcquireIntersectsExistingAcquisition => OverlapsExistingAcquisitionSnafu.build(),
@@ -161,10 +162,8 @@ impl ShmSpace {
     }
 
     pub fn destroy_shm_cap(&mut self, shm_cap_id: ShmCapId) -> Result<(), ShmSpaceError> {
-        match self.acquisitions.is_acquired(shm_cap_id) {
-            Some(address) => return DestroyingCurrentlyAcquiredCapSnafu { address: *address }.fail(),
-            None => {},
-        }
+        self.acquisitions.check_not_acquired(shm_cap_id).map_err(|address| DestroyingCurrentlyAcquiredCapSnafu { address }.build())?;
+
         let shm_cap = self.space.remove(&shm_cap_id);
         self.id_pool.release(shm_cap_id);
         match shm_cap {
@@ -245,6 +244,8 @@ pub enum ShmSpaceError {
     BackingCapacityNotAvailable { source: io::Error },
     #[snafu(display("The requested capacity in bytes overflows either u64 or usize on this platform. Note that length in the system call arguments is number of this SHM type's pages, not number of bytes."))]
     BackingCapacityNotAvailableOverflows,
+    #[snafu(display("The requested cap is currently acquired at address 0x{address:x} and thus cannot be acquired again. Please release it first."))]
+    CurrentlyAcquiredCap { address: u64 },
     #[snafu(display("The requested cap is currently acquired at address 0x{address:x} and thus cannot be destroyed. Please release it first."))]
     DestroyingCurrentlyAcquiredCap { address: u64 },
     #[snafu(display("A cap with the requested cap ID was not found."))]

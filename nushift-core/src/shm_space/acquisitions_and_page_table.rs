@@ -25,6 +25,9 @@ impl AcquisitionsAndPageTable {
     }
 
     pub fn try_acquire(&mut self, shm_cap_id: ShmCapId, shm_cap: &ShmCap, address: u64) -> Result<(), AcquireError> {
+        // Check that it isn't already acquired.
+        self.check_not_acquired(shm_cap_id).map_err(|address| AcquiringAlreadyAcquiredCapSnafu { address }.build())?;
+
         // Check that it doesn't exceed Sv39. First check 2^64, then 2^39.
         let length_in_bytes = shm_cap.shm_type().page_bytes()
             .checked_mul(shm_cap.length_u64())
@@ -63,8 +66,11 @@ impl AcquisitionsAndPageTable {
         Ok(())
     }
 
-    pub fn is_acquired(&self, shm_cap_id: ShmCapId) -> Option<&ShmAcquisitionAddress> {
-        self.acquisitions.is_acquired(shm_cap_id)
+    pub fn check_not_acquired(&self, shm_cap_id: ShmCapId) -> Result<(), ShmAcquisitionAddress> {
+        match self.acquisitions.is_acquired(shm_cap_id) {
+            Some(address) => Err(*address),
+            None => Ok(()),
+        }
     }
 
     pub fn try_release(&mut self, shm_cap_id: ShmCapId, shm_cap: &ShmCap) -> Result<(), AcquireError> {
@@ -171,6 +177,7 @@ pub enum AcquireError {
     AcquireExceedsSv39,
     AcquireAddressNotPageAligned,
     AcquireIntersectsExistingAcquisition,
+    AcquiringAlreadyAcquiredCap { address: u64 },
     ReleasingNonAcquiredCap,
     PageTableInsertOrRemoveError { source: PageTableError }, // Should never occur, indicates a bug in Nushift's code
     RollbackError, // Should never occur, indicates a bug in Nushift's code

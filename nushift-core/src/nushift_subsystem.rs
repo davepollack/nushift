@@ -40,8 +40,8 @@ pub enum SyscallError {
     ShmUnknownShmType = 3,
     ShmInvalidLength = 4,
     ShmCapacityNotAvailable = 5,
-    ShmCapCurrentlyAcquired = 6,
-    ShmCapNotFound = 7,
+    ShmCapNotFound = 6,
+    ShmCapCurrentlyAcquired = 7,
     ShmAddressOutOfBounds = 8,
     ShmAddressNotAligned = 9,
     ShmOverlapsExistingAcquisition = 10,
@@ -77,7 +77,8 @@ fn marshall_shm_space_error<R: Register>(pcb: &mut ProcessControlBlock<R>, shm_s
         ShmSpaceError::CapacityNotAvailable
         | ShmSpaceError::BackingCapacityNotAvailable { source: _ }
         | ShmSpaceError::BackingCapacityNotAvailableOverflows => { set_error(pcb, SyscallError::ShmCapacityNotAvailable); },
-        ShmSpaceError::DestroyingCurrentlyAcquiredCap { address: _ } => { set_error(pcb, SyscallError::ShmCapCurrentlyAcquired); },
+        ShmSpaceError::CurrentlyAcquiredCap { address: _ }
+        | ShmSpaceError::DestroyingCurrentlyAcquiredCap { address: _ } => { set_error(pcb, SyscallError::ShmCapCurrentlyAcquired); },
         ShmSpaceError::CapNotFound => { set_error(pcb, SyscallError::ShmCapNotFound); },
         ShmSpaceError::AddressOutOfBounds => { set_error(pcb, SyscallError::ShmAddressOutOfBounds); },
         ShmSpaceError::AddressNotAligned => { set_error(pcb, SyscallError::ShmAddressNotAligned); },
