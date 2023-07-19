@@ -162,10 +162,19 @@ impl NushiftSubsystem {
 
                 match pcb.subsystem.shm_space_mut().acquire_shm_cap(shm_cap_id, address) {
                     Ok(_) => {},
-                    Err(shm_space_error) => { marshall_shm_space_error(pcb, shm_space_error); return Ok(()); },
+                    Err(shm_space_error) => {
+                        // If an acquire error occurs, roll back the just-created cap.
+                        let shm_space_error = pcb.subsystem.shm_space_mut().destroy_shm_cap(shm_cap_id)
+                            .map_err(|_| ShmSpaceError::AcquireReleaseInternalError)
+                            // If error occurred in destroy, use that (now mapped to internal) error. Otherwise, use the original shm_space_error.
+                            .map_or_else(|err| err, |_| shm_space_error);
+
+                        marshall_shm_space_error(pcb, shm_space_error);
+                        return Ok(());
+                    },
                 };
 
-                set_success(pcb, 0);
+                set_success(pcb, shm_cap_id);
                 Ok(())
             },
             Ok(Syscall::ShmRelease) => {
