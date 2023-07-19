@@ -1,31 +1,15 @@
 // TODO: Before publishing this crate, it would be cool to have an
 // `allocate_rc(...) -> RcId` alternative to `allocate(...) -> ArcId`.
 
-use core::fmt::{self, Debug, Display};
+use core::fmt::Debug;
 use std::{sync::{Arc, Mutex}, hash::Hash};
+
+use super::ReusableIdPoolError;
 
 #[derive(Debug)]
 pub struct ReusableIdPool {
     frontier: u64,
     free_list: Vec<u64>,
-}
-
-pub enum ReusableIdPoolError {
-    TooManyLiveIDs,
-}
-impl Display for ReusableIdPoolError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::TooManyLiveIDs => write!(f, "There are too many IDs concurrently in use. The limit is (2^64 - 1) live IDs. Please release some IDs."),
-        }
-    }
-}
-impl Debug for ReusableIdPoolError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::TooManyLiveIDs => write!(f, "{} (TooManyLiveIDs)", self),
-        }
-    }
 }
 
 #[derive(Debug)]

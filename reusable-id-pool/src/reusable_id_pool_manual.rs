@@ -2,7 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use super::reusable_id_pool::ReusableIdPoolError;
+use super::ReusableIdPoolError;
 
 pub struct ReusableIdPoolManual {
     frontier: u64,
