@@ -2,7 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use super::reusable_id_pool::{ReusableIdPoolError, TooManyConcurrentIDsSnafu};
+use super::reusable_id_pool::ReusableIdPoolError;
 
 pub struct ReusableIdPoolManual {
     frontier: u64,
@@ -28,7 +28,7 @@ impl ReusableIdPoolManual {
         if let Some(free_list_id) = self.free_list.pop_first() {
             Ok(free_list_id)
         } else if self.frontier == u64::MAX {
-            TooManyConcurrentIDsSnafu.fail()
+            Err(ReusableIdPoolError::TooManyLiveIDs)
         } else {
             let frontier_id = self.frontier;
             self.frontier += 1;

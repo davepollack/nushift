@@ -1279,9 +1279,6 @@ dependencies = [
 [[package]]
 name = "reusable-id-pool"
 version = "0.1.0"
-dependencies = [
- "snafu",
-]
 
 [[package]]
 name = "rustc-hash"

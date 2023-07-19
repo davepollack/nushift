@@ -1,9 +1,8 @@
 // TODO: Before publishing this crate, it would be cool to have an
 // `allocate_rc(...) -> RcId` alternative to `allocate(...) -> ArcId`.
 
-use core::fmt::{self, Debug};
+use core::fmt::{self, Debug, Display};
 use std::{sync::{Arc, Mutex}, hash::Hash};
-use snafu::Snafu;
 
 #[derive(Debug)]
 pub struct ReusableIdPool {
@@ -11,17 +10,20 @@ pub struct ReusableIdPool {
     free_list: Vec<u64>,
 }
 
-#[derive(Snafu)]
-#[snafu(visibility(pub(crate)))]
 pub enum ReusableIdPoolError {
-    #[snafu(display("There are too many IDs concurrently in use. The limit is 2^64 concurrent IDs. Please release some IDs."))]
-    TooManyConcurrentIDs,
+    TooManyLiveIDs,
 }
-
+impl Display for ReusableIdPoolError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::TooManyLiveIDs => write!(f, "There are too many IDs concurrently in use. The limit is (2^64 - 1) live IDs. Please release some IDs."),
+        }
+    }
+}
 impl Debug for ReusableIdPoolError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::TooManyConcurrentIDs => write!(f, "{} (TooManyConcurrentIDs)", self),
+            Self::TooManyLiveIDs => write!(f, "{} (TooManyLiveIDs)", self),
         }
     }
 }
@@ -92,7 +94,7 @@ impl ReusableIdPool {
                 pool: Arc::clone(reusable_id_pool),
             })))
         } else if pool.frontier == u64::MAX {
-            TooManyConcurrentIDsSnafu.fail()
+            Err(ReusableIdPoolError::TooManyLiveIDs)
         } else {
             let frontier_arc_id = ArcId(Arc::new(Id {
                 per_pool_id: pool.frontier,

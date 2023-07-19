@@ -125,7 +125,7 @@ impl ShmSpace {
         ).context(BackingCapacityNotAvailableSnafu)?;
 
         let id = self.id_pool.try_allocate()
-            .map_err(|rip_err| match rip_err { ReusableIdPoolError::TooManyConcurrentIDs => ExhaustedSnafu.build() })?;
+            .map_err(|rip_err| match rip_err { ReusableIdPoolError::TooManyLiveIDs => ExhaustedSnafu.build() })?;
 
         let shm_cap = match self.space.entry(id) {
             Entry::Occupied(_) => return DuplicateIdSnafu.fail(),
