@@ -207,6 +207,7 @@ impl NushiftSubsystem {
                     Err(shm_space_error) => { marshall_shm_space_error(pcb, shm_space_error); return Ok(()); },
                 };
 
+                // If the release succeeded, destroy should never fail, thus do not rollback (re-acquire).
                 match pcb.subsystem.shm_space_mut().destroy_shm_cap(shm_cap_id) {
                     Ok(_) => {},
                     Err(shm_space_error) => { marshall_shm_space_error(pcb, shm_space_error); return Ok(()); },

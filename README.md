@@ -57,10 +57,10 @@ On current commodity operating systems, mmap is used to reserve the memory when 
 ### ShmAcquire
 
 Arguments: shm_cap_id (`u64`), address (`u64`).\
-Returns: `0u64`\
+Returns: `0u64`.\
 Errors: `ShmInternalError`, `ShmCapCurrentlyAcquired`, `ShmCapNotFound`, `ShmAddressOutOfBounds`, `ShmAddressNotAligned`, `ShmOverlapsExistingAcquisition`
 
-Maps (also called acquires) the requested cap into the app at the requested address.
+Maps (acquires) the requested cap into the app at the requested address.
 
 `address` must be page-aligned to the page type of the provided `shm_cap_id`, and must be less than 2<sup>39</sup>, due to the current Sv39 scheme.
 
@@ -70,7 +70,35 @@ Arguments: type (`ShmType`), length (`u64`), address (`u64`).\
 Returns: shm_cap_id (`u64`).\
 Errors: `ShmInternalError`, `ShmExhausted`, `ShmUnknownShmType`, `ShmInvalidLength`, `ShmCapacityNotAvailable`, `ShmAddressOutOfBounds`, `ShmAddressNotAligned`, `ShmOverlapsExistingAcquisition`
 
-Calls `ShmNew` and then `ShmAcquire`, in one system call.
+Calls `ShmNew` and `ShmAcquire` in one system call.
+
+### ShmRelease
+
+Arguments: shm_cap_id (`u64`).\
+Returns: `0u64`.\
+Errors: `ShmInternalError`, `ShmCapNotFound`
+
+Unmaps (releases) the requested cap from the app.
+
+Silently succeeds if the requested cap is not currently acquired.
+
+### ShmDestroy
+
+Arguments: shm_cap_id (`u64`).\
+Returns: `0u64`.\
+Errors: `ShmCapNotFound`, `ShmCapCurrentlyAcquired`
+
+Deletes a cap.
+
+The cap must be released before destroying, otherwise `ShmCapCurrentlyAcquired` is returned.
+
+### ShmReleaseAndDestroy
+
+Arguments: shm_cap_id (`u64`).\
+Returns: `0u64`.\
+Errors: `ShmInternalError`, `ShmCapNotFound`
+
+Calls `ShmRelease` and `ShmDestroy` in one system call.
 
 ## Storage
 

@@ -162,6 +162,7 @@ impl ShmSpace {
     }
 
     pub fn destroy_shm_cap(&mut self, shm_cap_id: ShmCapId) -> Result<(), ShmSpaceError> {
+        self.space.contains_key(&shm_cap_id).then_some(()).ok_or_else(|| CapNotFoundSnafu.build())?;
         self.acquisitions.check_not_acquired(shm_cap_id).map_err(|address| DestroyingCurrentlyAcquiredCapSnafu { address }.build())?;
 
         let shm_cap = self.space.remove(&shm_cap_id);
