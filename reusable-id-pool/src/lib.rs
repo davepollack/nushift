@@ -23,3 +23,6 @@ impl Debug for ReusableIdPoolError {
         }
     }
 }
+// TODO: Gate behind std feature.
+// Change to core when error_in_core is stabilised.
+impl std::error::Error for ReusableIdPoolError {}
