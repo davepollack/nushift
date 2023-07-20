@@ -1,6 +1,8 @@
 // TODO: Use linked_hash_map when std is in configuration.
 
-use std::collections::BTreeSet;
+extern crate alloc;
+
+use alloc::collections::BTreeSet;
 
 use super::ReusableIdPoolError;
 
