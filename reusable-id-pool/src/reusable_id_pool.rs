@@ -1,8 +1,11 @@
 // TODO: Before publishing this crate, it would be cool to have an
 // `allocate_rc(...) -> RcId` alternative to `allocate(...) -> ArcId`.
 
+extern crate alloc;
+
 use core::fmt::Debug;
-use std::{sync::{Arc, Mutex}, hash::Hash};
+use alloc::sync::Arc;
+use std::{sync::Mutex, hash::Hash};
 
 use super::ReusableIdPoolError;
 
@@ -44,14 +47,14 @@ impl Hash for ArcId {
     }
 }
 impl PartialOrd for ArcId {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 impl Ord for ArcId {
     /// Similarly to PartialEq, multiple references to the same ID created with
     /// `ArcId::clone(&id)` should be ordered as equal.
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         Arc::as_ptr(&self.0).cmp(&Arc::as_ptr(&other.0))
     }
 }
