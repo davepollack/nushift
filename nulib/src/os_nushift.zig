@@ -2,23 +2,42 @@ const std = @import("std");
 
 pub const Syscall = enum(usize) {
     exit = 0,
+
     shm_new = 1,
     shm_acquire = 2,
     shm_new_and_acquire = 3,
     shm_release = 4,
     shm_destroy = 5,
     shm_release_and_destroy = 6,
+
+    accessibility_tree_new_cap = 7,
+    accessibility_tree_destroy_cap = 8,
 };
+
+pub fn SyscallArgs(comptime sys: Syscall) type {
+    return switch (sys) {
+        .exit => struct { exit_reason: usize },
+
+        .shm_new => struct { shm_type: ShmType, length: usize },
+        .shm_acquire => struct { shm_cap_id: usize, address: usize },
+        .shm_new_and_acquire => struct { shm_type: ShmType, length: usize, address: usize },
+        .shm_release, .shm_destroy, .shm_release_and_destroy => struct { shm_cap_id: usize },
+
+        .accessibility_tree_new_cap => struct {},
+        .accessibility_tree_destroy_cap => struct { accessibility_tree_cap_id: usize },
+    };
+}
 
 pub const SyscallError = enum(usize) {
     unknown_syscall = 0,
 
-    shm_internal_error = 1,
-    shm_exhausted = 2,
+    internal_error = 1,
+    exhausted = 2,
+    cap_not_found = 6,
+
     shm_unknown_shm_type = 3,
     shm_invalid_length = 4,
     shm_capacity_not_available = 5,
-    shm_cap_not_found = 6,
     shm_cap_currently_acquired = 7,
     shm_address_out_of_bounds = 8,
     shm_address_not_aligned = 9,
@@ -29,16 +48,6 @@ pub const SyscallResult = union(enum) {
     ok: usize,
     fail: SyscallError,
 };
-
-pub fn SyscallArgs(comptime sys: Syscall) type {
-    return switch (sys) {
-        .exit => struct { exit_reason: usize },
-        .shm_new => struct { shm_type: ShmType, length: usize },
-        .shm_acquire => struct { shm_cap_id: usize, address: usize },
-        .shm_new_and_acquire => struct { shm_type: ShmType, length: usize, address: usize },
-        .shm_release, .shm_destroy, .shm_release_and_destroy => struct { shm_cap_id: usize },
-    };
-}
 
 pub const ShmType = enum(usize) {
     four_kib = 0,
@@ -57,10 +66,15 @@ pub fn syscall_ignore_errors(comptime sys: Syscall, sys_args: SyscallArgs(sys)) 
 fn syscall_internal(comptime sys: Syscall, sys_args: SyscallArgs(sys), comptime ignore_errors: bool, comptime ReturnType: type) ReturnType {
     return switch (sys) {
         .exit => syscall_internal_args(@intFromEnum(sys), 1, [_]usize{sys_args.exit_reason}, ignore_errors, ReturnType),
+
         .shm_new => syscall_internal_args(@intFromEnum(sys), 2, [_]usize{ @intFromEnum(sys_args.shm_type), sys_args.length }, ignore_errors, ReturnType),
         .shm_acquire => syscall_internal_args(@intFromEnum(sys), 2, [_]usize{ sys_args.shm_cap_id, sys_args.address }, ignore_errors, ReturnType),
         .shm_new_and_acquire => syscall_internal_args(@intFromEnum(sys), 3, [_]usize{ @intFromEnum(sys_args.shm_type), sys_args.length, sys_args.address }, ignore_errors, ReturnType),
         .shm_release, .shm_destroy, .shm_release_and_destroy => syscall_internal_args(@intFromEnum(sys), 1, [_]usize{sys_args.shm_cap_id}, ignore_errors, ReturnType),
+
+        // Send maxInt(usize) as the first argument. The first argument is not used yet, but may be in the future.
+        .accessibility_tree_new_cap => syscall_internal_args(@intFromEnum(sys), 1, [_]usize{std.math.maxInt(usize)}, ignore_errors, ReturnType),
+        .accessibility_tree_destroy_cap => syscall_internal_args(@intFromEnum(sys), 1, [_]usize{sys_args.accessibility_tree_cap_id}, ignore_errors, ReturnType),
     };
 }
 

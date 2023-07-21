@@ -1,6 +1,7 @@
 use ckb_vm::{Error as CKBVMError, registers::{A0, A1, A2, A3, T0}, Register, CoreMachine};
 use num_enum::{TryFromPrimitive, IntoPrimitive};
 
+use super::accessibility_tree_space::{AccessibilityTreeSpace, AccessibilityTreeSpaceError};
 use super::process_control_block::ProcessControlBlock;
 use super::shm_space::{ShmType, ShmSpace, ShmSpaceError};
 
@@ -21,12 +22,16 @@ use super::shm_space::{ShmType, ShmSpace, ShmSpaceError};
 #[non_exhaustive]
 enum Syscall {
     Exit = 0,
+
     ShmNew = 1,
     ShmAcquire = 2,
     ShmNewAndAcquire = 3,
     ShmRelease = 4,
     ShmDestroy = 5,
     ShmReleaseAndDestroy = 6,
+
+    AccessibilityTreeNewCap = 7,
+    AccessibilityTreeDestroyCap = 8,
 }
 
 #[derive(IntoPrimitive)]
@@ -35,12 +40,13 @@ enum Syscall {
 pub enum SyscallError {
     UnknownSyscall = 0,
 
-    ShmInternalError = 1, // Should never happen, and indicates a bug in Nushift's code.
-    ShmExhausted = 2,
+    InternalError = 1, // Should never happen, and indicates a bug in Nushift's code.
+    Exhausted = 2,
+    CapNotFound = 6,
+
     ShmUnknownShmType = 3,
     ShmInvalidLength = 4,
     ShmCapacityNotAvailable = 5,
-    ShmCapNotFound = 6,
     ShmCapCurrentlyAcquired = 7,
     ShmAddressOutOfBounds = 8,
     ShmAddressNotAligned = 9,
@@ -71,28 +77,37 @@ fn set_success<R: Register>(pcb: &mut ProcessControlBlock<R>, return_value: u64)
 fn marshall_shm_space_error<R: Register>(pcb: &mut ProcessControlBlock<R>, shm_space_error: ShmSpaceError) {
     match shm_space_error {
         ShmSpaceError::DuplicateId
-        | ShmSpaceError::AcquireReleaseInternalError => { set_error(pcb, SyscallError::ShmInternalError); },
-        ShmSpaceError::Exhausted => { set_error(pcb, SyscallError::ShmExhausted); },
-        ShmSpaceError::InvalidLength => { set_error(pcb, SyscallError::ShmInvalidLength); },
+        | ShmSpaceError::AcquireReleaseInternalError => set_error(pcb, SyscallError::InternalError),
+        ShmSpaceError::Exhausted => set_error(pcb, SyscallError::Exhausted),
+        ShmSpaceError::InvalidLength => set_error(pcb, SyscallError::ShmInvalidLength),
         ShmSpaceError::CapacityNotAvailable
         | ShmSpaceError::BackingCapacityNotAvailable { source: _ }
-        | ShmSpaceError::BackingCapacityNotAvailableOverflows => { set_error(pcb, SyscallError::ShmCapacityNotAvailable); },
+        | ShmSpaceError::BackingCapacityNotAvailableOverflows => set_error(pcb, SyscallError::ShmCapacityNotAvailable),
         ShmSpaceError::CurrentlyAcquiredCap { address: _ }
-        | ShmSpaceError::DestroyingCurrentlyAcquiredCap { address: _ } => { set_error(pcb, SyscallError::ShmCapCurrentlyAcquired); },
-        ShmSpaceError::CapNotFound => { set_error(pcb, SyscallError::ShmCapNotFound); },
-        ShmSpaceError::AddressOutOfBounds => { set_error(pcb, SyscallError::ShmAddressOutOfBounds); },
-        ShmSpaceError::AddressNotAligned => { set_error(pcb, SyscallError::ShmAddressNotAligned); },
-        ShmSpaceError::OverlapsExistingAcquisition => { set_error(pcb, SyscallError::ShmOverlapsExistingAcquisition); },
+        | ShmSpaceError::DestroyingCurrentlyAcquiredCap { address: _ } => set_error(pcb, SyscallError::ShmCapCurrentlyAcquired),
+        ShmSpaceError::CapNotFound => set_error(pcb, SyscallError::CapNotFound),
+        ShmSpaceError::AddressOutOfBounds => set_error(pcb, SyscallError::ShmAddressOutOfBounds),
+        ShmSpaceError::AddressNotAligned => set_error(pcb, SyscallError::ShmAddressNotAligned),
+        ShmSpaceError::OverlapsExistingAcquisition => set_error(pcb, SyscallError::ShmOverlapsExistingAcquisition),
+    }
+}
+
+fn marshall_accessibility_tree_space_error<R: Register>(pcb: &mut ProcessControlBlock<R>, accessibility_tree_space_error: AccessibilityTreeSpaceError) {
+    match accessibility_tree_space_error {
+        AccessibilityTreeSpaceError::DuplicateId => set_error(pcb, SyscallError::InternalError),
+        AccessibilityTreeSpaceError::Exhausted => set_error(pcb, SyscallError::Exhausted),
+        AccessibilityTreeSpaceError::CapNotFound => set_error(pcb, SyscallError::CapNotFound),
     }
 }
 
 pub struct NushiftSubsystem {
     shm_space: ShmSpace,
+    accessibility_tree_space: AccessibilityTreeSpace,
 }
 
 impl NushiftSubsystem {
     pub fn new() -> Self {
-        NushiftSubsystem { shm_space: ShmSpace::new() }
+        NushiftSubsystem { shm_space: ShmSpace::new(), accessibility_tree_space: AccessibilityTreeSpace::new() }
     }
 
     pub(crate) fn shm_space(&self) -> &ShmSpace {
@@ -212,6 +227,27 @@ impl NushiftSubsystem {
                     Ok(_) => {},
                     Err(shm_space_error) => { marshall_shm_space_error(pcb, shm_space_error); return Ok(()); },
                 };
+
+                set_success(pcb, 0);
+                Ok(())
+            },
+
+            Ok(Syscall::AccessibilityTreeNewCap) => {
+                let accessibility_tree_cap_id = match pcb.subsystem.accessibility_tree_space.new_accessibility_tree_cap() {
+                    Ok(accessibility_tree_cap_id) => accessibility_tree_cap_id,
+                    Err(accessibility_tree_space_error) => { marshall_accessibility_tree_space_error(pcb, accessibility_tree_space_error); return Ok(()); },
+                };
+
+                set_success(pcb, accessibility_tree_cap_id);
+                Ok(())
+            },
+            Ok(Syscall::AccessibilityTreeDestroyCap) => {
+                let accessibility_tree_cap_id = pcb.registers()[FIRST_ARG_REGISTER].to_u64();
+
+                match pcb.subsystem.accessibility_tree_space.destroy_accessibility_tree_cap(accessibility_tree_cap_id) {
+                    Ok(_) => {},
+                    Err(accessibility_tree_space_error) => { marshall_accessibility_tree_space_error(pcb, accessibility_tree_space_error); return Ok(()); },
+                }
 
                 set_success(pcb, 0);
                 Ok(())

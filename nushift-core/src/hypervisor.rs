@@ -26,10 +26,13 @@ impl Hypervisor {
         let new_tab_id = ReusableIdPool::allocate(&self.tabs_reusable_id_pool);
         let mut new_tab = Tab::new(new_tab_id, title);
 
-        let binary_blob_result = fs::read("../examples/shm-nushift-app/zig-out/bin/shm-nushift-app");
-        if let Ok(binary_blob) = binary_blob_result {
-            new_tab.load(binary_blob);
-            new_tab.run();
+        let binary_blob_result = fs::read("../examples/hello-world/zig-out/bin/hello-world");
+        match binary_blob_result {
+            Ok(binary_blob) => {
+                new_tab.load(binary_blob);
+                new_tab.run();
+            },
+            Err(err) => log::error!("Hardcoded binary blob path error: {err:?}"),
         }
 
         self.tabs.push(new_tab);
