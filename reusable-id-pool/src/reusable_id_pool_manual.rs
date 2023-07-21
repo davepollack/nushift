@@ -55,6 +55,15 @@ impl NoStdFreeList {
             None => None,
         }
     }
+
+    fn contains(&self, value: u64) -> bool {
+        self.free_list.contains(&value)
+    }
+
+    fn push_back(&mut self, value: u64) {
+        self.free_list.insert(value);
+        self.insertion_order.push_back(value);
+    }
 }
 
 pub struct ReusableIdPoolManual {
@@ -119,11 +128,10 @@ impl ReusableIdPoolManual {
         // which is an invalid free (double free), or it's a valid free. If it's
         // an invalid free, we don't continue so we don't corrupt the
         // insertion_order data structure.
-        if self.free_list.free_list.contains(&id) {
+        if self.free_list.contains(id) {
             return;
         }
-        self.free_list.free_list.insert(id);
-        self.free_list.insertion_order.push_back(id);
+        self.free_list.push_back(id);
     }
 }
 
