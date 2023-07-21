@@ -5,7 +5,7 @@ extern crate alloc;
 
 use core::fmt::Debug;
 use alloc::sync::Arc;
-use std::{sync::Mutex, hash::Hash};
+use std::sync::Mutex;
 
 use super::ReusableIdPoolError;
 
@@ -41,7 +41,7 @@ impl PartialEq for ArcId {
     }
 }
 impl Eq for ArcId {}
-impl Hash for ArcId {
+impl std::hash::Hash for ArcId {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         Arc::as_ptr(&self.0).hash(state);
     }
@@ -101,7 +101,7 @@ impl ReusableIdPool {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::hash_map::DefaultHasher, hash::Hasher};
+    use std::{collections::hash_map::DefaultHasher, hash::{Hash, Hasher}};
 
     use super::*;
 
