@@ -47,7 +47,7 @@ impl Hypervisor {
         match self.tabs.iter().enumerate().find(|(_index, tab)| tab.id() == tab_id) {
             Some((index, _tab)) => {
                 self.tabs.remove(index);
-            }
+            },
             None => {},
         }
     }
