@@ -14,7 +14,7 @@ use super::shm_space::{ShmType, ShmSpace, ShmSpaceError};
 // encoding. But at the same time, I don't want that to use as many as 3
 // registers, so these numbers should be u63, not u64.
 //
-// (Technically, 2 registers can encode slighly more than a u63, but a u63
+// (Technically, 2 registers can encode slightly more than a u63, but a u63
 // fits.)
 
 #[derive(TryFromPrimitive)]
