@@ -54,11 +54,11 @@ pub enum SyscallError {
 }
 
 fn set_error<R: Register>(error: SyscallError) -> SyscallReturn<R> {
-    SyscallReturn::Return([R::from_u64(u64::MAX), R::from_u64(error.into())])
+    SyscallReturn::new_return(R::from_u64(u64::MAX), R::from_u64(error.into()))
 }
 
 fn set_success<R: Register>(return_value: u64) -> SyscallReturn<R> {
-    SyscallReturn::Return([R::from_u64(return_value), R::from_u64(u64::MAX)])
+    SyscallReturn::new_return(R::from_u64(return_value), R::from_u64(u64::MAX))
 }
 
 fn marshall_shm_space_error<R: Register>(shm_space_error: ShmSpaceError) -> SyscallReturn<R> {

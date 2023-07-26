@@ -20,7 +20,7 @@ use snafu_cli_debug::SnafuCliDebug;
 
 use super::nushift_subsystem::NushiftSubsystem;
 use super::protected_memory::ProtectedMemory;
-use super::register_ipc::{SyscallEnter, SyscallReturn, SYSCALL_NUM_REGISTER, FIRST_ARG_REGISTER, SECOND_ARG_REGISTER, THIRD_ARG_REGISTER, RETURN_VAL_REGISTER, ERROR_RETURN_VAL_REGISTER};
+use super::register_ipc::{SyscallEnter, SyscallReturn, SYSCALL_NUM_REGISTER, FIRST_ARG_REGISTER, SECOND_ARG_REGISTER, THIRD_ARG_REGISTER, RETURN_VAL_REGISTER, ERROR_RETURN_VAL_REGISTER, RETURN_VAL_REGISTER_INDEX, ERROR_RETURN_VAL_REGISTER_INDEX};
 
 pub struct ProcessControlBlock<R> {
     machine: Machine<R>,
@@ -209,14 +209,14 @@ impl<R: Register> CoreMachine for ProcessControlBlock<R> {
 
 impl<R: Register> CKBVMMachine for ProcessControlBlock<R> {
     fn ecall(&mut self) -> Result<(), CKBVMError> {
-        let send = [self.registers()[SYSCALL_NUM_REGISTER].clone(), self.registers()[FIRST_ARG_REGISTER].clone(), self.registers()[SECOND_ARG_REGISTER].clone(), self.registers()[THIRD_ARG_REGISTER].clone()];
+        let send = SyscallEnter::new(self.registers()[SYSCALL_NUM_REGISTER].clone(), self.registers()[FIRST_ARG_REGISTER].clone(), self.registers()[SECOND_ARG_REGISTER].clone(), self.registers()[THIRD_ARG_REGISTER].clone());
         self.syscall_enter.as_ref().expect("Must be populated at this point").send(send).expect("Send should succeed");
         let recv = self.syscall_return.as_ref().expect("Must be populated at this point").recv().expect("Receive should succeed");
         match recv {
             SyscallReturn::UserExit { exit_reason } => self.user_exit(exit_reason),
             SyscallReturn::Return(recv) => {
-                self.set_register(RETURN_VAL_REGISTER, recv[0].clone());
-                self.set_register(ERROR_RETURN_VAL_REGISTER, recv[1].clone());
+                self.set_register(RETURN_VAL_REGISTER, recv[RETURN_VAL_REGISTER_INDEX].clone());
+                self.set_register(ERROR_RETURN_VAL_REGISTER, recv[ERROR_RETURN_VAL_REGISTER_INDEX].clone());
             },
         }
         // ecall should always return Ok (i.e. not terminate the app). If this
