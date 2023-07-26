@@ -1,5 +1,6 @@
 use std::marker::PhantomData;
-use std::sync::{Arc, Mutex, Condvar};
+use std::sync::mpsc::{Sender, Receiver};
+use std::sync::{Arc, Mutex};
 
 use ckb_vm::{
     DefaultCoreMachine,
@@ -19,12 +20,13 @@ use snafu_cli_debug::SnafuCliDebug;
 
 use super::nushift_subsystem::NushiftSubsystem;
 use super::protected_memory::ProtectedMemory;
+use super::register_ipc::{SyscallEnter, SyscallReturn, SYSCALL_NUM_REGISTER, FIRST_ARG_REGISTER, SECOND_ARG_REGISTER, THIRD_ARG_REGISTER, RETURN_VAL_REGISTER, RETURN_VAL_REGISTER_INDEX, ERROR_RETURN_VAL_REGISTER, ERROR_RETURN_VAL_REGISTER_INDEX};
 
 pub struct ProcessControlBlock<R> {
     machine: Machine<R>,
     exit_reason: ExitReason,
-    thread_state: ThreadState,
-    locked_self: Option<Arc<(Mutex<ProcessControlBlock<R>>, Condvar)>>,
+    syscall_enter: Option<Sender<SyscallEnter<R>>>,
+    syscall_return: Option<Receiver<SyscallReturn<R>>>,
     locked_subsystem: Option<Arc<Mutex<NushiftSubsystem>>>,
 }
 
@@ -42,38 +44,27 @@ pub enum ExitReason {
     UserExit { exit_reason: u64 },
 }
 
-#[derive(Copy, Clone, Debug)]
-pub enum ThreadState {
-    Running,
-    Ecall,
-    Exited,
-}
-
 impl<R: Register> ProcessControlBlock<R> {
     pub fn new() -> Self {
         Self {
             machine: Machine::Unloaded,
             exit_reason: ExitReason::NotExited,
-            thread_state: ThreadState::Running,
-            locked_self: None,
+            syscall_enter: None,
+            syscall_return: None,
             locked_subsystem: None,
         }
     }
 
-    pub fn set_locked_self(&mut self, locked_self: Arc<(Mutex<ProcessControlBlock<R>>, Condvar)>) {
-        self.locked_self = Some(locked_self);
+    pub fn set_syscall_enter(&mut self, syscall_enter: Sender<SyscallEnter<R>>) {
+        self.syscall_enter = Some(syscall_enter);
+    }
+
+    pub fn set_syscall_return(&mut self, syscall_return: Receiver<SyscallReturn<R>>) {
+        self.syscall_return = Some(syscall_return);
     }
 
     pub fn set_locked_subsystem(&mut self, locked_subsystem: Arc<Mutex<NushiftSubsystem>>) {
         self.locked_subsystem = Some(locked_subsystem);
-    }
-
-    pub fn thread_state(&self) -> ThreadState {
-        self.thread_state
-    }
-
-    pub fn set_thread_state(&mut self, thread_state: ThreadState) {
-        self.thread_state = thread_state;
     }
 
     pub fn load_machine(&mut self, image: Vec<u8>) -> Result<(), ProcessControlBlockError> {
@@ -98,9 +89,9 @@ impl<R: Register> ProcessControlBlock<R> {
 
     pub fn run(&mut self) -> Result<ExitReason, ProcessControlBlockError> {
         let run_result = self.run_internal();
-        let (_locked, cvar) = self.locked_self.as_ref().expect("Must be populated at this point").as_ref();
-        self.thread_state = ThreadState::Exited;
-        cvar.notify_one();
+        // let (_locked, cvar) = self.locked_self.as_ref().expect("Must be populated at this point").as_ref();
+        // self.thread_state = ThreadState::Exited;
+        // cvar.notify_one();
         run_result
     }
 
@@ -226,19 +217,11 @@ impl<R: Register> CoreMachine for ProcessControlBlock<R> {
 
 impl<R: Register> CKBVMMachine for ProcessControlBlock<R> {
     fn ecall(&mut self) -> Result<(), CKBVMError> {
-        let (locked, cvar) = self.locked_self.as_ref().expect("Must be populated at this point").as_ref();
-        self.thread_state = ThreadState::Ecall;
-        cvar.notify_one();
-        loop {
-            let machine = cvar.wait(locked.lock().unwrap()).unwrap();
-
-            match machine.thread_state {
-                ThreadState::Ecall => {
-                    // Spurious wakeup, keep waiting.
-                },
-                _ => break,
-            }
-        }
+        let send = [self.registers()[SYSCALL_NUM_REGISTER].clone(), self.registers()[FIRST_ARG_REGISTER].clone(), self.registers()[SECOND_ARG_REGISTER].clone(), self.registers()[THIRD_ARG_REGISTER].clone()];
+        self.syscall_enter.as_ref().expect("Must be populated at this point").send(send).expect("Send should succeed");
+        let recv = self.syscall_return.as_ref().expect("Must be populated at this point").recv().expect("Receive should succeed");
+        self.set_register(RETURN_VAL_REGISTER, recv[RETURN_VAL_REGISTER_INDEX].clone());
+        self.set_register(ERROR_RETURN_VAL_REGISTER, recv[ERROR_RETURN_VAL_REGISTER_INDEX].clone());
         // ecall should always return Ok (i.e. not terminate the app). If this
         // becomes not true in the future, change this!
         Ok(())
