@@ -17,8 +17,9 @@ pub const FIRST_ARG_REGISTER_INDEX: usize = 1;
 pub const SECOND_ARG_REGISTER_INDEX: usize = 2;
 pub const THIRD_ARG_REGISTER_INDEX: usize = 3;
 
-pub const RETURN_VAL_REGISTER_INDEX: usize = 0;
-pub const ERROR_RETURN_VAL_REGISTER_INDEX: usize = 1;
-
 pub type SyscallEnter<R> = [R; 4];
-pub type SyscallReturn<R> = [R; 2];
+pub enum SyscallReturn<R> {
+    UserExit { exit_reason: u64 },
+    /// Return val index 0, error return val index 1
+    Return([R; 2]),
+}

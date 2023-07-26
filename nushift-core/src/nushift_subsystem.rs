@@ -1,9 +1,9 @@
-use ckb_vm::{Error as CKBVMError, registers::{A0, A1, A2, A3, T0}, Register, CoreMachine};
+use ckb_vm::Register;
 use num_enum::{TryFromPrimitive, IntoPrimitive};
 
 use super::accessibility_tree_space::{AccessibilityTreeSpace, AccessibilityTreeSpaceError};
-use super::process_control_block::ProcessControlBlock;
 use super::shm_space::{ShmType, ShmSpace, ShmSpaceError};
+use super::register_ipc::{SyscallEnter, SyscallReturn, SYSCALL_NUM_REGISTER_INDEX, FIRST_ARG_REGISTER_INDEX, SECOND_ARG_REGISTER_INDEX, THIRD_ARG_REGISTER_INDEX};
 
 // Regarding the use of `u64`s in this file:
 //
@@ -53,50 +53,37 @@ pub enum SyscallError {
     ShmOverlapsExistingAcquisition = 10,
 }
 
-const SYSCALL_NUM_REGISTER: usize = A0;
-const FIRST_ARG_REGISTER: usize = A1;
-const SECOND_ARG_REGISTER: usize = A2;
-const THIRD_ARG_REGISTER: usize = A3;
-const RETURN_VAL_REGISTER: usize = A0;
-/// a1 is used by the RISC-V calling conventions for a second return value,
-/// rather than t0, but my concern is with the whole 32-bit app thing using
-/// multiple registers to encode a 64-bit value. Maybe the 32-bit ABI will just
-/// use a0 and a2 and the 64-bit will use a0 and a1. For now, using t0.
-const ERROR_RETURN_VAL_REGISTER: usize = T0;
-
-fn set_error<R: Register>(pcb: &mut ProcessControlBlock<R>, error: SyscallError) {
-    pcb.set_register(RETURN_VAL_REGISTER, R::from_u64(u64::MAX));
-    pcb.set_register(ERROR_RETURN_VAL_REGISTER, R::from_u64(error.into()));
+fn set_error<R: Register>(error: SyscallError) -> SyscallReturn<R> {
+    SyscallReturn::Return([R::from_u64(u64::MAX), R::from_u64(error.into())])
 }
 
-fn set_success<R: Register>(pcb: &mut ProcessControlBlock<R>, return_value: u64) {
-    pcb.set_register(RETURN_VAL_REGISTER, R::from_u64(return_value));
-    pcb.set_register(ERROR_RETURN_VAL_REGISTER, R::from_u64(u64::MAX));
+fn set_success<R: Register>(return_value: u64) -> SyscallReturn<R> {
+    SyscallReturn::Return([R::from_u64(return_value), R::from_u64(u64::MAX)])
 }
 
-fn marshall_shm_space_error<R: Register>(pcb: &mut ProcessControlBlock<R>, shm_space_error: ShmSpaceError) {
+fn marshall_shm_space_error<R: Register>(shm_space_error: ShmSpaceError) -> SyscallReturn<R> {
     match shm_space_error {
         ShmSpaceError::DuplicateId
-        | ShmSpaceError::AcquireReleaseInternalError => set_error(pcb, SyscallError::InternalError),
-        ShmSpaceError::Exhausted => set_error(pcb, SyscallError::Exhausted),
-        ShmSpaceError::InvalidLength => set_error(pcb, SyscallError::ShmInvalidLength),
+        | ShmSpaceError::AcquireReleaseInternalError => set_error(SyscallError::InternalError),
+        ShmSpaceError::Exhausted => set_error(SyscallError::Exhausted),
+        ShmSpaceError::InvalidLength => set_error(SyscallError::ShmInvalidLength),
         ShmSpaceError::CapacityNotAvailable
         | ShmSpaceError::BackingCapacityNotAvailable { source: _ }
-        | ShmSpaceError::BackingCapacityNotAvailableOverflows => set_error(pcb, SyscallError::ShmCapacityNotAvailable),
+        | ShmSpaceError::BackingCapacityNotAvailableOverflows => set_error(SyscallError::ShmCapacityNotAvailable),
         ShmSpaceError::CurrentlyAcquiredCap { address: _ }
-        | ShmSpaceError::DestroyingCurrentlyAcquiredCap { address: _ } => set_error(pcb, SyscallError::ShmCapCurrentlyAcquired),
-        ShmSpaceError::CapNotFound => set_error(pcb, SyscallError::CapNotFound),
-        ShmSpaceError::AddressOutOfBounds => set_error(pcb, SyscallError::ShmAddressOutOfBounds),
-        ShmSpaceError::AddressNotAligned => set_error(pcb, SyscallError::ShmAddressNotAligned),
-        ShmSpaceError::OverlapsExistingAcquisition => set_error(pcb, SyscallError::ShmOverlapsExistingAcquisition),
+        | ShmSpaceError::DestroyingCurrentlyAcquiredCap { address: _ } => set_error(SyscallError::ShmCapCurrentlyAcquired),
+        ShmSpaceError::CapNotFound => set_error(SyscallError::CapNotFound),
+        ShmSpaceError::AddressOutOfBounds => set_error(SyscallError::ShmAddressOutOfBounds),
+        ShmSpaceError::AddressNotAligned => set_error(SyscallError::ShmAddressNotAligned),
+        ShmSpaceError::OverlapsExistingAcquisition => set_error(SyscallError::ShmOverlapsExistingAcquisition),
     }
 }
 
-fn marshall_accessibility_tree_space_error<R: Register>(pcb: &mut ProcessControlBlock<R>, accessibility_tree_space_error: AccessibilityTreeSpaceError) {
+fn marshall_accessibility_tree_space_error<R: Register>(accessibility_tree_space_error: AccessibilityTreeSpaceError) -> SyscallReturn<R> {
     match accessibility_tree_space_error {
-        AccessibilityTreeSpaceError::DuplicateId => set_error(pcb, SyscallError::InternalError),
-        AccessibilityTreeSpaceError::Exhausted => set_error(pcb, SyscallError::Exhausted),
-        AccessibilityTreeSpaceError::CapNotFound => set_error(pcb, SyscallError::CapNotFound),
+        AccessibilityTreeSpaceError::DuplicateId => set_error(SyscallError::InternalError),
+        AccessibilityTreeSpaceError::Exhausted => set_error(SyscallError::Exhausted),
+        AccessibilityTreeSpaceError::CapNotFound => set_error(SyscallError::CapNotFound),
     }
 }
 
@@ -118,61 +105,56 @@ impl NushiftSubsystem {
         &mut self.shm_space
     }
 
-    pub fn ecall<R: Register>(&mut self, pcb: &mut ProcessControlBlock<R>) -> Result<(), CKBVMError> {
+    pub fn ecall<R: Register>(&mut self, registers: SyscallEnter<R>) -> SyscallReturn<R> {
         // TODO: When 32-bit apps are supported, convert into u64 from multiple
         // registers, instead of `.to_u64()` which can only act on a single
         // register here)
-        let syscall = Syscall::try_from(pcb.registers()[SYSCALL_NUM_REGISTER].to_u64());
+        let syscall = Syscall::try_from(registers[SYSCALL_NUM_REGISTER_INDEX].to_u64());
 
         match syscall {
             Err(_) => {
-                set_error(pcb, SyscallError::UnknownSyscall);
-                Ok(())
+                set_error(SyscallError::UnknownSyscall)
             },
 
             Ok(Syscall::Exit) => {
-                pcb.user_exit(pcb.registers()[FIRST_ARG_REGISTER].to_u64());
-                set_success(pcb, 0);
-                Ok(())
+                SyscallReturn::UserExit { exit_reason: registers[FIRST_ARG_REGISTER_INDEX].to_u64() }
             },
             Ok(Syscall::ShmNew) => {
-                let shm_type = match ShmType::try_from(pcb.registers()[FIRST_ARG_REGISTER].to_u64()) {
+                let shm_type = match ShmType::try_from(registers[FIRST_ARG_REGISTER_INDEX].to_u64()) {
                     Ok(shm_type) => shm_type,
-                    Err(_) => { set_error(pcb, SyscallError::ShmUnknownShmType); return Ok(()); },
+                    Err(_) => return set_error(SyscallError::ShmUnknownShmType),
                 };
-                let length = pcb.registers()[SECOND_ARG_REGISTER].to_u64();
+                let length = registers[SECOND_ARG_REGISTER_INDEX].to_u64();
 
                 let shm_cap_id = match self.shm_space_mut().new_shm_cap(shm_type, length) {
                     Ok((shm_cap_id, _)) => shm_cap_id,
-                    Err(shm_space_error) => { marshall_shm_space_error(pcb, shm_space_error); return Ok(()); },
+                    Err(shm_space_error) => return marshall_shm_space_error(shm_space_error),
                 };
 
-                set_success(pcb, shm_cap_id);
-                Ok(())
+                set_success(shm_cap_id)
             },
             Ok(Syscall::ShmAcquire) => {
-                let shm_cap_id = pcb.registers()[FIRST_ARG_REGISTER].to_u64();
-                let address = pcb.registers()[SECOND_ARG_REGISTER].to_u64();
+                let shm_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
+                let address = registers[SECOND_ARG_REGISTER_INDEX].to_u64();
 
                 match self.shm_space_mut().acquire_shm_cap(shm_cap_id, address) {
                     Ok(_) => {},
-                    Err(shm_space_error) => { marshall_shm_space_error(pcb, shm_space_error); return Ok(()); },
+                    Err(shm_space_error) => return marshall_shm_space_error(shm_space_error),
                 };
 
-                set_success(pcb, 0);
-                Ok(())
+                set_success(0)
             },
             Ok(Syscall::ShmNewAndAcquire) => {
-                let shm_type = match ShmType::try_from(pcb.registers()[FIRST_ARG_REGISTER].to_u64()) {
+                let shm_type = match ShmType::try_from(registers[FIRST_ARG_REGISTER_INDEX].to_u64()) {
                     Ok(shm_type) => shm_type,
-                    Err(_) => { set_error(pcb, SyscallError::ShmUnknownShmType); return Ok(()); },
+                    Err(_) => return set_error(SyscallError::ShmUnknownShmType),
                 };
-                let length = pcb.registers()[SECOND_ARG_REGISTER].to_u64();
-                let address = pcb.registers()[THIRD_ARG_REGISTER].to_u64();
+                let length = registers[SECOND_ARG_REGISTER_INDEX].to_u64();
+                let address = registers[THIRD_ARG_REGISTER_INDEX].to_u64();
 
                 let shm_cap_id = match self.shm_space_mut().new_shm_cap(shm_type, length) {
                     Ok((shm_cap_id, _)) => shm_cap_id,
-                    Err(shm_space_error) => { marshall_shm_space_error(pcb, shm_space_error); return Ok(()); },
+                    Err(shm_space_error) => return marshall_shm_space_error(shm_space_error),
                 };
 
                 match self.shm_space_mut().acquire_shm_cap(shm_cap_id, address) {
@@ -184,73 +166,66 @@ impl NushiftSubsystem {
                             // If error occurred in destroy, use that (now mapped to internal) error. Otherwise, use the original shm_space_error.
                             .map_or_else(|err| err, |_| shm_space_error);
 
-                        marshall_shm_space_error(pcb, shm_space_error);
-                        return Ok(());
+                        return marshall_shm_space_error(shm_space_error);
                     },
                 };
 
-                set_success(pcb, shm_cap_id);
-                Ok(())
+                set_success(shm_cap_id)
             },
             Ok(Syscall::ShmRelease) => {
-                let shm_cap_id = pcb.registers()[FIRST_ARG_REGISTER].to_u64();
+                let shm_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
 
                 match self.shm_space_mut().release_shm_cap(shm_cap_id) {
                     Ok(_) => {},
-                    Err(shm_space_error) => { marshall_shm_space_error(pcb, shm_space_error); return Ok(()); },
+                    Err(shm_space_error) => return marshall_shm_space_error(shm_space_error),
                 };
 
-                set_success(pcb, 0);
-                Ok(())
+                set_success(0)
             }
             Ok(Syscall::ShmDestroy) => {
-                let shm_cap_id = pcb.registers()[FIRST_ARG_REGISTER].to_u64();
+                let shm_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
 
                 match self.shm_space_mut().destroy_shm_cap(shm_cap_id) {
                     Ok(_) => {},
-                    Err(shm_space_error) => { marshall_shm_space_error(pcb, shm_space_error); return Ok(()); },
+                    Err(shm_space_error) => return marshall_shm_space_error(shm_space_error),
                 };
 
-                set_success(pcb, 0);
-                Ok(())
+                set_success(0)
             },
             Ok(Syscall::ShmReleaseAndDestroy) => {
-                let shm_cap_id = pcb.registers()[FIRST_ARG_REGISTER].to_u64();
+                let shm_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
 
                 match self.shm_space_mut().release_shm_cap(shm_cap_id) {
                     Ok(_) => {},
-                    Err(shm_space_error) => { marshall_shm_space_error(pcb, shm_space_error); return Ok(()); },
+                    Err(shm_space_error) => return marshall_shm_space_error(shm_space_error),
                 };
 
                 // If the release succeeded, destroy should never fail, thus do not rollback (re-acquire).
                 match self.shm_space_mut().destroy_shm_cap(shm_cap_id) {
                     Ok(_) => {},
-                    Err(shm_space_error) => { marshall_shm_space_error(pcb, shm_space_error); return Ok(()); },
+                    Err(shm_space_error) => return marshall_shm_space_error(shm_space_error),
                 };
 
-                set_success(pcb, 0);
-                Ok(())
+                set_success(0)
             },
 
             Ok(Syscall::AccessibilityTreeNewCap) => {
                 let accessibility_tree_cap_id = match self.accessibility_tree_space.new_accessibility_tree_cap() {
                     Ok(accessibility_tree_cap_id) => accessibility_tree_cap_id,
-                    Err(accessibility_tree_space_error) => { marshall_accessibility_tree_space_error(pcb, accessibility_tree_space_error); return Ok(()); },
+                    Err(accessibility_tree_space_error) => return marshall_accessibility_tree_space_error(accessibility_tree_space_error),
                 };
 
-                set_success(pcb, accessibility_tree_cap_id);
-                Ok(())
+                set_success(accessibility_tree_cap_id)
             },
             Ok(Syscall::AccessibilityTreeDestroyCap) => {
-                let accessibility_tree_cap_id = pcb.registers()[FIRST_ARG_REGISTER].to_u64();
+                let accessibility_tree_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
 
                 match self.accessibility_tree_space.destroy_accessibility_tree_cap(accessibility_tree_cap_id) {
                     Ok(_) => {},
-                    Err(accessibility_tree_space_error) => { marshall_accessibility_tree_space_error(pcb, accessibility_tree_space_error); return Ok(()); },
+                    Err(accessibility_tree_space_error) => return marshall_accessibility_tree_space_error(accessibility_tree_space_error),
                 }
 
-                set_success(pcb, 0);
-                Ok(())
+                set_success(0)
             },
         }
     }

@@ -66,32 +66,16 @@ impl Tab {
         // continue to join the thread in this case. Otherwise, process the
         // message.
         while let Ok(receive) = syscall_enter_receive.recv() {
-            // Call the blocking bit of subsystem.ecall here
+            let syscall_return = {
+                let mut subsystem = subsystem.lock().unwrap();
+                subsystem.ecall(receive)
+            };
+            syscall_return_send.send(syscall_return).expect("Since we just received, other thread should be waiting on our send");
 
-            syscall_return_send.send([0u64, u64::MAX]);
+            // Call the non-blocking bit of ecall here. Asynchronous tasks?
+            // If this "non-blocking" bit locks the subsystem, it's not going to
+            // be non-blocking with the bits of the app that access memory.
         }
-
-        // loop {
-        //     let mut machine = cvar.wait(locked.lock().unwrap()).unwrap();
-
-        //     match machine.thread_state() {
-        //         ThreadState::Running => {
-        //             // Spurious wakeup, keep waiting.
-        //         },
-        //         ThreadState::Ecall => {
-        //             // This is the blocking bit of the ecall. How will we continue with the non-blocking bit?
-        //             {
-        //                 let mut subsystem = self.subsystem.lock().unwrap();
-        //                 // TODO: When/after testing the functionality, continue resolving this warning.
-        //                 subsystem.ecall(&mut *machine);
-        //             }
-
-        //             machine.set_thread_state(ThreadState::Running);
-        //             cvar.notify_one();
-        //         },
-        //         ThreadState::Exited => break,
-        //     }
-        // }
 
         let run_result = match machine_thread.join() {
             Err(join_error) => {
