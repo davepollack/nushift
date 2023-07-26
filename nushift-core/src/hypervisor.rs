@@ -4,7 +4,7 @@ use super::tab::Tab;
 
 pub struct Hypervisor {
     tabs: Vec<Tab>,
-    tabs_reusable_id_pool: Arc<Mutex<ReusableIdPool>>
+    tabs_reusable_id_pool: Arc<Mutex<ReusableIdPool>>,
 }
 
 impl Hypervisor {
@@ -28,10 +28,7 @@ impl Hypervisor {
 
         let binary_blob_result = fs::read("../examples/hello-world/zig-out/bin/hello-world");
         match binary_blob_result {
-            Ok(binary_blob) => {
-                new_tab.load(binary_blob);
-                new_tab.run();
-            },
+            Ok(binary_blob) => new_tab.load_and_run(binary_blob),
             Err(err) => log::error!("Hardcoded binary blob path error: {err:?}"),
         }
 
@@ -64,6 +61,9 @@ mod tests {
         assert_eq!(0, hypervisor.tabs.len());
     }
 
+    // TODO: Delete these two tests? They're not unit tests anymore.
+    //
+    // Consumer crate (nushift)'s tests also call it though...
     #[test]
     fn hypervisor_add_new_tab_adds_new_tab() {
         let mut hypervisor = Hypervisor::new();

@@ -118,7 +118,7 @@ impl NushiftSubsystem {
         &mut self.shm_space
     }
 
-    pub fn ecall<R: Register>(pcb: &mut ProcessControlBlock<R>) -> Result<(), CKBVMError> {
+    pub fn ecall<R: Register>(&mut self, pcb: &mut ProcessControlBlock<R>) -> Result<(), CKBVMError> {
         // TODO: When 32-bit apps are supported, convert into u64 from multiple
         // registers, instead of `.to_u64()` which can only act on a single
         // register here)
@@ -142,7 +142,7 @@ impl NushiftSubsystem {
                 };
                 let length = pcb.registers()[SECOND_ARG_REGISTER].to_u64();
 
-                let shm_cap_id = match pcb.subsystem.shm_space_mut().new_shm_cap(shm_type, length) {
+                let shm_cap_id = match self.shm_space_mut().new_shm_cap(shm_type, length) {
                     Ok((shm_cap_id, _)) => shm_cap_id,
                     Err(shm_space_error) => { marshall_shm_space_error(pcb, shm_space_error); return Ok(()); },
                 };
@@ -154,7 +154,7 @@ impl NushiftSubsystem {
                 let shm_cap_id = pcb.registers()[FIRST_ARG_REGISTER].to_u64();
                 let address = pcb.registers()[SECOND_ARG_REGISTER].to_u64();
 
-                match pcb.subsystem.shm_space_mut().acquire_shm_cap(shm_cap_id, address) {
+                match self.shm_space_mut().acquire_shm_cap(shm_cap_id, address) {
                     Ok(_) => {},
                     Err(shm_space_error) => { marshall_shm_space_error(pcb, shm_space_error); return Ok(()); },
                 };
@@ -170,16 +170,16 @@ impl NushiftSubsystem {
                 let length = pcb.registers()[SECOND_ARG_REGISTER].to_u64();
                 let address = pcb.registers()[THIRD_ARG_REGISTER].to_u64();
 
-                let shm_cap_id = match pcb.subsystem.shm_space_mut().new_shm_cap(shm_type, length) {
+                let shm_cap_id = match self.shm_space_mut().new_shm_cap(shm_type, length) {
                     Ok((shm_cap_id, _)) => shm_cap_id,
                     Err(shm_space_error) => { marshall_shm_space_error(pcb, shm_space_error); return Ok(()); },
                 };
 
-                match pcb.subsystem.shm_space_mut().acquire_shm_cap(shm_cap_id, address) {
+                match self.shm_space_mut().acquire_shm_cap(shm_cap_id, address) {
                     Ok(_) => {},
                     Err(shm_space_error) => {
                         // If an acquire error occurs, roll back the just-created cap.
-                        let shm_space_error = pcb.subsystem.shm_space_mut().destroy_shm_cap(shm_cap_id)
+                        let shm_space_error = self.shm_space_mut().destroy_shm_cap(shm_cap_id)
                             .map_err(|_| ShmSpaceError::AcquireReleaseInternalError)
                             // If error occurred in destroy, use that (now mapped to internal) error. Otherwise, use the original shm_space_error.
                             .map_or_else(|err| err, |_| shm_space_error);
@@ -195,7 +195,7 @@ impl NushiftSubsystem {
             Ok(Syscall::ShmRelease) => {
                 let shm_cap_id = pcb.registers()[FIRST_ARG_REGISTER].to_u64();
 
-                match pcb.subsystem.shm_space_mut().release_shm_cap(shm_cap_id) {
+                match self.shm_space_mut().release_shm_cap(shm_cap_id) {
                     Ok(_) => {},
                     Err(shm_space_error) => { marshall_shm_space_error(pcb, shm_space_error); return Ok(()); },
                 };
@@ -206,7 +206,7 @@ impl NushiftSubsystem {
             Ok(Syscall::ShmDestroy) => {
                 let shm_cap_id = pcb.registers()[FIRST_ARG_REGISTER].to_u64();
 
-                match pcb.subsystem.shm_space_mut().destroy_shm_cap(shm_cap_id) {
+                match self.shm_space_mut().destroy_shm_cap(shm_cap_id) {
                     Ok(_) => {},
                     Err(shm_space_error) => { marshall_shm_space_error(pcb, shm_space_error); return Ok(()); },
                 };
@@ -217,13 +217,13 @@ impl NushiftSubsystem {
             Ok(Syscall::ShmReleaseAndDestroy) => {
                 let shm_cap_id = pcb.registers()[FIRST_ARG_REGISTER].to_u64();
 
-                match pcb.subsystem.shm_space_mut().release_shm_cap(shm_cap_id) {
+                match self.shm_space_mut().release_shm_cap(shm_cap_id) {
                     Ok(_) => {},
                     Err(shm_space_error) => { marshall_shm_space_error(pcb, shm_space_error); return Ok(()); },
                 };
 
                 // If the release succeeded, destroy should never fail, thus do not rollback (re-acquire).
-                match pcb.subsystem.shm_space_mut().destroy_shm_cap(shm_cap_id) {
+                match self.shm_space_mut().destroy_shm_cap(shm_cap_id) {
                     Ok(_) => {},
                     Err(shm_space_error) => { marshall_shm_space_error(pcb, shm_space_error); return Ok(()); },
                 };
@@ -233,7 +233,7 @@ impl NushiftSubsystem {
             },
 
             Ok(Syscall::AccessibilityTreeNewCap) => {
-                let accessibility_tree_cap_id = match pcb.subsystem.accessibility_tree_space.new_accessibility_tree_cap() {
+                let accessibility_tree_cap_id = match self.accessibility_tree_space.new_accessibility_tree_cap() {
                     Ok(accessibility_tree_cap_id) => accessibility_tree_cap_id,
                     Err(accessibility_tree_space_error) => { marshall_accessibility_tree_space_error(pcb, accessibility_tree_space_error); return Ok(()); },
                 };
@@ -244,7 +244,7 @@ impl NushiftSubsystem {
             Ok(Syscall::AccessibilityTreeDestroyCap) => {
                 let accessibility_tree_cap_id = pcb.registers()[FIRST_ARG_REGISTER].to_u64();
 
-                match pcb.subsystem.accessibility_tree_space.destroy_accessibility_tree_cap(accessibility_tree_cap_id) {
+                match self.accessibility_tree_space.destroy_accessibility_tree_cap(accessibility_tree_cap_id) {
                     Ok(_) => {},
                     Err(accessibility_tree_space_error) => { marshall_accessibility_tree_space_error(pcb, accessibility_tree_space_error); return Ok(()); },
                 }
@@ -253,11 +253,5 @@ impl NushiftSubsystem {
                 Ok(())
             },
         }
-    }
-
-    pub fn ebreak<R: Register>(_pcb: &mut ProcessControlBlock<R>) -> Result<(), CKBVMError> {
-        // Terminate app.
-        // TODO: As an improvement to terminating the app, provide debugging functionality.
-        Err(CKBVMError::External(String::from("ebreak encountered; terminating app.")))
     }
 }
