@@ -35,10 +35,7 @@ impl Tab {
         let (syscall_return_send, syscall_return_receive) = mpsc::channel();
         let subsystem = Arc::new(Mutex::new(NushiftSubsystem::new()));
         let subsystem_cloned_for_machine = Arc::clone(&subsystem);
-        let mut machine = ProcessControlBlock::<u64>::new();
-        machine.set_syscall_enter(syscall_enter_send);
-        machine.set_syscall_return(syscall_return_receive);
-        machine.set_locked_subsystem(subsystem_cloned_for_machine);
+        let mut machine = ProcessControlBlock::<u64>::new(syscall_enter_send, syscall_return_receive, subsystem_cloned_for_machine);
 
         let result = machine.load_machine(image);
 

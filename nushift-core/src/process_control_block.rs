@@ -25,9 +25,9 @@ use super::register_ipc::{SyscallEnter, SyscallReturn, SYSCALL_NUM_REGISTER, FIR
 pub struct ProcessControlBlock<R> {
     machine: Machine<R>,
     exit_reason: ExitReason,
-    syscall_enter: Option<Sender<SyscallEnter<R>>>,
-    syscall_return: Option<Receiver<SyscallReturn<R>>>,
-    locked_subsystem: Option<Arc<Mutex<NushiftSubsystem>>>,
+    syscall_enter: Sender<SyscallEnter<R>>,
+    syscall_return: Receiver<SyscallReturn<R>>,
+    locked_subsystem: Arc<Mutex<NushiftSubsystem>>,
 }
 
 enum Machine<R> {
@@ -45,26 +45,14 @@ pub enum ExitReason {
 }
 
 impl<R: Register> ProcessControlBlock<R> {
-    pub fn new() -> Self {
+    pub fn new(syscall_enter: Sender<SyscallEnter<R>>, syscall_return: Receiver<SyscallReturn<R>>, locked_subsystem: Arc<Mutex<NushiftSubsystem>>) -> Self {
         Self {
             machine: Machine::Unloaded,
             exit_reason: ExitReason::NotExited,
-            syscall_enter: None,
-            syscall_return: None,
-            locked_subsystem: None,
+            syscall_enter,
+            syscall_return,
+            locked_subsystem,
         }
-    }
-
-    pub fn set_syscall_enter(&mut self, syscall_enter: Sender<SyscallEnter<R>>) {
-        self.syscall_enter = Some(syscall_enter);
-    }
-
-    pub fn set_syscall_return(&mut self, syscall_return: Receiver<SyscallReturn<R>>) {
-        self.syscall_return = Some(syscall_return);
-    }
-
-    pub fn set_locked_subsystem(&mut self, locked_subsystem: Arc<Mutex<NushiftSubsystem>>) {
-        self.locked_subsystem = Some(locked_subsystem);
     }
 
     pub fn load_machine(&mut self, image: Vec<u8>) -> Result<(), ProcessControlBlockError> {
@@ -210,8 +198,8 @@ impl<R: Register> CoreMachine for ProcessControlBlock<R> {
 impl<R: Register> CKBVMMachine for ProcessControlBlock<R> {
     fn ecall(&mut self) -> Result<(), CKBVMError> {
         let send = SyscallEnter::new(self.registers()[SYSCALL_NUM_REGISTER].clone(), self.registers()[FIRST_ARG_REGISTER].clone(), self.registers()[SECOND_ARG_REGISTER].clone(), self.registers()[THIRD_ARG_REGISTER].clone());
-        self.syscall_enter.as_ref().expect("Must be populated at this point").send(send).expect("Send should succeed");
-        let recv = self.syscall_return.as_ref().expect("Must be populated at this point").recv().expect("Receive should succeed");
+        self.syscall_enter.send(send).expect("Send should succeed");
+        let recv = self.syscall_return.recv().expect("Receive should succeed");
         match recv {
             SyscallReturn::UserExit { exit_reason } => self.user_exit(exit_reason),
             SyscallReturn::Return(recv) => {
@@ -274,53 +262,53 @@ impl<R: Register> Memory for ProcessControlBlock<R> {
     }
 
     fn load8(&mut self, addr: &Self::REG) -> Result<Self::REG, CKBVMError> {
-        let subsystem = self.locked_subsystem.as_ref().expect("Must be populated at this point").lock().unwrap();
+        let subsystem = self.locked_subsystem.lock().unwrap();
         ProtectedMemory::load8(subsystem.shm_space(), R::to_u64(addr))
             .map(|value| R::from_u8(value))
             .map_err(|_| CKBVMError::MemOutOfBound)
     }
 
     fn load16(&mut self, addr: &Self::REG) -> Result<Self::REG, CKBVMError> {
-        let subsystem = self.locked_subsystem.as_ref().expect("Must be populated at this point").lock().unwrap();
+        let subsystem = self.locked_subsystem.lock().unwrap();
         ProtectedMemory::load16(subsystem.shm_space(), R::to_u64(addr))
             .map(|value| R::from_u16(value))
             .map_err(|_| CKBVMError::MemOutOfBound)
     }
 
     fn load32(&mut self, addr: &Self::REG) -> Result<Self::REG, CKBVMError> {
-        let subsystem = self.locked_subsystem.as_ref().expect("Must be populated at this point").lock().unwrap();
+        let subsystem = self.locked_subsystem.lock().unwrap();
         ProtectedMemory::load32(subsystem.shm_space(), R::to_u64(addr))
             .map(|value| R::from_u32(value))
             .map_err(|_| CKBVMError::MemOutOfBound)
     }
 
     fn load64(&mut self, addr: &Self::REG) -> Result<Self::REG, CKBVMError> {
-        let subsystem = self.locked_subsystem.as_ref().expect("Must be populated at this point").lock().unwrap();
+        let subsystem = self.locked_subsystem.lock().unwrap();
         ProtectedMemory::load64(subsystem.shm_space(), R::to_u64(addr))
             .map(|value| R::from_u64(value))
             .map_err(|_| CKBVMError::MemOutOfBound)
     }
 
     fn store8(&mut self, addr: &Self::REG, value: &Self::REG) -> Result<(), CKBVMError> {
-        let mut subsystem = self.locked_subsystem.as_ref().expect("Must be populated at this point").lock().unwrap();
+        let mut subsystem = self.locked_subsystem.lock().unwrap();
         ProtectedMemory::store8(subsystem.shm_space_mut(), R::to_u64(addr), R::to_u8(value))
             .map_err(|_| CKBVMError::MemOutOfBound)
     }
 
     fn store16(&mut self, addr: &Self::REG, value: &Self::REG) -> Result<(), CKBVMError> {
-        let mut subsystem = self.locked_subsystem.as_ref().expect("Must be populated at this point").lock().unwrap();
+        let mut subsystem = self.locked_subsystem.lock().unwrap();
         ProtectedMemory::store16(subsystem.shm_space_mut(), R::to_u64(addr), R::to_u16(value))
             .map_err(|_| CKBVMError::MemOutOfBound)
     }
 
     fn store32(&mut self, addr: &Self::REG, value: &Self::REG) -> Result<(), CKBVMError> {
-        let mut subsystem = self.locked_subsystem.as_ref().expect("Must be populated at this point").lock().unwrap();
+        let mut subsystem = self.locked_subsystem.lock().unwrap();
         ProtectedMemory::store32(subsystem.shm_space_mut(), R::to_u64(addr), R::to_u32(value))
             .map_err(|_| CKBVMError::MemOutOfBound)
     }
 
     fn store64(&mut self, addr: &Self::REG, value: &Self::REG) -> Result<(), CKBVMError> {
-        let mut subsystem = self.locked_subsystem.as_ref().expect("Must be populated at this point").lock().unwrap();
+        let mut subsystem = self.locked_subsystem.lock().unwrap();
         ProtectedMemory::store64(subsystem.shm_space_mut(), R::to_u64(addr), R::to_u64(value))
             .map_err(|_| CKBVMError::MemOutOfBound)
     }
