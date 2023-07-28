@@ -68,10 +68,10 @@ fn marshall_shm_space_error<R: Register>(shm_space_error: ShmSpaceError) -> Sysc
         ShmSpaceError::Exhausted => set_error(SyscallError::Exhausted),
         ShmSpaceError::InvalidLength => set_error(SyscallError::ShmInvalidLength),
         ShmSpaceError::CapacityNotAvailable
-        | ShmSpaceError::BackingCapacityNotAvailable { source: _ }
+        | ShmSpaceError::BackingCapacityNotAvailable { .. }
         | ShmSpaceError::BackingCapacityNotAvailableOverflows => set_error(SyscallError::ShmCapacityNotAvailable),
-        ShmSpaceError::CurrentlyAcquiredCap { address: _ }
-        | ShmSpaceError::DestroyingCurrentlyAcquiredCap { address: _ } => set_error(SyscallError::ShmCapCurrentlyAcquired),
+        ShmSpaceError::CurrentlyAcquiredCap { .. }
+        | ShmSpaceError::DestroyingCurrentlyAcquiredCap { .. } => set_error(SyscallError::ShmCapCurrentlyAcquired),
         ShmSpaceError::CapNotFound => set_error(SyscallError::CapNotFound),
         ShmSpaceError::AddressOutOfBounds => set_error(SyscallError::ShmAddressOutOfBounds),
         ShmSpaceError::AddressNotAligned => set_error(SyscallError::ShmAddressNotAligned),
@@ -81,9 +81,14 @@ fn marshall_shm_space_error<R: Register>(shm_space_error: ShmSpaceError) -> Sysc
 
 fn marshall_accessibility_tree_space_error<R: Register>(accessibility_tree_space_error: AccessibilityTreeSpaceError) -> SyscallReturn<R> {
     match accessibility_tree_space_error {
-        AccessibilityTreeSpaceError::DuplicateId => set_error(SyscallError::InternalError),
-        AccessibilityTreeSpaceError::Exhausted => set_error(SyscallError::Exhausted),
-        AccessibilityTreeSpaceError::CapNotFound => set_error(SyscallError::CapNotFound),
+        AccessibilityTreeSpaceError::DuplicateId
+        | AccessibilityTreeSpaceError::ShmSpaceInternalError { .. }
+        | AccessibilityTreeSpaceError::PublishInternalError => set_error(SyscallError::InternalError),
+        AccessibilityTreeSpaceError::Exhausted
+        | AccessibilityTreeSpaceError::ShmExhausted => set_error(SyscallError::Exhausted),
+        AccessibilityTreeSpaceError::CapNotFound { .. }
+        | AccessibilityTreeSpaceError::ShmCapNotFound { .. }=> set_error(SyscallError::CapNotFound),
+        AccessibilityTreeSpaceError::ShmCapacityNotAvailable => set_error(SyscallError::ShmCapacityNotAvailable),
     }
 }
 

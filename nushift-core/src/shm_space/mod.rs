@@ -84,6 +84,7 @@ pub type ShmCapId = u64;
 pub type ShmCapLength = NonZeroU64;
 pub type ShmCapOffset = u64;
 pub type ShmSpaceMap = HashMap<ShmCapId, ShmCap>;
+pub type OwnedShmIdAndCap = (ShmCapId, ShmCap);
 /// 0 = number of 1 GiB caps, 1 = number of 2 MiB caps, 2 = number of 4 KiB caps
 type Sv39SpaceStats = [u32; 3];
 
@@ -164,16 +165,21 @@ impl ShmSpace {
     pub fn destroy_shm_cap(&mut self, shm_cap_id: ShmCapId) -> Result<(), ShmSpaceError> {
         self.space.contains_key(&shm_cap_id).then_some(()).ok_or_else(|| CapNotFoundSnafu.build())?;
         self.acquisitions.check_not_acquired(shm_cap_id).map_err(|address| DestroyingCurrentlyAcquiredCapSnafu { address }.build())?;
+        // TODO: Check that it must not be contained by any other dependents. E.g. accessibility tree.
 
-        let shm_cap = self.space.remove(&shm_cap_id);
+        let shm_cap = self.space.remove(&shm_cap_id).ok_or_else(|| CapNotFoundSnafu.build())?; // This error should be impossible to get to because we checked contains_key above, but still use this error variant.
         self.id_pool.release(shm_cap_id);
-        match shm_cap {
-            Some(shm_cap) => {
-                Self::sv39_decrement_stats(&mut self.stats, shm_cap);
-            },
-            None => {}, // Silently proceed if cap was not found in space
-        }
+        Self::sv39_decrement_stats(&mut self.stats, shm_cap);
         Ok(())
+    }
+
+    /// Moves *without* decrementing the Sv39 stats. So it's still reserved and
+    /// can be moved back in.
+    ///
+    /// Precondition: Must be released. And probably must not be depended on by
+    /// any other dependents.
+    pub fn move_shm_cap_to_other_space(&mut self, shm_cap_id: ShmCapId) -> Option<ShmCap> {
+        self.space.remove(&shm_cap_id)
     }
 
     pub fn walk<'space>(&'space self, vaddr: u64) -> Result<WalkResult<'space>, PageTableError> {
