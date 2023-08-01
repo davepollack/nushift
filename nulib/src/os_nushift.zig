@@ -42,6 +42,8 @@ pub const SyscallError = enum(usize) {
     shm_address_out_of_bounds = 8,
     shm_address_not_aligned = 9,
     shm_overlaps_existing_acquisition = 10,
+
+    accessibility_tree_in_progress = 11,
 };
 
 pub const SyscallResult = union(enum) {

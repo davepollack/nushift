@@ -58,9 +58,14 @@ impl AccessibilityTreeSpace {
 
     /// Releases SHM cap, but does not do further processing yet.
     pub fn publish_accessibility_tree_blocking(&mut self, accessibility_tree_cap_id: AccessibilityTreeCapId, input_shm_cap_id: ShmCapId, shm_space: &mut ShmSpace) -> Result<(), AccessibilityTreeSpaceError> {
-        // TODO: If in_progress is already populated, and deferred hasn't
-        // processed it yet, don't continue.
         let accessibility_tree_cap = self.space.get_mut(&accessibility_tree_cap_id).ok_or_else(|| CapNotFoundSnafu { id: accessibility_tree_cap_id }.build())?;
+
+        // Currently, you can't queue/otherwise process an accessibility tree
+        // while one is being processed.
+        match accessibility_tree_cap.in_progress_cap {
+            Some(_) => return InProgressSnafu.fail(),
+            None => {},
+        };
 
         shm_space.release_shm_cap(input_shm_cap_id).map_err(|shm_space_error| match shm_space_error {
             ShmSpaceError::CapNotFound => ShmCapNotFoundSnafu { id: input_shm_cap_id }.build(),
@@ -177,6 +182,8 @@ pub enum AccessibilityTreeSpaceError {
     Exhausted,
     #[snafu(display("The accessibility tree cap with ID {id} was not found."))]
     CapNotFound { id: AccessibilityTreeCapId },
+    #[snafu(display("Another accessibility tree is currently being processed."))]
+    InProgress,
     #[snafu(display("The SHM cap with ID {id} was not found."))]
     ShmCapNotFound { id: ShmCapId },
     ShmExhausted,

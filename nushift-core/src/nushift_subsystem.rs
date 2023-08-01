@@ -51,6 +51,8 @@ pub enum SyscallError {
     ShmAddressOutOfBounds = 8,
     ShmAddressNotAligned = 9,
     ShmOverlapsExistingAcquisition = 10,
+
+    AccessibilityTreeInProgress = 11,
 }
 
 fn set_error<R: Register>(error: SyscallError) -> SyscallReturn<R> {
@@ -88,6 +90,7 @@ fn marshall_accessibility_tree_space_error<R: Register>(accessibility_tree_space
         | AccessibilityTreeSpaceError::ShmExhausted => set_error(SyscallError::Exhausted),
         AccessibilityTreeSpaceError::CapNotFound { .. }
         | AccessibilityTreeSpaceError::ShmCapNotFound { .. }=> set_error(SyscallError::CapNotFound),
+        AccessibilityTreeSpaceError::InProgress => set_error(SyscallError::AccessibilityTreeInProgress),
         AccessibilityTreeSpaceError::ShmCapacityNotAvailable => set_error(SyscallError::ShmCapacityNotAvailable),
     }
 }
