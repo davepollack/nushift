@@ -182,6 +182,12 @@ impl ShmSpace {
         self.space.remove(&shm_cap_id)
     }
 
+    /// Moves *without* incrementing the Sv39 stats. Because it wasn't
+    /// decremented when it was moved out.
+    pub fn move_shm_cap_back_into_space(&mut self, shm_cap_id: ShmCapId, shm_cap: ShmCap) {
+        self.space.insert(shm_cap_id, shm_cap);
+    }
+
     pub fn walk<'space>(&'space self, vaddr: u64) -> Result<WalkResult<'space>, PageTableError> {
         self.acquisitions.walk(vaddr, &self.space)
     }

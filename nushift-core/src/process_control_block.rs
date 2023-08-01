@@ -138,18 +138,11 @@ pub enum ProcessControlBlockError {
     ExecuteError { source: CKBVMError },
 }
 
-const PANIC_MESSAGE: &str = "process_control_block.rs: Machine attempted to be used but not loaded";
 macro_rules! proxy_to_self_machine {
-    ($self:ident, $name:ident$(, $arg:expr)*) => {
-        match &$self.machine {
-            Machine::Loaded { machine, .. } => machine.$name($($arg),*),
-            _ => panic!("{}", PANIC_MESSAGE),
-        }
-    };
-    (mut $self:ident, $name:ident$(, $arg:expr)*) => {
-        match &mut $self.machine {
-            Machine::Loaded{ machine, .. } => machine.$name($($arg),*),
-            _ => panic!("{}", PANIC_MESSAGE),
+    ($($mut:ident)?; $self:ident, $name:ident$(, $arg:expr)*) => {
+        match $self.machine {
+            Machine::Loaded { ref $($mut)? machine, .. } => machine.$name($($arg),*),
+            _ => panic!("process_control_block.rs: Machine attempted to be used but not loaded"),
         }
     };
 }
@@ -159,15 +152,15 @@ impl<R: Register> CoreMachine for ProcessControlBlock<R> {
     type MEM = Self;
 
     fn pc(&self) -> &Self::REG {
-        proxy_to_self_machine!(self, pc)
+        proxy_to_self_machine!(; self, pc)
     }
 
     fn update_pc(&mut self, pc: Self::REG) {
-        proxy_to_self_machine!(mut self, update_pc, pc)
+        proxy_to_self_machine!(mut; self, update_pc, pc)
     }
 
     fn commit_pc(&mut self) {
-        proxy_to_self_machine!(mut self, commit_pc)
+        proxy_to_self_machine!(mut; self, commit_pc)
     }
 
     fn memory(&self) -> &Self::MEM {
@@ -179,19 +172,19 @@ impl<R: Register> CoreMachine for ProcessControlBlock<R> {
     }
 
     fn registers(&self) -> &[Self::REG] {
-        proxy_to_self_machine!(self, registers)
+        proxy_to_self_machine!(; self, registers)
     }
 
     fn set_register(&mut self, idx: usize, value: Self::REG) {
-        proxy_to_self_machine!(mut self, set_register, idx, value)
+        proxy_to_self_machine!(mut; self, set_register, idx, value)
     }
 
     fn version(&self) -> u32 {
-        proxy_to_self_machine!(self, version)
+        proxy_to_self_machine!(; self, version)
     }
 
     fn isa(&self) -> u8 {
-        proxy_to_self_machine!(self, isa)
+        proxy_to_self_machine!(; self, isa)
     }
 }
 

@@ -12,5 +12,7 @@ log = "0.4.17"
 memmap2 = "0.6.2"
 num_enum = "0.5.7"
 reusable-id-pool = { path = "../reusable-id-pool" }
+ron = "0.8"
+serde = { version = "1", features = ["derive"] }
 snafu = "0.7.1"
 snafu-cli-debug = "0.1.1"
