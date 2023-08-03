@@ -160,8 +160,8 @@ macro_rules! proxy_to_self_machine {
     ($self:ident, $name:ident$(, $arg:expr)*) => {
         proxy_to_self_machine_impl!(; $self, $name$(, $arg)*)
     };
-    ($mut:ident $self:ident, $name:ident$(, $arg:expr)*) => {
-        proxy_to_self_machine_impl!($mut; $self, $name$(, $arg)*)
+    (mut $self:ident, $name:ident$(, $arg:expr)*) => {
+        proxy_to_self_machine_impl!(mut; $self, $name$(, $arg)*)
     };
 }
 macro_rules! proxy_to_self_machine_impl {
