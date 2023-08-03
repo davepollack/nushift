@@ -1,7 +1,7 @@
 use ckb_vm::Register;
 use num_enum::{TryFromPrimitive, IntoPrimitive};
 
-use super::accessibility_tree_space::{AccessibilityTreeSpace, AccessibilityTreeSpaceError};
+use super::accessibility_tree_space::{AccessibilityTreeSpace, AccessibilityTreeSpaceError, AccessibilityTreeCapId};
 use super::shm_space::{ShmType, ShmSpace, ShmSpaceError};
 use super::register_ipc::{SyscallEnter, SyscallReturn, SYSCALL_NUM_REGISTER_INDEX, FIRST_ARG_REGISTER_INDEX, SECOND_ARG_REGISTER_INDEX, THIRD_ARG_REGISTER_INDEX};
 
@@ -32,6 +32,7 @@ enum Syscall {
 
     AccessibilityTreeNewCap = 7,
     AccessibilityTreeDestroyCap = 8,
+    AccessibilityTreePublish = 9,
 }
 
 #[derive(IntoPrimitive)]
@@ -55,15 +56,46 @@ pub enum SyscallError {
     AccessibilityTreeInProgress = 11,
 }
 
-fn set_error<R: Register>(error: SyscallError) -> SyscallReturn<R> {
-    SyscallReturn::new_return(R::from_u64(u64::MAX), R::from_u64(error.into()))
+trait AsOption<T> {
+    fn as_option(self) -> Option<T>;
+}
+impl<T> AsOption<T> for T {
+    fn as_option(self) -> Option<T> {
+        Some(self)
+    }
+}
+impl<T> AsOption<T> for Option<T> {
+    fn as_option(self) -> Option<T> {
+        self
+    }
 }
 
-fn set_success<R: Register>(return_value: u64) -> SyscallReturn<R> {
-    SyscallReturn::new_return(R::from_u64(return_value), R::from_u64(u64::MAX))
+pub struct SyscallReturnAndTask<R>(pub SyscallReturn<R>, pub Option<Task>);
+pub enum Task {
+    AccessibilityTreePublish { accessibility_tree_cap_id: AccessibilityTreeCapId },
 }
 
-fn marshall_shm_space_error<R: Register>(shm_space_error: ShmSpaceError) -> SyscallReturn<R> {
+fn set_error<R: Register>(error: SyscallError) -> SyscallReturnAndTask<R> {
+    SyscallReturnAndTask(SyscallReturn::new_return(R::from_u64(u64::MAX), R::from_u64(error.into())), None)
+}
+
+fn set_success<R: Register>(return_value: u64) -> SyscallReturnAndTask<R> {
+    set_success_with_task(return_value, None)
+}
+
+fn set_success_with_task<R, O>(return_value: u64, task: O) -> SyscallReturnAndTask<R>
+where
+    R: Register,
+    O: AsOption<Task>,
+{
+    SyscallReturnAndTask(SyscallReturn::new_return(R::from_u64(return_value), R::from_u64(u64::MAX)), task.as_option())
+}
+
+fn user_exit<R>(exit_reason: u64) -> SyscallReturnAndTask<R> {
+    SyscallReturnAndTask(SyscallReturn::UserExit { exit_reason }, None)
+}
+
+fn marshall_shm_space_error<R: Register>(shm_space_error: ShmSpaceError) -> SyscallReturnAndTask<R> {
     match shm_space_error {
         ShmSpaceError::DuplicateId
         | ShmSpaceError::AcquireReleaseInternalError => set_error(SyscallError::InternalError),
@@ -81,7 +113,7 @@ fn marshall_shm_space_error<R: Register>(shm_space_error: ShmSpaceError) -> Sysc
     }
 }
 
-fn marshall_accessibility_tree_space_error<R: Register>(accessibility_tree_space_error: AccessibilityTreeSpaceError) -> SyscallReturn<R> {
+fn marshall_accessibility_tree_space_error<R: Register>(accessibility_tree_space_error: AccessibilityTreeSpaceError) -> SyscallReturnAndTask<R> {
     match accessibility_tree_space_error {
         AccessibilityTreeSpaceError::DuplicateId
         | AccessibilityTreeSpaceError::ShmSpaceInternalError { .. }
@@ -96,8 +128,8 @@ fn marshall_accessibility_tree_space_error<R: Register>(accessibility_tree_space
 }
 
 pub struct NushiftSubsystem {
-    shm_space: ShmSpace,
-    accessibility_tree_space: AccessibilityTreeSpace,
+    pub(crate) shm_space: ShmSpace,
+    pub(crate) accessibility_tree_space: AccessibilityTreeSpace,
 }
 
 impl NushiftSubsystem {
@@ -113,7 +145,7 @@ impl NushiftSubsystem {
         &mut self.shm_space
     }
 
-    pub fn ecall<R: Register>(&mut self, registers: SyscallEnter<R>) -> SyscallReturn<R> {
+    pub fn ecall<R: Register>(&mut self, registers: SyscallEnter<R>) -> SyscallReturnAndTask<R> {
         // TODO: When 32-bit apps are supported, convert into u64 from multiple
         // registers, instead of `.to_u64()` which can only act on a single
         // register here)
@@ -125,7 +157,7 @@ impl NushiftSubsystem {
             },
 
             Ok(Syscall::Exit) => {
-                SyscallReturn::UserExit { exit_reason: registers[FIRST_ARG_REGISTER_INDEX].to_u64() }
+                user_exit(registers[FIRST_ARG_REGISTER_INDEX].to_u64())
             },
             Ok(Syscall::ShmNew) => {
                 let shm_type = match ShmType::try_from(registers[FIRST_ARG_REGISTER_INDEX].to_u64()) {
@@ -231,9 +263,20 @@ impl NushiftSubsystem {
                 match self.accessibility_tree_space.destroy_accessibility_tree_cap(accessibility_tree_cap_id) {
                     Ok(_) => {},
                     Err(accessibility_tree_space_error) => return marshall_accessibility_tree_space_error(accessibility_tree_space_error),
-                }
+                };
 
                 set_success(0)
+            },
+            Ok(Syscall::AccessibilityTreePublish) => {
+                let accessibility_tree_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
+                let input_shm_cap_id = registers[SECOND_ARG_REGISTER_INDEX].to_u64();
+
+                match self.accessibility_tree_space.publish_accessibility_tree_blocking(accessibility_tree_cap_id, input_shm_cap_id, &mut self.shm_space) {
+                    Ok(_) => {},
+                    Err(accessibility_tree_space_error) => return marshall_accessibility_tree_space_error(accessibility_tree_space_error),
+                };
+
+                set_success_with_task(0, Task::AccessibilityTreePublish { accessibility_tree_cap_id })
             },
         }
     }

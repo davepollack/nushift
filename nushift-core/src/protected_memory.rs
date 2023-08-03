@@ -21,6 +21,18 @@ impl ProtectedMemory {
         Ok(walked.space_slice[walked.byte_offset_in_space_slice])
     }
 
+    pub fn load16(shm_space: &ShmSpace, addr: u64) -> Result<u16, ProtectedMemoryError> {
+        Self::load_multi_byte(shm_space, addr)
+    }
+
+    pub fn load32(shm_space: &ShmSpace, addr: u64) -> Result<u32, ProtectedMemoryError> {
+        Self::load_multi_byte(shm_space, addr)
+    }
+
+    pub fn load64(shm_space: &ShmSpace, addr: u64) -> Result<u64, ProtectedMemoryError> {
+        Self::load_multi_byte(shm_space, addr)
+    }
+
     pub fn load_multi_byte<T: Numeric>(shm_space: &ShmSpace, addr: u64) -> Result<T, ProtectedMemoryError> {
         Self::check_within_sv39(addr, mem::size_of::<T>())?;
         let walked = shm_space.walk(addr).context(WalkSnafu)?;
@@ -49,23 +61,23 @@ impl ProtectedMemory {
         Ok(word)
     }
 
-    pub fn load16(shm_space: &ShmSpace, addr: u64) -> Result<u16, ProtectedMemoryError> {
-        Self::load_multi_byte(shm_space, addr)
-    }
-
-    pub fn load32(shm_space: &ShmSpace, addr: u64) -> Result<u32, ProtectedMemoryError> {
-        Self::load_multi_byte(shm_space, addr)
-    }
-
-    pub fn load64(shm_space: &ShmSpace, addr: u64) -> Result<u64, ProtectedMemoryError> {
-        Self::load_multi_byte(shm_space, addr)
-    }
-
     pub fn store8(shm_space: &mut ShmSpace, addr: u64, value: u8) -> Result<(), ProtectedMemoryError> {
         Self::check_within_sv39(addr, 1)?;
         let walked_mut = shm_space.walk_mut(addr).context(WalkSnafu)?;
         walked_mut.space_slice[walked_mut.byte_offset_in_space_slice] = value;
         Ok(())
+    }
+
+    pub fn store16(shm_space: &mut ShmSpace, addr: u64, value: u16) -> Result<(), ProtectedMemoryError> {
+        Self::store_multi_byte(shm_space, addr, value)
+    }
+
+    pub fn store32(shm_space: &mut ShmSpace, addr: u64, value: u32) -> Result<(), ProtectedMemoryError> {
+        Self::store_multi_byte(shm_space, addr, value)
+    }
+
+    pub fn store64(shm_space: &mut ShmSpace, addr: u64, value: u64) -> Result<(), ProtectedMemoryError> {
+        Self::store_multi_byte(shm_space, addr, value)
     }
 
     pub fn store_multi_byte<T: Numeric>(shm_space: &mut ShmSpace, addr: u64, value: T) -> Result<(), ProtectedMemoryError> {
@@ -121,18 +133,6 @@ impl ProtectedMemory {
         }
         inner(shm_space, addr, le_bytes.as_ref(), word_bytes)?;
         Ok(())
-    }
-
-    pub fn store16(shm_space: &mut ShmSpace, addr: u64, value: u16) -> Result<(), ProtectedMemoryError> {
-        Self::store_multi_byte(shm_space, addr, value)
-    }
-
-    pub fn store32(shm_space: &mut ShmSpace, addr: u64, value: u32) -> Result<(), ProtectedMemoryError> {
-        Self::store_multi_byte(shm_space, addr, value)
-    }
-
-    pub fn store64(shm_space: &mut ShmSpace, addr: u64, value: u64) -> Result<(), ProtectedMemoryError> {
-        Self::store_multi_byte(shm_space, addr, value)
     }
 }
 

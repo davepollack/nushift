@@ -1,0 +1,12 @@
+AccessibilityTree(
+    surfaces: [
+        Surface(
+            display_list: [
+                Text(
+                    aabb: ([100, 100], [200, 200]),
+                    text: "Hello, world!",
+                ),
+            ],
+        ),
+    ],
+)

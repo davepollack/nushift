@@ -15,10 +15,17 @@ pub struct ReusableIdPool {
     free_list: Vec<u64>,
 }
 
-#[derive(Debug)]
 pub struct Id {
     per_pool_id: u64,
     pool: Arc<Mutex<ReusableIdPool>>,
+}
+
+impl Debug for Id {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Id")
+            .field("per_pool_id", &self.per_pool_id)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Drop for Id {

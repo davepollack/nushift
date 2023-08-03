@@ -1,4 +1,5 @@
-use std::marker::PhantomData;
+use core::fmt::LowerHex;
+use core::marker::PhantomData;
 use std::sync::mpsc::{Sender, Receiver};
 use std::sync::{Arc, Mutex};
 
@@ -14,13 +15,27 @@ use ckb_vm::{
     decoder::build_decoder,
     instructions::execute,
     Memory,
+    registers::{A0, A1, A2, A3, T0},
 };
 use snafu::prelude::*;
 use snafu_cli_debug::SnafuCliDebug;
 
 use super::nushift_subsystem::NushiftSubsystem;
-use super::protected_memory::ProtectedMemory;
-use super::register_ipc::{SyscallEnter, SyscallReturn, SYSCALL_NUM_REGISTER, FIRST_ARG_REGISTER, SECOND_ARG_REGISTER, THIRD_ARG_REGISTER, RETURN_VAL_REGISTER, ERROR_RETURN_VAL_REGISTER, RETURN_VAL_REGISTER_INDEX, ERROR_RETURN_VAL_REGISTER_INDEX};
+use super::protected_memory::{ProtectedMemory, ProtectedMemoryError};
+use super::register_ipc::{SyscallEnter, SyscallReturn, RETURN_VAL_REGISTER_INDEX, ERROR_RETURN_VAL_REGISTER_INDEX};
+use super::shm_space::ShmSpace;
+
+const SYSCALL_NUM_REGISTER: usize = A0;
+const FIRST_ARG_REGISTER: usize = A1;
+const SECOND_ARG_REGISTER: usize = A2;
+const THIRD_ARG_REGISTER: usize = A3;
+
+const RETURN_VAL_REGISTER: usize = A0;
+/// a1 is used by the RISC-V calling conventions for a second return value,
+/// rather than t0, but my concern is with the whole 32-bit app thing using
+/// multiple registers to encode a 64-bit value. Maybe the 32-bit ABI will just
+/// use a0 and a2 and the 64-bit will use a0 and a1. For now, using t0.
+const ERROR_RETURN_VAL_REGISTER: usize = T0;
 
 pub struct ProcessControlBlock<R> {
     machine: Machine<R>,
@@ -44,7 +59,10 @@ pub enum ExitReason {
     UserExit { exit_reason: u64 },
 }
 
-impl<R: Register> ProcessControlBlock<R> {
+impl<R> ProcessControlBlock<R>
+where
+    R: Register + LowerHex,
+{
     pub fn new(syscall_enter: Sender<SyscallEnter<R>>, syscall_return: Receiver<SyscallReturn<R>>, locked_subsystem: Arc<Mutex<NushiftSubsystem>>) -> Self {
         Self {
             machine: Machine::Unloaded,
@@ -147,7 +165,10 @@ macro_rules! proxy_to_self_machine {
     };
 }
 
-impl<R: Register> CoreMachine for ProcessControlBlock<R> {
+impl<R> CoreMachine for ProcessControlBlock<R>
+where
+    R: Register + LowerHex,
+{
     type REG = R;
     type MEM = Self;
 
@@ -188,7 +209,10 @@ impl<R: Register> CoreMachine for ProcessControlBlock<R> {
     }
 }
 
-impl<R: Register> CKBVMMachine for ProcessControlBlock<R> {
+impl<R> CKBVMMachine for ProcessControlBlock<R>
+where
+    R: Register + LowerHex,
+{
     fn ecall(&mut self) -> Result<(), CKBVMError> {
         let send = SyscallEnter::new(self.registers()[SYSCALL_NUM_REGISTER].clone(), self.registers()[FIRST_ARG_REGISTER].clone(), self.registers()[SECOND_ARG_REGISTER].clone(), self.registers()[THIRD_ARG_REGISTER].clone());
         self.syscall_enter.send(send).expect("Send should succeed");
@@ -212,7 +236,10 @@ impl<R: Register> CKBVMMachine for ProcessControlBlock<R> {
     }
 }
 
-impl<R: Register> Memory for ProcessControlBlock<R> {
+impl<R> Memory for ProcessControlBlock<R>
+where
+    R: Register + LowerHex,
+{
     type REG = R;
 
     fn init_pages(
@@ -255,56 +282,65 @@ impl<R: Register> Memory for ProcessControlBlock<R> {
     }
 
     fn load8(&mut self, addr: &Self::REG) -> Result<Self::REG, CKBVMError> {
-        let subsystem = self.locked_subsystem.lock().unwrap();
-        ProtectedMemory::load8(subsystem.shm_space(), R::to_u64(addr))
-            .map(|value| R::from_u8(value))
-            .map_err(|_| CKBVMError::MemOutOfBound)
+        load_impl(self, addr, ProtectedMemory::load8, R::from_u8)
     }
 
     fn load16(&mut self, addr: &Self::REG) -> Result<Self::REG, CKBVMError> {
-        let subsystem = self.locked_subsystem.lock().unwrap();
-        ProtectedMemory::load16(subsystem.shm_space(), R::to_u64(addr))
-            .map(|value| R::from_u16(value))
-            .map_err(|_| CKBVMError::MemOutOfBound)
+        load_impl(self, addr, ProtectedMemory::load16, R::from_u16)
     }
 
     fn load32(&mut self, addr: &Self::REG) -> Result<Self::REG, CKBVMError> {
-        let subsystem = self.locked_subsystem.lock().unwrap();
-        ProtectedMemory::load32(subsystem.shm_space(), R::to_u64(addr))
-            .map(|value| R::from_u32(value))
-            .map_err(|_| CKBVMError::MemOutOfBound)
+        load_impl(self, addr, ProtectedMemory::load32, R::from_u32)
     }
 
     fn load64(&mut self, addr: &Self::REG) -> Result<Self::REG, CKBVMError> {
-        let subsystem = self.locked_subsystem.lock().unwrap();
-        ProtectedMemory::load64(subsystem.shm_space(), R::to_u64(addr))
-            .map(|value| R::from_u64(value))
-            .map_err(|_| CKBVMError::MemOutOfBound)
+        load_impl(self, addr, ProtectedMemory::load64, R::from_u64)
     }
 
     fn store8(&mut self, addr: &Self::REG, value: &Self::REG) -> Result<(), CKBVMError> {
-        let mut subsystem = self.locked_subsystem.lock().unwrap();
-        ProtectedMemory::store8(subsystem.shm_space_mut(), R::to_u64(addr), R::to_u8(value))
-            .map_err(|_| CKBVMError::MemOutOfBound)
+        store_impl(self, addr, value, ProtectedMemory::store8, R::to_u8)
     }
 
     fn store16(&mut self, addr: &Self::REG, value: &Self::REG) -> Result<(), CKBVMError> {
-        let mut subsystem = self.locked_subsystem.lock().unwrap();
-        ProtectedMemory::store16(subsystem.shm_space_mut(), R::to_u64(addr), R::to_u16(value))
-            .map_err(|_| CKBVMError::MemOutOfBound)
+        store_impl(self, addr, value, ProtectedMemory::store16, R::to_u16)
     }
 
     fn store32(&mut self, addr: &Self::REG, value: &Self::REG) -> Result<(), CKBVMError> {
-        let mut subsystem = self.locked_subsystem.lock().unwrap();
-        ProtectedMemory::store32(subsystem.shm_space_mut(), R::to_u64(addr), R::to_u32(value))
-            .map_err(|_| CKBVMError::MemOutOfBound)
+        store_impl(self, addr, value, ProtectedMemory::store32, R::to_u32)
     }
 
     fn store64(&mut self, addr: &Self::REG, value: &Self::REG) -> Result<(), CKBVMError> {
-        let mut subsystem = self.locked_subsystem.lock().unwrap();
-        ProtectedMemory::store64(subsystem.shm_space_mut(), R::to_u64(addr), R::to_u64(value))
-            .map_err(|_| CKBVMError::MemOutOfBound)
+        store_impl(self, addr, value, ProtectedMemory::store64, R::to_u64)
     }
+}
+
+fn load_impl<T, L, F, R>(pcb: &ProcessControlBlock<R>, addr: &R, protected_memory_load_func: L, from_val_func: F) -> Result<R, CKBVMError>
+where
+    L: FnOnce(&ShmSpace, u64) -> Result<T, ProtectedMemoryError>,
+    F: FnOnce(T) -> R,
+    R: Register + LowerHex,
+{
+    let subsystem = pcb.locked_subsystem.lock().unwrap();
+    protected_memory_load_func(subsystem.shm_space(), R::to_u64(addr))
+        .map(|value| from_val_func(value))
+        .map_err(|_| {
+            log::error!("Out of bounds load: addr {addr:#x}, PC {:#x}", pcb.pc());
+            CKBVMError::MemOutOfBound
+        })
+}
+
+fn store_impl<T, S, F, R>(pcb: &ProcessControlBlock<R>, addr: &R, value: &R, protected_memory_store_func: S, to_val_func: F) -> Result<(), CKBVMError>
+where
+    S: FnOnce(&mut ShmSpace, u64, T) -> Result<(), ProtectedMemoryError>,
+    F: FnOnce(&R) -> T,
+    R: Register + LowerHex,
+{
+    let mut subsystem = pcb.locked_subsystem.lock().unwrap();
+    protected_memory_store_func(subsystem.shm_space_mut(), R::to_u64(addr), to_val_func(value))
+        .map_err(|_| {
+            log::error!("Out of bounds store: addr {addr:#x}, PC {:#x}", pcb.pc());
+            CKBVMError::MemOutOfBound
+        })
 }
 
 #[derive(Default)]

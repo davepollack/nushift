@@ -149,9 +149,13 @@ impl AccessibilityTreeSpace {
             },
         };
         // TODO: What to do with accessibility_tree?
+        log::info!("{accessibility_tree:?}");
     }
 
     pub fn destroy_accessibility_tree_cap(&mut self, accessibility_tree_cap_id: AccessibilityTreeCapId) -> Result<(), AccessibilityTreeSpaceError> {
+        // TODO: You should not be allowed to destroy it if it's in progress. Or
+        // the destroy should be deferred. And all deferred tasks should be
+        // executed on app shutdown (?)
         self.space.contains_key(&accessibility_tree_cap_id).then_some(()).ok_or_else(|| CapNotFoundSnafu { id: accessibility_tree_cap_id }.build())?;
 
         self.space.remove(&accessibility_tree_cap_id);

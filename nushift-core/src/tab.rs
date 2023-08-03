@@ -1,10 +1,11 @@
+use core::ops::DerefMut;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
 use reusable_id_pool::ArcId;
 
-use super::nushift_subsystem::NushiftSubsystem;
+use super::nushift_subsystem::{NushiftSubsystem, Task};
 use super::process_control_block::ProcessControlBlock;
 
 pub struct Tab {
@@ -67,11 +68,21 @@ impl Tab {
                 let mut subsystem = subsystem.lock().unwrap();
                 subsystem.ecall(receive)
             };
-            syscall_return_send.send(syscall_return).expect("Since we just received, other thread should be waiting on our send");
+            syscall_return_send.send(syscall_return.0).expect("Since we just received, other thread should be waiting on our send");
 
             // Call the non-blocking bit of ecall here. Asynchronous tasks?
             // If this "non-blocking" bit locks the subsystem, it's not going to
             // be non-blocking with the bits of the app that access memory.
+            if let Some(Task::AccessibilityTreePublish { accessibility_tree_cap_id }) = syscall_return.1 {
+                let mut guard = subsystem.lock().unwrap();
+                let subsystem = guard.deref_mut();
+                match subsystem.accessibility_tree_space.publish_accessibility_tree_deferred(accessibility_tree_cap_id, &mut subsystem.shm_space) {
+                    Ok(_) => {},
+                    Err(_) => {}, // TODO: On internal error, terminate app (?)
+                }
+            }
+            // TODO: Not related to this defer call, but need to allow access to
+            // .rodata loaded from the ELF...
         }
 
         let run_result = match machine_thread.join() {
