@@ -6,3 +6,8 @@ members = [
     "nushift-core",
     "reusable-id-pool",
 ]
+
+[profile.release]
+# This is intended for nushift-core, but in a cargo workspace must be here at
+# the root
+overflow-checks = true

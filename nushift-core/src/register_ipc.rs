@@ -1,10 +1,12 @@
+use core::ops::Index;
+
 pub struct SyscallEnter<R>([R; 4]);
 impl<R> SyscallEnter<R> {
     pub fn new(syscall_num: R, first_arg: R, second_arg: R, third_arg: R) -> Self {
         Self([syscall_num, first_arg, second_arg, third_arg])
     }
 }
-impl<R> core::ops::Index<SyscallEnterIndex> for SyscallEnter<R> {
+impl<R> Index<SyscallEnterIndex> for SyscallEnter<R> {
     type Output = R;
     fn index(&self, index: SyscallEnterIndex) -> &Self::Output {
         &self.0[index.0]
@@ -21,7 +23,7 @@ impl<R> SyscallReturn<R> {
     }
 }
 pub struct Return<R>([R; 2]);
-impl<R> core::ops::Index<SyscallReturnIndex> for Return<R> {
+impl<R> Index<SyscallReturnIndex> for Return<R> {
     type Output = R;
     fn index(&self, index: SyscallReturnIndex) -> &Self::Output {
         &self.0[index.0]

@@ -8,6 +8,7 @@ edition = "2021"
 
 [dependencies]
 ckb-vm = "0.23.2"
+elfloader = "0.16.0"
 log = "0.4.17"
 memmap2 = "0.6.2"
 num_enum = "0.5.7"

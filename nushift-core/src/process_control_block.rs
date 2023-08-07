@@ -1,5 +1,6 @@
-use core::fmt::LowerHex;
+use core::fmt::{Display, LowerHex};
 use core::marker::PhantomData;
+use std::error::Error;
 use std::sync::mpsc::{Sender, Receiver};
 use std::sync::{Arc, Mutex};
 
@@ -17,9 +18,11 @@ use ckb_vm::{
     Memory,
     registers::{A0, A1, A2, A3, T0},
 };
+use elfloader::{ElfLoaderErr, ElfBinary};
 use snafu::prelude::*;
 use snafu_cli_debug::SnafuCliDebug;
 
+use super::elf_loader::Loader;
 use super::nushift_subsystem::NushiftSubsystem;
 use super::protected_memory::{ProtectedMemory, ProtectedMemoryError};
 use super::register_ipc::{SyscallEnter, SyscallReturn, RETURN_VAL_REGISTER_INDEX, ERROR_RETURN_VAL_REGISTER_INDEX};
@@ -47,10 +50,7 @@ pub struct ProcessControlBlock<R> {
 
 enum Machine<R> {
     Unloaded,
-    Loaded {
-        machine: DefaultCoreMachine<R, StubMemory<R>>,
-        executable_machine: DefaultCoreMachine<R, SparseMemory<R>>,
-    },
+    Loaded(DefaultCoreMachine<R, StubMemory<R>>),
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -79,22 +79,25 @@ where
             ckb_vm::machine::VERSION1,
             u64::MAX,
         );
-        let mut executable_machine = DefaultCoreMachine::<R, SparseMemory<R>>::new(
-            ckb_vm::ISA_IMC,
-            ckb_vm::machine::VERSION1,
-            u64::MAX,
-        );
 
-        executable_machine.load_elf(&Bytes::from(image), true).context(ElfLoadingSnafu)?;
-        core_machine.update_pc(executable_machine.pc().clone());
-        core_machine.commit_pc();
+        {
+            let mut subsystem = self.locked_subsystem.lock().unwrap();
+            let mut loader = Loader::new(subsystem.shm_space_mut());
+            ElfBinary::new(&image).context(ElfLoadingSnafu)?.load(&mut loader).context(ElfLoadingSnafu)?;
+        }
 
-        self.machine = Machine::Loaded { machine: core_machine, executable_machine };
-        Ok(())
+        // executable_machine.load_elf(&Bytes::from(image), true).context(ElfLoadingSnafu)?;
+        // core_machine.update_pc(executable_machine.pc().clone());
+        // core_machine.commit_pc();
+
+        // self.machine = Machine::Loaded(core_machine);
+        // Ok(())
+        // TODO: Remove
+        RunMachineNotLoadedSnafu.fail()
     }
 
     pub fn run(&mut self) -> Result<ExitReason, ProcessControlBlockError> {
-        if !matches!(self.machine, Machine::Loaded { .. }) {
+        if !matches!(self.machine, Machine::Loaded(_)) {
             return RunMachineNotLoadedSnafu.fail();
         }
 
@@ -106,10 +109,7 @@ where
             // We don't have `if self.reset_signal()` here because we're not supporting reset right now
             let instruction = {
                 let pc = self.pc().to_u64();
-                let memory = match self.machine {
-                    Machine::Loaded { ref mut executable_machine, .. } => executable_machine.memory_mut(),
-                    _ => panic!("must be loaded since it was checked before"),
-                };
+                let memory = self.memory_mut();
                 decoder.decode(memory, pc).context(DecodeSnafu)?
             };
             execute(instruction, self).context(ExecuteSnafu)?;
@@ -120,7 +120,7 @@ where
 
     pub fn user_exit(&mut self, exit_reason: u64) {
         match self.machine {
-            Machine::Loaded { ref mut machine, .. } => {
+            Machine::Loaded(ref mut machine) => {
                 self.exit_reason = ExitReason::UserExit { exit_reason };
                 machine.set_running(false);
             },
@@ -130,7 +130,7 @@ where
 
     fn set_running(&mut self) -> Result<(), ProcessControlBlockError> {
         match self.machine {
-            Machine::Loaded { ref mut machine, .. } => {
+            Machine::Loaded(ref mut machine) => {
                 machine.set_running(true);
                 Ok(())
             },
@@ -140,15 +140,30 @@ where
 
     fn is_running(&self) -> Result<bool, ProcessControlBlockError> {
         match self.machine {
-            Machine::Loaded { ref machine, .. } => Ok(machine.running()),
+            Machine::Loaded(ref machine) => Ok(machine.running()),
             _ => RunMachineNotLoadedSnafu.fail(),
         }
     }
 }
 
+#[derive(Debug)]
+pub struct ElfLoaderErrImplementingError(ElfLoaderErr);
+impl ElfLoaderErrImplementingError {
+    fn new(source: ElfLoaderErr) -> Self { Self(source) }
+}
+impl Display for ElfLoaderErrImplementingError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+impl Error for ElfLoaderErrImplementingError {}
+
 #[derive(Snafu, SnafuCliDebug)]
 pub enum ProcessControlBlockError {
-    ElfLoadingError { source: CKBVMError },
+    ElfLoadingError {
+        #[snafu(source(from(ElfLoaderErr, ElfLoaderErrImplementingError::new)))]
+        source: ElfLoaderErrImplementingError,
+    },
     StackInitializationError { source: CKBVMError },
     #[snafu(display("Attempted to run a machine that is not loaded"))]
     RunMachineNotLoaded,
@@ -167,7 +182,7 @@ macro_rules! proxy_to_self_machine {
 macro_rules! proxy_to_self_machine_impl {
     ($($mut:ident)?; $self:ident, $name:ident$(, $arg:expr)*) => {
         match $self.machine {
-            Machine::Loaded { ref $($mut)? machine, .. } => machine.$name($($arg),*),
+            Machine::Loaded(ref $($mut)? machine) => machine.$name($($arg),*),
             _ => panic!("process_control_block.rs: Machine attempted to be used but not loaded"),
         }
     };
