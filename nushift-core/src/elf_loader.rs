@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
-use elfloader::{ElfLoader, ElfLoaderErr, LoadableHeaders};
+use elfloader::{ElfLoader, ElfLoaderErr, LoadableHeaders, Flags, VAddr, RelocationEntry};
 
-use super::shm_space::ShmSpace;
+use super::shm_space::{ShmSpace, ShmType};
 
 /// Key is end VPN (exclusive), value is start VPN.
 ///
@@ -61,35 +61,13 @@ impl CoveredPages {
         Ok(())
     }
 
-    // fn existing_vpn_checked_add(existing_vpn: u64, existing_num_pages: u64) -> Range<u64> {
-    //     existing_vpn..existing_vpn.checked_add(existing_num_pages).expect("Can't overflow because we validated previous input, and the algorithm should not result in this happening, but we definitely want to panic if it does")
-    // }
-
-    // fn merged_checked_sub(merged_end: u64, merged_start: u64) -> u64 {
-    //     merged_end.checked_sub(merged_start).expect("Can't overflow because we validated previous input, and the algorithm should not result in this happening, but we definitely want to panic if it does")
-    // }
-
-    fn drain(self) -> impl IntoIterator<Item = (u64, u64)> {
-        self.0.into_iter()
-            .map(|(end, start)| {
-                let number_of_pages = end.checked_sub(start).expect("Must be valid due to add_region input validation and algorithm");
-                (start, number_of_pages)
-            })
+    fn iter(&self) -> impl Iterator<Item = (u64, u64)> + '_ {
+        self.0.iter().map(|(&end, &start)| {
+            let number_of_pages = end.checked_sub(start).expect("Must be valid due to add_region input validation and algorithm");
+            (start, number_of_pages)
+        })
     }
 }
-
-// impl IntoIterator for CoveredPages {
-//     type Item = (u64, u64);
-//     type IntoIter = impl Iterator<Item = (u64, u64)>;
-
-//     fn into_iter(self) -> Self::IntoIter {
-//         self.0.into_iter()
-//             .map(|(end, start)| {
-//                 let number_of_pages = end.checked_sub(start).expect("Must be valid due to add_region input validation and algorithm");
-//                 (start, number_of_pages)
-//             })
-//     }
-// }
 
 pub struct Loader<'space> {
     covered_pages: CoveredPages,
@@ -135,19 +113,63 @@ impl<'space> ElfLoader for Loader<'space> {
 
             self.covered_pages.add_region(rounded_down_start_vpn, number_of_pages)
                 .expect("An overflow at this point is also an unexpected error, so panic.");
-
-            // TODO: Allocate caps for executable memory, based on covered_pages.
         }
 
-        Ok(())
+        let mut errored_caps = vec![];
+        for (vpn, number_of_pages) in self.covered_pages.iter() {
+            // If new_shm_cap fails, no need to clean up or destroy
+            // anything. It makes sure that it only increments the Sv39
+            // stats after no other errors have occurred. If the
+            // implementation of new_shm_cap changes such that this is no
+            // longer the case, and you didn't check this usage of
+            // new_shm_cap, well, that is not good.
+            let (shm_cap_id, _) = self.shm_space.new_shm_cap(ShmType::FourKiB, number_of_pages)
+                .map_err(|err| {
+                    log::error!("ELF loading: new_shm_cap either exhausted or is an internal error: {err:?}");
+                    ElfLoaderErr::UnsupportedSectionData
+                })?;
+
+            // TODO: Should have rwx bits in the page entry, the ELF flags
+            // should be copied to it (gonna be either r--, r-x or --x), to
+            // prevent app from either reading, writing or executing it if
+            // it's not allowed. Furthermore, other operations on the caps
+            // by the app should be disallowed.
+            match self.shm_space.acquire_shm_cap(shm_cap_id, vpn << 12) {
+                Ok(_) => {},
+                Err(err) => {
+                    log::error!("ELF loading: acquire_shm_cap internal error: {err:?}");
+                    errored_caps.push(shm_cap_id);
+                    break;
+                }
+            }
+        }
+
+        if errored_caps.len() > 0 {
+            for shm_cap_id in errored_caps.iter().rev() {
+                self.shm_space.release_shm_cap(*shm_cap_id)
+                    .map_err(|err| {
+                        log::error!("Error while rolling back, release_shm_cap internal error: {err:?}");
+                        ElfLoaderErr::UnsupportedSectionData
+                    })?;
+                self.shm_space.destroy_shm_cap(*shm_cap_id)
+                    .map_err(|err| {
+                        log::error!("Error while rolling back, destroy_shm_cap internal error: {err:?}");
+                        ElfLoaderErr::UnsupportedSectionData
+                    })?;
+            }
+            Err(ElfLoaderErr::UnsupportedSectionData)
+        } else {
+            Ok(())
+        }
     }
 
-    fn load(&mut self, flags: elfloader::Flags, base: elfloader::VAddr, region: &[u8]) -> Result<(), ElfLoaderErr> {
+    fn load(&mut self, flags: Flags, base: VAddr, region: &[u8]) -> Result<(), ElfLoaderErr> {
         todo!()
     }
 
-    fn relocate(&mut self, entry: elfloader::RelocationEntry) -> Result<(), ElfLoaderErr> {
-        todo!()
+    fn relocate(&mut self, entry: RelocationEntry) -> Result<(), ElfLoaderErr> {
+        // Unimplemented
+        Err(ElfLoaderErr::UnsupportedRelocationEntry)
     }
 }
 
@@ -172,7 +194,7 @@ mod tests {
         covered_pages.add_region(19, 20).expect("Should be valid");
         covered_pages.add_region(39, 5).expect("Should be valid");
 
-        let merged_regions: Vec<(u64, u64)> = covered_pages.drain().into_iter().collect();
+        let merged_regions: Vec<(u64, u64)> = covered_pages.iter().collect();
         assert_eq!(vec![(16, 28)], merged_regions);
     }
 
@@ -184,7 +206,7 @@ mod tests {
         covered_pages.add_region(19, 20).expect("Should be valid");
         covered_pages.add_region(16, 3).expect("Should be valid");
 
-        let merged_regions: Vec<(u64, u64)> = covered_pages.drain().into_iter().collect();
+        let merged_regions: Vec<(u64, u64)> = covered_pages.iter().collect();
         assert_eq!(vec![(16, 28)], merged_regions);
     }
 
@@ -198,7 +220,7 @@ mod tests {
         covered_pages.add_region(25, 1).expect("Should be valid");
         covered_pages.add_region(21, 10).expect("Should be valid");
 
-        let merged_regions: Vec<(u64, u64)> = covered_pages.drain().into_iter().collect();
+        let merged_regions: Vec<(u64, u64)> = covered_pages.iter().collect();
         assert_eq!(vec![(1, 10), (21, 10)], merged_regions);
     }
 
@@ -210,7 +232,7 @@ mod tests {
         covered_pages.add_region(8, 5).expect("Should be valid");
         covered_pages.add_region(12, 2).expect("Should be valid");
 
-        let merged_regions: Vec<(u64, u64)> = covered_pages.drain().into_iter().collect();
+        let merged_regions: Vec<(u64, u64)> = covered_pages.iter().collect();
         assert_eq!(vec![(1, 13)], merged_regions);
     }
 
@@ -222,7 +244,7 @@ mod tests {
         covered_pages.add_region(4, 3).expect("Should be valid");
         covered_pages.add_region(10, 4).expect("Should be valid");
 
-        let merged_regions: Vec<(u64, u64)> = covered_pages.drain().into_iter().collect();
+        let merged_regions: Vec<(u64, u64)> = covered_pages.iter().collect();
         assert_eq!(vec![(1, 2), (4, 3), (10, 4)], merged_regions);
     }
 

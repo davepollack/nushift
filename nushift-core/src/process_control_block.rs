@@ -6,7 +6,6 @@ use std::sync::{Arc, Mutex};
 
 use ckb_vm::{
     DefaultCoreMachine,
-    SparseMemory,
     SupportMachine,
     CoreMachine,
     Machine as CKBVMMachine,
@@ -86,6 +85,9 @@ where
             ElfBinary::new(&image).context(ElfLoadingSnafu)?.load(&mut loader).context(ElfLoadingSnafu)?;
         }
 
+        // TODO: Should we use the STACK loadable header in the ELF in contrast
+        // to initialising the stack in the code?
+
         // executable_machine.load_elf(&Bytes::from(image), true).context(ElfLoadingSnafu)?;
         // core_machine.update_pc(executable_machine.pc().clone());
         // core_machine.commit_pc();
@@ -153,7 +155,7 @@ impl ElfLoaderErrImplementingError {
 }
 impl Display for ElfLoaderErrImplementingError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "{}", self.0)
+        self.0.fmt(f)
     }
 }
 impl Error for ElfLoaderErrImplementingError {}
@@ -164,7 +166,6 @@ pub enum ProcessControlBlockError {
         #[snafu(source(from(ElfLoaderErr, ElfLoaderErrImplementingError::new)))]
         source: ElfLoaderErrImplementingError,
     },
-    StackInitializationError { source: CKBVMError },
     #[snafu(display("Attempted to run a machine that is not loaded"))]
     RunMachineNotLoaded,
     DecodeError { source: CKBVMError },
