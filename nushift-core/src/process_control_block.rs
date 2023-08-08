@@ -82,20 +82,18 @@ where
         {
             let mut subsystem = self.locked_subsystem.lock().unwrap();
             let mut loader = Loader::new(subsystem.shm_space_mut());
-            ElfBinary::new(&image).context(ElfLoadingSnafu)?.load(&mut loader).context(ElfLoadingSnafu)?;
+            let elf_binary = ElfBinary::new(&image).context(ElfLoadingSnafu)?;
+            elf_binary.load(&mut loader).context(ElfLoadingSnafu)?;
+
+            core_machine.update_pc(R::from_u64(elf_binary.entry_point()));
+            core_machine.commit_pc();
         }
 
         // TODO: Should we use the STACK loadable header in the ELF in contrast
         // to initialising the stack in the code?
 
-        // executable_machine.load_elf(&Bytes::from(image), true).context(ElfLoadingSnafu)?;
-        // core_machine.update_pc(executable_machine.pc().clone());
-        // core_machine.commit_pc();
-
-        // self.machine = Machine::Loaded(core_machine);
-        // Ok(())
-        // TODO: Remove
-        RunMachineNotLoadedSnafu.fail()
+        self.machine = Machine::Loaded(core_machine);
+        Ok(())
     }
 
     pub fn run(&mut self) -> Result<ExitReason, ProcessControlBlockError> {
@@ -297,12 +295,12 @@ where
         unimplemented!()
     }
 
-    fn execute_load16(&mut self, _addr: u64) -> Result<u16, CKBVMError> {
-        unimplemented!()
+    fn execute_load16(&mut self, addr: u64) -> Result<u16, CKBVMError> {
+        load_impl(self, &R::from_u64(addr), ProtectedMemory::load16, core::convert::identity)
     }
 
-    fn execute_load32(&mut self, _addr: u64) -> Result<u32, CKBVMError> {
-        unimplemented!()
+    fn execute_load32(&mut self, addr: u64) -> Result<u32, CKBVMError> {
+        load_impl(self, &R::from_u64(addr), ProtectedMemory::load32, core::convert::identity)
     }
 
     fn load8(&mut self, addr: &Self::REG) -> Result<Self::REG, CKBVMError> {
@@ -338,10 +336,10 @@ where
     }
 }
 
-fn load_impl<T, L, F, R>(pcb: &ProcessControlBlock<R>, addr: &R, protected_memory_load_func: L, from_val_func: F) -> Result<R, CKBVMError>
+fn load_impl<T, L, F, U, R>(pcb: &ProcessControlBlock<R>, addr: &R, protected_memory_load_func: L, from_val_func: F) -> Result<U, CKBVMError>
 where
     L: FnOnce(&ShmSpace, u64) -> Result<T, ProtectedMemoryError>,
-    F: FnOnce(T) -> R,
+    F: FnOnce(T) -> U,
     R: Register + LowerHex,
 {
     let subsystem = pcb.locked_subsystem.lock().unwrap();
@@ -353,10 +351,10 @@ where
         })
 }
 
-fn store_impl<T, S, F, R>(pcb: &ProcessControlBlock<R>, addr: &R, value: &R, protected_memory_store_func: S, to_val_func: F) -> Result<(), CKBVMError>
+fn store_impl<T, S, F, U, R>(pcb: &ProcessControlBlock<R>, addr: &R, value: &U, protected_memory_store_func: S, to_val_func: F) -> Result<(), CKBVMError>
 where
     S: FnOnce(&mut ShmSpace, u64, T) -> Result<(), ProtectedMemoryError>,
-    F: FnOnce(&R) -> T,
+    F: FnOnce(&U) -> T,
     R: Register + LowerHex,
 {
     let mut subsystem = pcb.locked_subsystem.lock().unwrap();

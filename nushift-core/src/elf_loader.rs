@@ -1,14 +1,29 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, ops::Bound};
 
 use elfloader::{ElfLoader, ElfLoaderErr, LoadableHeaders, Flags, VAddr, RelocationEntry};
 
-use super::shm_space::{ShmSpace, ShmType};
+use super::shm_space::{ShmSpace, ShmType, ShmCapId};
 
-/// Key is end VPN (exclusive), value is start VPN.
+// The loader in this file should be robust against:
+//
+// * Overlapping ELF LOAD headers (including fully overlapping, i.e. specifying the same base and size)
+// * Integer overflowing ELF LOAD headers when you add the base and size
+// * ELF LOAD headers with a size of 0
+// * An ELF with so many LOAD headers or with such a large total size that it exhausts our Sv39 stats capacity
+//
+// And more. As far as I know, the current implementation as of writing this
+// comment is robust against these four. For the overlapping case, we are
+// actually overwriting earlier data with later data (as in when processing a
+// later header), not returning an ELF loading error. I would not be opposed to
+// in the future changing this to an ELF loading error, if you're not meant to
+// be able to do this. For the other three cases, it does return an ELF loading
+// error at the time of writing this comment.
+
+/// Key is end VPN (exclusive), value is start VPN and optional cap.
 ///
 /// Note that end VPN (exclusive) does fit in a u64 because a VPN is off by a
 /// factor of 4096 for 64-bit virtual addresses.
-struct CoveredPages(BTreeMap<u64, u64>);
+struct CoveredPages(BTreeMap<u64, (u64, Option<ShmCapId>)>);
 
 impl CoveredPages {
     fn new() -> Self {
@@ -39,10 +54,10 @@ impl CoveredPages {
         // be hit by `vpn..` each time. In fact, this is why we are structuring
         // it with the end VPN as the key of the BST, to make this possible.
         let overlapping_entries: Vec<(u64, u64)> = self.0.range(vpn..)
-            .filter(|(&end, &start)| {
+            .filter(|(&end, &(start, _))| {
                 start <= new_range.end && end >= new_range.start
             })
-            .map(|(&end, &start)| (end, start))
+            .map(|(&end, &(start, _))| (end, start))
             .collect();
 
         // Determine the start and end of the merged region
@@ -56,16 +71,35 @@ impl CoveredPages {
         }
 
         // Insert the merged region into the BTreeMap
-        self.0.insert(merged_end, merged_start);
+        self.0.insert(merged_end, (merged_start, None));
 
         Ok(())
     }
 
+    #[cfg(test)]
     fn iter(&self) -> impl Iterator<Item = (u64, u64)> + '_ {
-        self.0.iter().map(|(&end, &start)| {
+        self.0.iter().map(|(&end, &(start, _))| {
             let number_of_pages = end.checked_sub(start).expect("Must be valid due to add_region input validation and algorithm");
             (start, number_of_pages)
         })
+    }
+
+    fn iter_mut(&mut self) -> impl Iterator<Item = (u64, u64, &mut Option<ShmCapId>)> + '_ {
+        self.0.iter_mut().map(|(end, (start, shm_cap_id))| {
+            let number_of_pages = end.checked_sub(*start).expect("Must be valid due to add_region input validation and algorithm");
+            (*start, number_of_pages, shm_cap_id)
+        })
+    }
+
+    /// Returns: SHM cap ID, start addr.
+    fn lookup(&self, address: u64) -> Option<(ShmCapId, u64)> {
+        let vpn = address >> 12;
+
+        let mut above = self.0.range((Bound::Excluded(&vpn), Bound::Unbounded));
+        let (_, &(start, shm_cap_id)) = above.next()?;
+        let start_addr = start << 12;
+
+        (start <= vpn).then_some((shm_cap_id?, start_addr))
     }
 }
 
@@ -80,7 +114,7 @@ impl<'space> Loader<'space> {
     }
 }
 
-impl<'space> ElfLoader for Loader<'space> {
+impl ElfLoader for Loader<'_> {
     fn allocate(&mut self, load_headers: LoadableHeaders) -> Result<(), ElfLoaderErr> {
         for header in load_headers {
             let flags = header.flags();
@@ -95,6 +129,16 @@ impl<'space> ElfLoader for Loader<'space> {
             }
 
             let rounded_down_start_vpn = header.virtual_addr() >> 12;
+
+            fn last_occupied_page_number(virtual_addr: u64, mem_size: u64) -> Result<u64, ()> {
+                let mem_size_minus_one = mem_size.checked_sub(1).ok_or(())?;
+
+                let last_byte_addr = virtual_addr
+                    .checked_add(mem_size_minus_one)
+                    .ok_or(())?;
+
+                Ok(last_byte_addr >> 12)
+            }
             let last_occupied_vpn = last_occupied_page_number(header.virtual_addr(), header.mem_size())
                 .map_err(|_| {
                     log::error!(
@@ -116,7 +160,7 @@ impl<'space> ElfLoader for Loader<'space> {
         }
 
         let mut errored_caps = vec![];
-        for (vpn, number_of_pages) in self.covered_pages.iter() {
+        for (vpn, number_of_pages, stored_shm_cap_id) in self.covered_pages.iter_mut() {
             // If new_shm_cap fails, no need to clean up or destroy
             // anything. It makes sure that it only increments the Sv39
             // stats after no other errors have occurred. If the
@@ -128,6 +172,7 @@ impl<'space> ElfLoader for Loader<'space> {
                     log::error!("ELF loading: new_shm_cap either exhausted or is an internal error: {err:?}");
                     ElfLoaderErr::UnsupportedSectionData
                 })?;
+            *stored_shm_cap_id = Some(shm_cap_id);
 
             // TODO: Should have rwx bits in the page entry, the ELF flags
             // should be copied to it (gonna be either r--, r-x or --x), to
@@ -145,13 +190,13 @@ impl<'space> ElfLoader for Loader<'space> {
         }
 
         if errored_caps.len() > 0 {
-            for shm_cap_id in errored_caps.iter().rev() {
-                self.shm_space.release_shm_cap(*shm_cap_id)
+            for shm_cap_id in errored_caps.into_iter().rev() {
+                self.shm_space.release_shm_cap(shm_cap_id)
                     .map_err(|err| {
                         log::error!("Error while rolling back, release_shm_cap internal error: {err:?}");
                         ElfLoaderErr::UnsupportedSectionData
                     })?;
-                self.shm_space.destroy_shm_cap(*shm_cap_id)
+                self.shm_space.destroy_shm_cap(shm_cap_id)
                     .map_err(|err| {
                         log::error!("Error while rolling back, destroy_shm_cap internal error: {err:?}");
                         ElfLoaderErr::UnsupportedSectionData
@@ -164,25 +209,56 @@ impl<'space> ElfLoader for Loader<'space> {
     }
 
     fn load(&mut self, flags: Flags, base: VAddr, region: &[u8]) -> Result<(), ElfLoaderErr> {
-        todo!()
+        log::debug!(
+            "Loading region with base {:#x} and length {}, flags [{}]",
+            base,
+            region.len(),
+            flags,
+        );
+
+        // We load here by getting the cap directly and writing to
+        // backing_mut(). As opposed to writing through the page
+        // table/ProtectedMemory. If we did the latter, we would have to NOT set
+        // permissions restrictions in allocate, and then set them here only
+        // after loading. That can be done, I have just chosen the former.
+
+        // Due to choosing the former, and the CoveredPages structure, we can't
+        // check if there's a discrepancy between the `base` addresses given to
+        // `load` and the LoadableHeaders given to `allocate`, We trust the
+        // elfloader code to provide the same values (which from the code,
+        // currently appears to).
+
+        let (shm_cap_id, start_addr) = self.covered_pages.lookup(base).ok_or_else(|| {
+            log::error!("Internal error refetching SHM cap ID when loading ELF data");
+            ElfLoaderErr::UnsupportedSectionData
+        })?;
+
+        let offset: usize = base.checked_sub(start_addr)
+            .expect("Internal error if this underflowed")
+            .try_into()
+            .map_err(|_| {
+                log::error!("The size of combined ELF load sections is larger than what fits inside a usize machine word on this host machine. This limitation could be resolved in a future version of Nushift.");
+                ElfLoaderErr::UnsupportedSectionData
+            })?;
+
+        self.shm_space.get_mut(shm_cap_id)
+            .ok_or_else(|| {
+                log::error!("Internal error refetching SHM cap when loading ELF data");
+                ElfLoaderErr::UnsupportedSectionData
+            })?
+            .backing_mut()[offset..offset.checked_add(region.len()).expect("Internal error if this overflows")]
+            .copy_from_slice(region);
+
+        Ok(())
     }
 
-    fn relocate(&mut self, entry: RelocationEntry) -> Result<(), ElfLoaderErr> {
+    fn relocate(&mut self, _entry: RelocationEntry) -> Result<(), ElfLoaderErr> {
         // Unimplemented
         Err(ElfLoaderErr::UnsupportedRelocationEntry)
     }
 }
 
-fn last_occupied_page_number(virtual_addr: u64, mem_size: u64) -> Result<u64, ()> {
-    let mem_size_minus_one = mem_size.checked_sub(1).ok_or(())?;
-
-    let last_byte_addr = virtual_addr
-        .checked_add(mem_size_minus_one)
-        .ok_or(())?;
-
-    Ok(last_byte_addr >> 12)
-}
-
+#[cfg(test)]
 mod tests {
     use super::*;
 

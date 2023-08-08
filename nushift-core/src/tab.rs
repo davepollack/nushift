@@ -81,8 +81,6 @@ impl Tab {
                     Err(_) => {}, // TODO: On internal error, terminate app (?)
                 }
             }
-            // TODO: Not related to this defer call, but need to allow access to
-            // .rodata loaded from the ELF...
         }
 
         let run_result = match machine_thread.join() {

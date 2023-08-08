@@ -196,6 +196,15 @@ impl ShmSpace {
         self.acquisitions.walk_mut(vaddr, &mut self.space)
     }
 
+    #[allow(dead_code)]
+    pub fn get(&self, shm_cap_id: ShmCapId) -> Option<&ShmCap> {
+        self.space.get(&shm_cap_id)
+    }
+
+    pub fn get_mut(&mut self, shm_cap_id: ShmCapId) -> Option<&mut ShmCap> {
+        self.space.get_mut(&shm_cap_id)
+    }
+
     /// This assumes that all pages can be arranged as: all 1 GiB ones first,
     /// then all 2 MiB ones, then all 4 KiB ones. This is probably a very dumb
     /// assumption and I might regret it later.
