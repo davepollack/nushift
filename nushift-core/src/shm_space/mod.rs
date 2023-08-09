@@ -6,7 +6,7 @@ use reusable_id_pool::{ReusableIdPoolError, ReusableIdPoolManual};
 use snafu::prelude::*;
 use snafu_cli_debug::SnafuCliDebug;
 
-use self::acquisitions_and_page_table::{AcquisitionsAndPageTable, AcquireError, WalkResult, PageTableError, WalkResultMut};
+use self::acquisitions_and_page_table::{AcquisitionsAndPageTable, AcquireError, WalkResult, PageTableError, WalkResultMut, Sv39Flags};
 
 pub mod acquisitions_and_page_table;
 
@@ -139,10 +139,18 @@ impl ShmSpace {
     }
 
     pub fn acquire_shm_cap(&mut self, shm_cap_id: ShmCapId, address: u64) -> Result<(), ShmSpaceError> {
+        self.acquire_shm_cap_impl(shm_cap_id, address, Sv39Flags::RW)
+    }
+
+    pub fn acquire_shm_cap_executable(&mut self, shm_cap_id: ShmCapId, address: u64, flags: Sv39Flags) -> Result<(), ShmSpaceError> {
+        self.acquire_shm_cap_impl(shm_cap_id, address, flags)
+    }
+
+    fn acquire_shm_cap_impl(&mut self, shm_cap_id: ShmCapId, address: u64, flags: Sv39Flags) -> Result<(), ShmSpaceError> {
         let shm_cap = self.space.get(&shm_cap_id).ok_or_else(|| CapNotFoundSnafu.build())?;
 
         // try_acquire does the out-of-bounds and alignment checks. We map the errors here.
-        self.acquisitions.try_acquire(shm_cap_id, shm_cap, address)
+        self.acquisitions.try_acquire(shm_cap_id, shm_cap, address, flags)
             .map_err(|acquire_error| match acquire_error {
                 AcquireError::AcquiringAlreadyAcquiredCap { address } => CurrentlyAcquiredCapSnafu { address }.build(),
                 AcquireError::AcquireExceedsSv39 => AddressOutOfBoundsSnafu.build(),
@@ -194,6 +202,10 @@ impl ShmSpace {
 
     pub fn walk_mut<'space>(&'space mut self, vaddr: u64) -> Result<WalkResultMut<'space>, PageTableError> {
         self.acquisitions.walk_mut(vaddr, &mut self.space)
+    }
+
+    pub fn walk_execute<'space>(&'space self, vaddr: u64) -> Result<WalkResult<'space>, PageTableError> {
+        self.acquisitions.walk_execute(vaddr, &self.space)
     }
 
     #[allow(dead_code)]

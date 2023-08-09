@@ -2,7 +2,7 @@ use std::{collections::BTreeMap, ops::Bound};
 
 use elfloader::{ElfLoader, ElfLoaderErr, LoadableHeaders, Flags, VAddr, RelocationEntry};
 
-use super::shm_space::{ShmSpace, ShmType, ShmCapId};
+use super::shm_space::{ShmSpace, ShmType, ShmCapId, acquisitions_and_page_table::Sv39Flags};
 
 // The loader in this file should be robust against:
 //
@@ -114,19 +114,29 @@ impl<'space> Loader<'space> {
     }
 }
 
+fn flags_map(flags: Flags) -> Result<Sv39Flags, ()> {
+    match () {
+        _ if flags.is_read() && !flags.is_write() && !flags.is_execute() => Ok(Sv39Flags::R),
+        _ if flags.is_read() && flags.is_write() && !flags.is_execute() => Ok(Sv39Flags::RW),
+        _ if flags.is_read() && !flags.is_write() && flags.is_execute() => Ok(Sv39Flags::RX),
+        _ if !flags.is_read() && !flags.is_write() && flags.is_execute() => Ok(Sv39Flags::X),
+        _ => Err(()),
+    }
+}
+
 impl ElfLoader for Loader<'_> {
     fn allocate(&mut self, load_headers: LoadableHeaders) -> Result<(), ElfLoaderErr> {
         for header in load_headers {
             let flags = header.flags();
 
-            // Do not support sections which are both writable and executable, for now.
-            if flags.is_write() && flags.is_execute() {
+            // Only allow certain combinations of flags.
+            flags_map(flags).map_err(|_| {
                 log::error!(
-                    "Section at vaddr {:#x} is both writable and executable, not supported at the moment, aborting loading program.",
+                    "Section at vaddr {:#x} has unsupported flags, the only supported combinations are r--, rw-, r-x, --x.",
                     header.virtual_addr(),
                 );
-                return Err(ElfLoaderErr::UnsupportedSectionData);
-            }
+                ElfLoaderErr::UnsupportedSectionData
+            })?;
 
             let rounded_down_start_vpn = header.virtual_addr() >> 12;
 
@@ -179,9 +189,13 @@ impl ElfLoader for Loader<'_> {
             // prevent app from either reading, writing or executing it if
             // it's not allowed. Furthermore, other operations on the caps
             // by the app should be disallowed.
-            match self.shm_space.acquire_shm_cap(shm_cap_id, vpn << 12) {
+            // TODO: Actually use the flags. This might require significant
+            // refactoring of this file, and thinking about sub-page-size
+            // sections.
+            match self.shm_space.acquire_shm_cap_executable(shm_cap_id, vpn << 12, Sv39Flags::RX) {
                 Ok(_) => {},
                 Err(err) => {
+                    // TODO: It's not necessarily an internal error. We haven't yet checked that it doesn't exceed 2^39.
                     log::error!("ELF loading: acquire_shm_cap internal error: {err:?}");
                     errored_caps.push(shm_cap_id);
                     break;

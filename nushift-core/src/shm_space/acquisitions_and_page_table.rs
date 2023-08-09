@@ -1,5 +1,6 @@
 use std::{collections::{BTreeMap, HashMap}, ops::Bound};
 
+use bitflags::bitflags;
 use snafu::prelude::*;
 use snafu_cli_debug::SnafuCliDebug;
 
@@ -24,7 +25,7 @@ impl AcquisitionsAndPageTable {
         Self { acquisitions: Acquisitions::new(), page_table: Box::new(PageTableLevel1::new()) }
     }
 
-    pub fn try_acquire(&mut self, shm_cap_id: ShmCapId, shm_cap: &ShmCap, address: u64) -> Result<(), AcquireError> {
+    pub fn try_acquire(&mut self, shm_cap_id: ShmCapId, shm_cap: &ShmCap, address: u64, flags: Sv39Flags) -> Result<(), AcquireError> {
         // Check that it isn't already acquired.
         self.check_not_acquired(shm_cap_id).map_err(|address| AcquiringAlreadyAcquiredCapSnafu { address }.build())?;
 
@@ -49,7 +50,7 @@ impl AcquisitionsAndPageTable {
         // Insert to acquisitions.
         self.acquisitions.try_insert(shm_cap_id, address, length_in_bytes).map_err(|_| AcquireIntersectsExistingAcquisitionSnafu.build())?;
         // Insert to page table.
-        match self.page_table.insert(shm_cap_id, shm_cap, address).context(PageTableInsertOrRemoveSnafu) {
+        match self.page_table.insert(shm_cap_id, shm_cap, address, flags).context(PageTableInsertOrRemoveSnafu) {
             Ok(_) => {},
             Err(err) => {
                 // Roll back the acquisitions insert.
@@ -98,14 +99,18 @@ impl AcquisitionsAndPageTable {
     }
 
     pub fn walk<'space>(&self, vaddr: u64, shm_space_map: &'space ShmSpaceMap) -> Result<WalkResult<'space>, PageTableError> {
-        self.walk_immut_or_mut(vaddr, shm_space_map)
+        self.walk_immut_or_mut(vaddr, shm_space_map, Sv39Flags::R)
     }
 
     pub fn walk_mut<'space>(&self, vaddr: u64, shm_space_map: &'space mut ShmSpaceMap) -> Result<WalkResultMut<'space>, PageTableError> {
-        self.walk_immut_or_mut(vaddr, shm_space_map)
+        self.walk_immut_or_mut(vaddr, shm_space_map, Sv39Flags::RW)
     }
 
-    fn walk_immut_or_mut<SMR: SpaceMapRef>(&self, vaddr: u64, shm_space_map: SMR) -> Result<SMR::Result, PageTableError> {
+    pub fn walk_execute<'space>(&self, vaddr: u64, shm_space_map: &'space ShmSpaceMap) -> Result<WalkResult<'space>, PageTableError> {
+        self.walk_immut_or_mut(vaddr, shm_space_map, Sv39Flags::X)
+    }
+
+    fn walk_immut_or_mut<SMR: SpaceMapRef>(&self, vaddr: u64, shm_space_map: SMR, required_permissions: Sv39Flags) -> Result<SMR::Result, PageTableError> {
         let vpn = vaddr >> 12;
         let vpn2 = vpn >> 18;
         let level_2_table = self.page_table.entries[vpn2 as usize].as_ref().ok_or(PageNotFoundSnafu.build())?;
@@ -114,7 +119,7 @@ impl AcquisitionsAndPageTable {
             let leaf_table = match level_2_table.as_ref() {
                 PageTableLevel2::OneGiBSuperpage(pte) => {
                     let shm_cap = SMR::get_shm_cap(shm_space_map, pte.shm_cap_id).ok_or_else(|| PageEntryCorruptedSnafu { shm_cap_id: pte.shm_cap_id, mismatched_entry_found_at_level: None, shm_cap_offset: None, shm_cap_length: None }.build())?;
-                    Self::check_shm_type_mismatch(1, &pte, SMR::shm_cap_ref(&shm_cap), ShmType::OneGiB)?;
+                    Self::check_shm_type_mismatch_and_permissions(1, &pte, SMR::shm_cap_ref(&shm_cap), ShmType::OneGiB, required_permissions)?;
                     break 'superpage_check (pte, shm_cap);
                 },
                 PageTableLevel2::Entries(entries) => {
@@ -126,7 +131,7 @@ impl AcquisitionsAndPageTable {
             let four_k_entry = match leaf_table.as_ref() {
                 PageTableLeaf::TwoMiBSuperpage(pte) => {
                     let shm_cap = SMR::get_shm_cap(shm_space_map, pte.shm_cap_id).ok_or_else(|| PageEntryCorruptedSnafu { shm_cap_id: pte.shm_cap_id, mismatched_entry_found_at_level: None, shm_cap_offset: None, shm_cap_length: None }.build())?;
-                    Self::check_shm_type_mismatch(2, &pte, SMR::shm_cap_ref(&shm_cap), ShmType::TwoMiB)?;
+                    Self::check_shm_type_mismatch_and_permissions(2, &pte, SMR::shm_cap_ref(&shm_cap), ShmType::TwoMiB, required_permissions)?;
                     break 'superpage_check (pte, shm_cap);
                 },
                 PageTableLeaf::Entries(entries) => {
@@ -135,7 +140,7 @@ impl AcquisitionsAndPageTable {
                 }
             };
             let shm_cap = SMR::get_shm_cap(shm_space_map, four_k_entry.shm_cap_id).ok_or_else(|| PageEntryCorruptedSnafu { shm_cap_id: four_k_entry.shm_cap_id, mismatched_entry_found_at_level: None, shm_cap_offset: None, shm_cap_length: None }.build())?;
-            Self::check_shm_type_mismatch(3, &four_k_entry, SMR::shm_cap_ref(&shm_cap), ShmType::FourKiB)?;
+            Self::check_shm_type_mismatch_and_permissions(3, &four_k_entry, SMR::shm_cap_ref(&shm_cap), ShmType::FourKiB, required_permissions)?;
 
             (four_k_entry, shm_cap)
         };
@@ -163,9 +168,11 @@ impl AcquisitionsAndPageTable {
         Ok(SMR::result(space_slice, byte_offset_in_space_slice))
     }
 
-    fn check_shm_type_mismatch(current_level: u8, entry: &PageTableEntry, shm_cap: &ShmCap, expected_shm_type: ShmType) -> Result<(), PageTableError> {
+    fn check_shm_type_mismatch_and_permissions(current_level: u8, entry: &PageTableEntry, shm_cap: &ShmCap, expected_shm_type: ShmType, required_permissions: Sv39Flags) -> Result<(), PageTableError> {
         if shm_cap.shm_type() != expected_shm_type {
             PageEntryCorruptedSnafu { shm_cap_id: entry.shm_cap_id, mismatched_entry_found_at_level: Some((current_level, shm_cap.shm_type())), shm_cap_offset: None, shm_cap_length: None }.fail()
+        } else if !entry.flags.contains(required_permissions) {
+            PermissionDeniedSnafu { shm_cap_id: entry.shm_cap_id, required_permissions, present_permissions: entry.flags }.fail()
         } else {
             Ok(())
         }
@@ -278,17 +285,35 @@ enum PageTableLeaf {
     TwoMiBSuperpage(PageTableEntry),
 }
 
+bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct Sv39Flags: u8 {
+        const V = 1 << 0;
+        const R = 1 << 1;
+        const W = 1 << 2;
+        const X = 1 << 3;
+        const U = 1 << 4;
+        const G = 1 << 5;
+        const A = 1 << 6;
+        const D = 1 << 7;
+
+        const RW = Self::R.bits() | Self::W.bits();
+        const RX = Self::R.bits() | Self::X.bits();
+    }
+}
+
 struct PageTableEntry {
     shm_cap_id: ShmCapId,
     /// The offset within the ShmCap referred to by `shm_cap_id`. For example,
     /// an ShmCap can have a length of 3, and a shm_cap_offset of 1 means we are
     /// associated with the second page of that cap.
     shm_cap_offset: ShmCapOffset,
+    flags: Sv39Flags,
 }
 
 #[derive(Debug, Clone, Copy)]
 enum PageTableOp {
-    Insert,
+    Insert { flags: Sv39Flags },
     Remove,
 }
 
@@ -303,8 +328,8 @@ impl PageTableLevel1 {
     /// Check `is_allowed()` on Acquisitions before calling this. This also
     /// doesn't check whether `address` is aligned nor fits within Sv39, which
     /// should be checked by something.
-    fn insert<B>(&mut self, shm_cap_id: ShmCapId, shm_cap: &ShmCap<B>, address: u64) -> Result<(), PageTableError> {
-        self.insert_or_remove(PageTableOp::Insert, shm_cap_id, shm_cap, address)
+    fn insert<B>(&mut self, shm_cap_id: ShmCapId, shm_cap: &ShmCap<B>, address: u64, flags: Sv39Flags) -> Result<(), PageTableError> {
+        self.insert_or_remove(PageTableOp::Insert { flags }, shm_cap_id, shm_cap, address)
     }
 
     /// Check `is_allowed()` on Acquisitions before calling this. This also
@@ -335,7 +360,7 @@ impl PageTableLevel1 {
                 for i in start..end {
                     let offset = i - start;
                     match op {
-                        PageTableOp::Insert => self.entries[i as usize] = Some(Box::new(PageTableLevel2::OneGiBSuperpage(PageTableEntry { shm_cap_id, shm_cap_offset: offset }))),
+                        PageTableOp::Insert { flags } => self.entries[i as usize] = Some(Box::new(PageTableLevel2::OneGiBSuperpage(PageTableEntry { shm_cap_id, shm_cap_offset: offset, flags }))),
                         PageTableOp::Remove => self.entries[i as usize] = None,
                     }
                 }
@@ -366,9 +391,9 @@ impl PageTableLevel1 {
 
                     let current_vpn1_index = (current_vpn1 & ((1 << PageTableLevel2::ENTRIES_BITS) - 1)) as usize;
                     match op {
-                        PageTableOp::Insert => {
+                        PageTableOp::Insert { flags } => {
                             // TODO: If you run this allocating line, 200,000 times, it is slow.
-                            level_2_table[current_vpn1_index] = Some(Box::new(PageTableLeaf::TwoMiBSuperpage(PageTableEntry { shm_cap_id, shm_cap_offset: (current_vpn1 - start_vpn1) })));
+                            level_2_table[current_vpn1_index] = Some(Box::new(PageTableLeaf::TwoMiBSuperpage(PageTableEntry { shm_cap_id, shm_cap_offset: (current_vpn1 - start_vpn1), flags })));
                         },
                         PageTableOp::Remove => {
                             // TODO: If you run this dropping line, 200,000 times, it is slow.
@@ -417,7 +442,7 @@ impl PageTableLevel1 {
 
                     let current_vpn0_index = (current_vpn0 & ((1 << PageTableLeaf::ENTRIES_BITS) - 1)) as usize;
                     match op {
-                        PageTableOp::Insert => leaf_table[current_vpn0_index] = Some(PageTableEntry { shm_cap_id, shm_cap_offset: (current_vpn0 - start_vpn0) }),
+                        PageTableOp::Insert { flags } => leaf_table[current_vpn0_index] = Some(PageTableEntry { shm_cap_id, shm_cap_offset: (current_vpn0 - start_vpn0), flags }),
                         PageTableOp::Remove => {
                             leaf_table[current_vpn0_index] = None;
 
@@ -456,6 +481,8 @@ pub enum PageTableError {
     PageInsertCorrupted { shm_cap_id: ShmCapId, vpn2: u64, current_vpn1: Option<u64>, current_vpn0: Option<u64> },
     #[snafu(display("The requested page was not present"))]
     PageNotFound,
+    #[snafu(display("The page did not have the permissions that were required"))]
+    PermissionDenied { shm_cap_id: ShmCapId, required_permissions: Sv39Flags, present_permissions: Sv39Flags },
     #[snafu(display("The SHM cap ID was not found or the offset was higher than the cap's length, both of which should never happen, and this indicates a bug in Nushift's code."))]
     PageEntryCorrupted { shm_cap_id: ShmCapId, mismatched_entry_found_at_level: Option<(u8, ShmType)>, shm_cap_offset: Option<ShmCapOffset>, shm_cap_length: Option<ShmCapLength> },
     #[snafu(display("A large superpage {shm_type:?} offset at {offset}, does not fit into the host platform's usize of {} bytes. For example, running some 64-bit Nushift apps on a 32-bit host platform. This limitation of Nushift could be resolved in the future.", core::mem::size_of::<usize>()))]
@@ -620,8 +647,9 @@ mod tests {
         // A 1 GiB type cap starting at 400 with length 200: overflows 512
         let (shm_type, length, backing) = (ShmType::OneGiB, non_zero(200), &[0u8; 0]);
         let address = 400u64 << PageTableLevel2::ENTRIES_BITS << PageTableLeaf::ENTRIES_BITS << 12;
+        let flags = Sv39Flags::RW;
         assert!(matches!(
-            page_table.insert(1, &ShmCap::new(shm_type, length, backing), address),
+            page_table.insert(1, &ShmCap::new(shm_type, length, backing), address, flags),
             Err(PageTableError::PageInsertOutOfBounds { shm_type: m_shm_type, length: m_length, address: m_address }) if m_shm_type == shm_type && m_length == length && m_address == address,
         ));
         // Assert that nothing was inserted
@@ -634,24 +662,24 @@ mod tests {
 
         // A 1 GiB type cap starting at 0 with length 512: fits
         assert!(matches!(
-            page_table.insert(1, &ShmCap::new(ShmType::OneGiB, non_zero(512), &[0u8; 0]), 0),
+            page_table.insert(1, &ShmCap::new(ShmType::OneGiB, non_zero(512), &[0u8; 0]), 0, Sv39Flags::RW),
             Ok(()),
         ));
         assert!(page_table.entries.iter().enumerate().all(|(i, entry)| {
             let Some(entry) = entry else { return false; };
-            matches!(entry.as_ref(), PageTableLevel2::OneGiBSuperpage(PageTableEntry { shm_cap_id: 1, shm_cap_offset: m_i }) if *m_i == i as u64)
+            matches!(entry.as_ref(), PageTableLevel2::OneGiBSuperpage(PageTableEntry { shm_cap_id: 1, shm_cap_offset: m_i, flags: Sv39Flags::RW }) if *m_i == i as u64)
         }));
 
         // A 1 GiB type cap starting at 400 with length 112: fits
         let mut page_table = PageTableLevel1::new();
         assert!(matches!(
-            page_table.insert(1, &ShmCap::new(ShmType::OneGiB, non_zero(112), &[0u8; 0]), 400u64 << PageTableLevel2::ENTRIES_BITS << PageTableLeaf::ENTRIES_BITS << 12),
+            page_table.insert(1, &ShmCap::new(ShmType::OneGiB, non_zero(112), &[0u8; 0]), 400u64 << PageTableLevel2::ENTRIES_BITS << PageTableLeaf::ENTRIES_BITS << 12, Sv39Flags::RW),
             Ok(()),
         ));
         assert!(page_table.entries[0..400].iter().all(|entry| matches!(entry, None)));
         assert!(page_table.entries[400..].iter().enumerate().all(|(i, entry)| {
             let Some(entry) = entry else { return false; };
-            matches!(entry.as_ref(), PageTableLevel2::OneGiBSuperpage(PageTableEntry { shm_cap_id: 1, shm_cap_offset: m_i }) if *m_i == i as u64)
+            matches!(entry.as_ref(), PageTableLevel2::OneGiBSuperpage(PageTableEntry { shm_cap_id: 1, shm_cap_offset: m_i, flags: Sv39Flags::RW }) if *m_i == i as u64)
         }));
     }
 
@@ -660,7 +688,7 @@ mod tests {
         let mut page_table = PageTableLevel1::new();
 
         assert!(matches!(
-            page_table.insert(1, &ShmCap::new(ShmType::OneGiB, non_zero(1), &[0u8; 0]), 100u64 << PageTableLevel2::ENTRIES_BITS << PageTableLeaf::ENTRIES_BITS << 12),
+            page_table.insert(1, &ShmCap::new(ShmType::OneGiB, non_zero(1), &[0u8; 0]), 100u64 << PageTableLevel2::ENTRIES_BITS << PageTableLeaf::ENTRIES_BITS << 12, Sv39Flags::RW),
             Ok(()),
         ));
         assert!(page_table.entries.iter().enumerate().all(|(i, entry)| {
@@ -668,7 +696,7 @@ mod tests {
                 matches!(entry, None)
             } else {
                 let Some(entry) = entry else { return false; };
-                matches!(entry.as_ref(), PageTableLevel2::OneGiBSuperpage(PageTableEntry { shm_cap_id: 1, shm_cap_offset: 0 }))
+                matches!(entry.as_ref(), PageTableLevel2::OneGiBSuperpage(PageTableEntry { shm_cap_id: 1, shm_cap_offset: 0, flags: Sv39Flags::RW }))
             }
         }))
     }
@@ -679,8 +707,9 @@ mod tests {
 
         // A 2 MiB cap starting at 261118 (2 MiB equivalent) and has length 1027: overflows
         let address = (509 * ONE_ONE_GIB_PAGE) + (510u64 << PageTableLeaf::ENTRIES_BITS << 12);
+        let flags = Sv39Flags::RW;
         assert!(matches!(
-            page_table.insert(1, &ShmCap::new(ShmType::TwoMiB, non_zero(1027), &[0u8; 0]), address),
+            page_table.insert(1, &ShmCap::new(ShmType::TwoMiB, non_zero(1027), &[0u8; 0]), address, flags),
             Err(PageTableError::PageInsertOutOfBounds { shm_type: ShmType::TwoMiB, length: m_length, address: m_address }) if m_length == non_zero(1027) && m_address == address
         ));
         assert!(page_table.entries.iter().all(|entry| matches!(entry, None))); // Expect all 1 GiB pages to not be populated
@@ -689,7 +718,7 @@ mod tests {
         let mut page_table = PageTableLevel1::new();
         let address = (509 * ONE_ONE_GIB_PAGE) + (510u64 << PageTableLeaf::ENTRIES_BITS << 12);
         assert!(matches!(
-            page_table.insert(1, &ShmCap::new(ShmType::TwoMiB, non_zero(1026), &[0u8; 0]), address),
+            page_table.insert(1, &ShmCap::new(ShmType::TwoMiB, non_zero(1026), &[0u8; 0]), address, flags),
             Ok(()),
         ));
     }
@@ -699,7 +728,7 @@ mod tests {
         let mut page_table = PageTableLevel1::new();
 
         assert!(matches!(
-            page_table.insert(1, &ShmCap::new(ShmType::TwoMiB, non_zero(50), &[0u8; 0]), ONE_ONE_GIB_PAGE + (100u64 << PageTableLeaf::ENTRIES_BITS << 12)),
+            page_table.insert(1, &ShmCap::new(ShmType::TwoMiB, non_zero(50), &[0u8; 0]), ONE_ONE_GIB_PAGE + (100u64 << PageTableLeaf::ENTRIES_BITS << 12), Sv39Flags::RW),
             Ok(()),
         ));
 
@@ -711,7 +740,7 @@ mod tests {
                 matches!(entry, None)
             } else {
                 let Some(entry) = entry else { return false; };
-                matches!(entry.as_ref(), PageTableLeaf::TwoMiBSuperpage(PageTableEntry { shm_cap_id: 1, shm_cap_offset: m_offset }) if *m_offset == (i - 100) as u64)
+                matches!(entry.as_ref(), PageTableLeaf::TwoMiBSuperpage(PageTableEntry { shm_cap_id: 1, shm_cap_offset: m_offset, flags: Sv39Flags::RW }) if *m_offset == (i - 100) as u64)
             }
         }));
 
@@ -723,7 +752,7 @@ mod tests {
         let mut page_table = PageTableLevel1::new();
 
         assert!(matches!(
-            page_table.insert(1, &ShmCap::new(ShmType::TwoMiB, non_zero(1000), &[0u8; 0]), ONE_ONE_GIB_PAGE + (510u64 << PageTableLeaf::ENTRIES_BITS << 12)),
+            page_table.insert(1, &ShmCap::new(ShmType::TwoMiB, non_zero(1000), &[0u8; 0]), ONE_ONE_GIB_PAGE + (510u64 << PageTableLeaf::ENTRIES_BITS << 12), Sv39Flags::RW),
             Ok(()),
         ));
 
@@ -735,7 +764,7 @@ mod tests {
                 matches!(entry, None)
             } else {
                 let Some(entry) = entry else { return false; };
-                matches!(entry.as_ref(), PageTableLeaf::TwoMiBSuperpage(PageTableEntry { shm_cap_id: 1, shm_cap_offset: m_offset }) if *m_offset == (i - 510) as u64)
+                matches!(entry.as_ref(), PageTableLeaf::TwoMiBSuperpage(PageTableEntry { shm_cap_id: 1, shm_cap_offset: m_offset, flags: Sv39Flags::RW }) if *m_offset == (i - 510) as u64)
             }
         }));
 
@@ -743,7 +772,7 @@ mod tests {
         let PageTableLevel2::Entries(level_2_entries_2) = level_2_table_2.as_ref() else { panic!("Expected third 1 GiB page to be entries, not superpage"); };
         assert!(level_2_entries_2.iter().enumerate().all(|(i, entry)| {
             let Some(entry) = entry else { return false; };
-            matches!(entry.as_ref(), PageTableLeaf::TwoMiBSuperpage(PageTableEntry { shm_cap_id: 1, shm_cap_offset: m_offset }) if *m_offset == (i + 2) as u64)
+            matches!(entry.as_ref(), PageTableLeaf::TwoMiBSuperpage(PageTableEntry { shm_cap_id: 1, shm_cap_offset: m_offset, flags: Sv39Flags::RW }) if *m_offset == (i + 2) as u64)
         }));
 
         let level_2_table_3 = page_table.entries[3].as_ref().expect("Expected fourth 1 GiB page to be populated");
@@ -753,7 +782,7 @@ mod tests {
                 matches!(entry, None)
             } else {
                 let Some(entry) = entry else { return false; };
-                matches!(entry.as_ref(), PageTableLeaf::TwoMiBSuperpage(PageTableEntry{ shm_cap_id: 1, shm_cap_offset: m_offset }) if *m_offset == (i + 514) as u64)
+                matches!(entry.as_ref(), PageTableLeaf::TwoMiBSuperpage(PageTableEntry{ shm_cap_id: 1, shm_cap_offset: m_offset, flags: Sv39Flags::RW }) if *m_offset == (i + 514) as u64)
             }
         }));
 
@@ -765,14 +794,14 @@ mod tests {
         let mut page_table = PageTableLevel1::new();
 
         assert!(matches!(
-            page_table.insert(1, &ShmCap::new(ShmType::TwoMiB, non_zero(1), &[0u8; 0]), ONE_ONE_GIB_PAGE + (100u64 << PageTableLeaf::ENTRIES_BITS << 12)),
+            page_table.insert(1, &ShmCap::new(ShmType::TwoMiB, non_zero(1), &[0u8; 0]), ONE_ONE_GIB_PAGE + (100u64 << PageTableLeaf::ENTRIES_BITS << 12), Sv39Flags::RW),
             Ok(()),
         ));
 
         // Insert another one at 101. This should trigger the get case of
         // get_or_insert_with, reusing the existing level 2 table.
         assert!(matches!(
-            page_table.insert(2, &ShmCap::new(ShmType::TwoMiB, non_zero(1), &[0u8; 0]), ONE_ONE_GIB_PAGE + (101u64 << PageTableLeaf::ENTRIES_BITS << 12)),
+            page_table.insert(2, &ShmCap::new(ShmType::TwoMiB, non_zero(1), &[0u8; 0]), ONE_ONE_GIB_PAGE + (101u64 << PageTableLeaf::ENTRIES_BITS << 12), Sv39Flags::RW),
             Ok(()),
         ));
 
@@ -783,11 +812,11 @@ mod tests {
             match i {
                 100 => {
                     let Some(entry) = entry else { return false; };
-                    matches!(entry.as_ref(), PageTableLeaf::TwoMiBSuperpage(PageTableEntry{ shm_cap_id: 1, shm_cap_offset: 0 }))
+                    matches!(entry.as_ref(), PageTableLeaf::TwoMiBSuperpage(PageTableEntry{ shm_cap_id: 1, shm_cap_offset: 0, flags: Sv39Flags::RW }))
                 },
                 101 => {
                     let Some(entry) = entry else { return false; };
-                    matches!(entry.as_ref(), PageTableLeaf::TwoMiBSuperpage(PageTableEntry{ shm_cap_id: 2, shm_cap_offset: 0 }))
+                    matches!(entry.as_ref(), PageTableLeaf::TwoMiBSuperpage(PageTableEntry{ shm_cap_id: 2, shm_cap_offset: 0, flags: Sv39Flags::RW }))
                 },
                 _ => matches!(entry, None),
             }
@@ -802,7 +831,7 @@ mod tests {
         // third-last 1 GiB region, with length 524291: overflows
         let address = (509 * ONE_ONE_GIB_PAGE) + (511u64 << PageTableLeaf::ENTRIES_BITS << 12) + (510u64 << 12);
         assert!(matches!(
-            page_table.insert(1, &ShmCap::new(ShmType::FourKiB, non_zero(524291), &[0u8; 0]), address),
+            page_table.insert(1, &ShmCap::new(ShmType::FourKiB, non_zero(524291), &[0u8; 0]), address, Sv39Flags::RW),
             Err(PageTableError::PageInsertOutOfBounds { shm_type: ShmType::FourKiB, length: m_length, address: m_address }) if m_length == non_zero(524291) && m_address == address
         ));
         assert!(page_table.entries.iter().all(|entry| matches!(entry, None))); // Expect all 1 GiB pages to not be populated
@@ -812,7 +841,7 @@ mod tests {
         let mut page_table = PageTableLevel1::new();
         let address = (509 * ONE_ONE_GIB_PAGE) + (511u64 << PageTableLeaf::ENTRIES_BITS << 12) + (510u64 << 12);
         assert!(matches!(
-            page_table.insert(1, &ShmCap::new(ShmType::FourKiB, non_zero(524290), &[0u8; 0]), address),
+            page_table.insert(1, &ShmCap::new(ShmType::FourKiB, non_zero(524290), &[0u8; 0]), address, Sv39Flags::RW),
             Ok(()),
         ));
     }
@@ -829,7 +858,7 @@ mod tests {
         // MiB region (512 4 KiB equivalent), then fills 88 more 4 KiB slots.
         let address = (509 * ONE_ONE_GIB_PAGE) + (511u64 << PageTableLeaf::ENTRIES_BITS << 12) + (510u64 << 12);
         assert!(matches!(
-            page_table.insert(1, &ShmCap::new(ShmType::FourKiB, non_zero(262746), &[0u8; 0]), address),
+            page_table.insert(1, &ShmCap::new(ShmType::FourKiB, non_zero(262746), &[0u8; 0]), address, Sv39Flags::RW),
             Ok(()),
         ));
 
@@ -847,7 +876,7 @@ mod tests {
                 matches!(entry, None)
             } else {
                 let Some(entry) = entry else { return false; };
-                matches!(entry, PageTableEntry { shm_cap_id: 1, shm_cap_offset: m_offset } if *m_offset == (i - 510) as u64)
+                matches!(entry, PageTableEntry { shm_cap_id: 1, shm_cap_offset: m_offset, flags: Sv39Flags::RW } if *m_offset == (i - 510) as u64)
             }
         }));
 
@@ -859,7 +888,7 @@ mod tests {
             let PageTableLeaf::Entries(leaf_entries) = leaf_table.as_ref() else { return false; };
             leaf_entries.iter().enumerate().all(|(i, entry)| {
                 let Some(entry) = entry else { return false; };
-                matches!(entry, PageTableEntry { shm_cap_id: 1, shm_cap_offset: m_offset } if *m_offset == ((j * 512) + i + 2) as u64)
+                matches!(entry, PageTableEntry { shm_cap_id: 1, shm_cap_offset: m_offset, flags: Sv39Flags::RW } if *m_offset == ((j * 512) + i + 2) as u64)
             })
         }));
 
@@ -870,7 +899,7 @@ mod tests {
         let PageTableLeaf::Entries(leaf_entries) = leaf_table.as_ref() else { panic!("Expected 1st 2 MiB page to be entries, not superpage"); };
         assert!(leaf_entries.iter().enumerate().all(|(i, entry)| {
             let Some(entry) = entry else { return false; };
-            matches!(entry, PageTableEntry { shm_cap_id: 1, shm_cap_offset: m_offset } if *m_offset == (i + 262146) as u64)
+            matches!(entry, PageTableEntry { shm_cap_id: 1, shm_cap_offset: m_offset, flags: Sv39Flags::RW } if *m_offset == (i + 262146) as u64)
         }));
         let leaf_table = level_2_entries[1].as_ref().expect("Expected 2nd 2 MiB page to be populated");
         let PageTableLeaf::Entries(leaf_entries) = leaf_table.as_ref() else { panic!("Expected 2nd 2 MiB page to be entries, not superpage"); };
@@ -879,7 +908,7 @@ mod tests {
                 matches!(entry, None)
             } else {
                 let Some(entry) = entry else { return false; };
-                matches!(entry, PageTableEntry { shm_cap_id: 1, shm_cap_offset: m_offset } if *m_offset == (i + 262658) as u64)
+                matches!(entry, PageTableEntry { shm_cap_id: 1, shm_cap_offset: m_offset, flags: Sv39Flags::RW } if *m_offset == (i + 262658) as u64)
             }
         }));
         assert!(level_2_entries[2..].iter().all(|entry| matches!(entry, None))); // Expect remaining 2 MiB pages to not be populated
@@ -891,7 +920,7 @@ mod tests {
 
         // A 1 GiB type cap starting at 400 with length 112: fits
         assert!(matches!(
-            page_table.insert(1, &ShmCap::new(ShmType::OneGiB, non_zero(112), &[0u8; 0]), 400u64 << PageTableLevel2::ENTRIES_BITS << PageTableLeaf::ENTRIES_BITS << 12),
+            page_table.insert(1, &ShmCap::new(ShmType::OneGiB, non_zero(112), &[0u8; 0]), 400u64 << PageTableLevel2::ENTRIES_BITS << PageTableLeaf::ENTRIES_BITS << 12, Sv39Flags::RW),
             Ok(()),
         ));
         // Remove: succeeds
@@ -908,7 +937,7 @@ mod tests {
         let mut page_table = PageTableLevel1::new();
 
         assert!(matches!(
-            page_table.insert(1, &ShmCap::new(ShmType::TwoMiB, non_zero(1000), &[0u8; 0]), ONE_ONE_GIB_PAGE + (510u64 << PageTableLeaf::ENTRIES_BITS << 12)),
+            page_table.insert(1, &ShmCap::new(ShmType::TwoMiB, non_zero(1000), &[0u8; 0]), ONE_ONE_GIB_PAGE + (510u64 << PageTableLeaf::ENTRIES_BITS << 12), Sv39Flags::RW),
             Ok(()),
         ));
         assert!(matches!(
@@ -944,7 +973,7 @@ mod tests {
         // MiB region (512 4 KiB equivalent), then fills 88 more 4 KiB slots.
         let address = (509 * ONE_ONE_GIB_PAGE) + (511u64 << PageTableLeaf::ENTRIES_BITS << 12) + (510u64 << 12);
         assert!(matches!(
-            page_table.insert(1, &ShmCap::new(ShmType::FourKiB, non_zero(262746), &[0u8; 0]), address),
+            page_table.insert(1, &ShmCap::new(ShmType::FourKiB, non_zero(262746), &[0u8; 0]), address, Sv39Flags::RW),
             Ok(()),
         ));
         assert!(matches!(

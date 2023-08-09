@@ -2,7 +2,7 @@ use std::{array::TryFromSliceError, mem};
 use snafu::prelude::*;
 use snafu_cli_debug::SnafuCliDebug;
 
-use super::shm_space::{ShmSpace, SV39_BITS, acquisitions_and_page_table::PageTableError};
+use super::shm_space::{ShmSpace, SV39_BITS, acquisitions_and_page_table::{PageTableError, WalkResult}};
 
 pub struct ProtectedMemory;
 
@@ -22,20 +22,32 @@ impl ProtectedMemory {
     }
 
     pub fn load16(shm_space: &ShmSpace, addr: u64) -> Result<u16, ProtectedMemoryError> {
-        Self::load_multi_byte(shm_space, addr)
+        Self::load_multi_byte(shm_space, addr, ShmSpace::walk)
     }
 
     pub fn load32(shm_space: &ShmSpace, addr: u64) -> Result<u32, ProtectedMemoryError> {
-        Self::load_multi_byte(shm_space, addr)
+        Self::load_multi_byte(shm_space, addr, ShmSpace::walk)
     }
 
     pub fn load64(shm_space: &ShmSpace, addr: u64) -> Result<u64, ProtectedMemoryError> {
-        Self::load_multi_byte(shm_space, addr)
+        Self::load_multi_byte(shm_space, addr, ShmSpace::walk)
     }
 
-    pub fn load_multi_byte<T: Numeric>(shm_space: &ShmSpace, addr: u64) -> Result<T, ProtectedMemoryError> {
+    pub fn execute_load16(shm_space: &ShmSpace, addr: u64) -> Result<u16, ProtectedMemoryError> {
+        Self::load_multi_byte(shm_space, addr, ShmSpace::walk_execute)
+    }
+
+    pub fn execute_load32(shm_space: &ShmSpace, addr: u64) -> Result<u32, ProtectedMemoryError> {
+        Self::load_multi_byte(shm_space, addr, ShmSpace::walk_execute)
+    }
+
+    pub fn load_multi_byte<T, W>(shm_space: &ShmSpace, addr: u64, walk: W) -> Result<T, ProtectedMemoryError>
+    where
+        T: Numeric,
+        W: for<'space> Fn(&'space ShmSpace, u64) -> Result<WalkResult<'space>, PageTableError>,
+    {
         Self::check_within_sv39(addr, mem::size_of::<T>())?;
-        let walked = shm_space.walk(addr).context(WalkSnafu)?;
+        let walked = walk(shm_space, addr).context(WalkSnafu)?;
 
         // Fits in page (all aligned accesses are this, and some unaligned accesses).
         let diff_to_end_of_space_slice = walked.space_slice.len() - walked.byte_offset_in_space_slice;
@@ -53,7 +65,7 @@ impl ProtectedMemory {
         // Casting to u64 is OK because a page size can't be more than u64 as
         // long as `addr` is still u64.
         let next_page = addr + (diff_to_end_of_space_slice as u64);
-        let walked_next_page = shm_space.walk(next_page).context(WalkSnafu)?;
+        let walked_next_page = walk(shm_space, next_page).context(WalkSnafu)?;
 
         let bytes: T::ByteArray = [&walked.space_slice[walked.byte_offset_in_space_slice..], &walked_next_page.space_slice[..(mem::size_of::<T>() - diff_to_end_of_space_slice)]]
             .concat().try_into().unwrap();

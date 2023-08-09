@@ -25,7 +25,7 @@ use super::elf_loader::Loader;
 use super::nushift_subsystem::NushiftSubsystem;
 use super::protected_memory::{ProtectedMemory, ProtectedMemoryError};
 use super::register_ipc::{SyscallEnter, SyscallReturn, RETURN_VAL_REGISTER_INDEX, ERROR_RETURN_VAL_REGISTER_INDEX};
-use super::shm_space::ShmSpace;
+use super::shm_space::{ShmSpace, acquisitions_and_page_table::PageTableError};
 
 const SYSCALL_NUM_REGISTER: usize = A0;
 const FIRST_ARG_REGISTER: usize = A1;
@@ -296,11 +296,11 @@ where
     }
 
     fn execute_load16(&mut self, addr: u64) -> Result<u16, CKBVMError> {
-        load_impl(self, &R::from_u64(addr), ProtectedMemory::load16, core::convert::identity)
+        load_impl(self, &R::from_u64(addr), ProtectedMemory::execute_load16, core::convert::identity)
     }
 
     fn execute_load32(&mut self, addr: u64) -> Result<u32, CKBVMError> {
-        load_impl(self, &R::from_u64(addr), ProtectedMemory::load32, core::convert::identity)
+        load_impl(self, &R::from_u64(addr), ProtectedMemory::execute_load32, core::convert::identity)
     }
 
     fn load8(&mut self, addr: &Self::REG) -> Result<Self::REG, CKBVMError> {
@@ -336,31 +336,41 @@ where
     }
 }
 
-fn load_impl<T, L, F, U, R>(pcb: &ProcessControlBlock<R>, addr: &R, protected_memory_load_func: L, from_val_func: F) -> Result<U, CKBVMError>
+fn load_impl<T, L, F, U, R>(pcb: &ProcessControlBlock<R>, addr: &R, protected_memory_load: L, from_val: F) -> Result<U, CKBVMError>
 where
     L: FnOnce(&ShmSpace, u64) -> Result<T, ProtectedMemoryError>,
     F: FnOnce(T) -> U,
     R: Register + LowerHex,
 {
     let subsystem = pcb.locked_subsystem.lock().unwrap();
-    protected_memory_load_func(subsystem.shm_space(), R::to_u64(addr))
-        .map(|value| from_val_func(value))
-        .map_err(|_| {
-            log::error!("Out of bounds load: addr {addr:#x}, PC {:#x}", pcb.pc());
+    protected_memory_load(subsystem.shm_space(), R::to_u64(addr))
+        .map(|value| from_val(value))
+        .map_err(|err| {
+            match err {
+                ProtectedMemoryError::WalkError {
+                    source: PageTableError::PermissionDenied { shm_cap_id, required_permissions, present_permissions }
+                } => log::error!("Permission denied load: addr {addr:#x}, PC {:#x}, owning cap ID {shm_cap_id}, required permissions: {required_permissions:?}, present permissions: {present_permissions:?}", pcb.pc()),
+                _ => log::error!("Out of bounds load: addr {addr:#x}, PC {:#x}", pcb.pc()),
+            }
             CKBVMError::MemOutOfBound
         })
 }
 
-fn store_impl<T, S, F, U, R>(pcb: &ProcessControlBlock<R>, addr: &R, value: &U, protected_memory_store_func: S, to_val_func: F) -> Result<(), CKBVMError>
+fn store_impl<T, S, F, U, R>(pcb: &ProcessControlBlock<R>, addr: &R, value: &U, protected_memory_store: S, to_val: F) -> Result<(), CKBVMError>
 where
     S: FnOnce(&mut ShmSpace, u64, T) -> Result<(), ProtectedMemoryError>,
     F: FnOnce(&U) -> T,
     R: Register + LowerHex,
 {
     let mut subsystem = pcb.locked_subsystem.lock().unwrap();
-    protected_memory_store_func(subsystem.shm_space_mut(), R::to_u64(addr), to_val_func(value))
-        .map_err(|_| {
-            log::error!("Out of bounds store: addr {addr:#x}, PC {:#x}", pcb.pc());
+    protected_memory_store(subsystem.shm_space_mut(), R::to_u64(addr), to_val(value))
+        .map_err(|err| {
+            match err {
+                ProtectedMemoryError::WalkError {
+                    source: PageTableError::PermissionDenied { shm_cap_id, required_permissions, present_permissions }
+                } => log::error!("Permission denied store: addr {addr:#x}, PC {:#x}, owning cap ID {shm_cap_id}, required permissions: {required_permissions:?}, present permissions: {present_permissions:?}", pcb.pc()),
+                _ => log::error!("Out of bounds store: addr {addr:#x}, PC {:#x}", pcb.pc()),
+            }
             CKBVMError::MemOutOfBound
         })
 }
