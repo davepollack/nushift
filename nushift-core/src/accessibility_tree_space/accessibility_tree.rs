@@ -12,11 +12,8 @@ struct Surface {
 
 #[derive(Debug, Deserialize, Serialize)]
 enum DisplayItem {
-    Text(Text),
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-struct Text {
-    aabb: (Vec<f64>, Vec<f64>),
-    text: String,
+    Text {
+        aabb: (Vec<f64>, Vec<f64>),
+        text: String,
+    },
 }

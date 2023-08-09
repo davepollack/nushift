@@ -1,3 +1,4 @@
+const std = @import("std");
 const OsNushift = @import("os_nushift");
 const ron = @embedFile("./accessibility_tree.ron");
 
@@ -21,8 +22,10 @@ pub fn main() usize {
         .ok => {},
         .fail => |err_enum| return @intFromEnum(err_enum),
     }
-    const ptr: [*]u8 = @ptrFromInt(ACQUIRE_ADDRESS);
-    @memcpy(ptr, ron);
+    const ron_length_dest: *[@sizeOf(usize)]u8 = @ptrFromInt(ACQUIRE_ADDRESS);
+    const data_dest: *[ron.len]u8 = @ptrFromInt(ACQUIRE_ADDRESS + @sizeOf(usize));
+    std.mem.writeIntLittle(usize, ron_length_dest, ron.len);
+    @memcpy(data_dest, ron);
 
     const publish_result = OsNushift.syscall(.accessibility_tree_publish, .{ .accessibility_tree_cap_id = a11y_tree_cap_id, .input_shm_cap_id = input_shm_cap_id });
     switch (publish_result) {

@@ -123,6 +123,7 @@ impl AccessibilityTreeSpace {
             || untrusted_length > input_shm_cap.shm_type().page_bytes() - 8
             || UsizeOrU64::u64(untrusted_length) > UsizeOrU64::usize(usize::MAX - 8)
         {
+            log::debug!("Invalid length: {untrusted_length}");
             output_shm_cap.backing_mut()[0..8].copy_from_slice(&u64::from(AccessibilityTreeError::InvalidLength).to_le_bytes());
             return;
         }
@@ -136,6 +137,7 @@ impl AccessibilityTreeSpace {
         let ron_serialized = match core::str::from_utf8(&input_shm_cap.backing()[8..8+(untrusted_length as usize)]) {
             Ok(str) => str,
             Err(utf8_error) => {
+                log::debug!("from_utf8 error: {utf8_error}");
                 Self::print_error(output_shm_cap, AccessibilityTreeError::InvalidDataUtf8, utf8_error);
                 return;
             },
@@ -144,11 +146,12 @@ impl AccessibilityTreeSpace {
         let accessibility_tree: AccessibilityTree = match ron::from_str(ron_serialized) {
             Ok(accessibility_tree) => accessibility_tree,
             Err(spanned_error) => {
+                log::debug!("Deserialisation error: {spanned_error}");
                 Self::print_error(output_shm_cap, AccessibilityTreeError::InvalidDataRon, spanned_error);
                 return;
             },
         };
-        // TODO: What to do with accessibility_tree?
+        // TODO: Where do we store accessibility_tree?
         log::info!("{accessibility_tree:?}");
     }
 
