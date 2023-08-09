@@ -35,11 +35,12 @@ pub type AccessibilityTreeCapId = u64;
 pub struct AccessibilityTreeSpace {
     id_pool: ReusableIdPoolManual,
     space: HashMap<AccessibilityTreeCapId, AccessibilityTreeCap>,
+    app_accessibility_tree: Option<AccessibilityTree>,
 }
 
 impl AccessibilityTreeSpace {
     pub fn new() -> Self {
-        AccessibilityTreeSpace { id_pool: ReusableIdPoolManual::new(), space: HashMap::new() }
+        AccessibilityTreeSpace { id_pool: ReusableIdPoolManual::new(), space: HashMap::new(), app_accessibility_tree: None }
     }
 
     // TODO: Should new and destroy also be part blocking, part deferred?
@@ -106,7 +107,7 @@ impl AccessibilityTreeSpace {
             .ok_or(())
             .map(|InProgressCap { input: (_, input_shm_cap), output: (_, output_shm_cap) }| (input_shm_cap, output_shm_cap))?;
 
-        Self::process_cap_content(input_shm_cap, output_shm_cap);
+        Self::process_cap_content(&mut self.app_accessibility_tree, input_shm_cap, output_shm_cap);
 
         // It should still not be possible for in_progress_cap to be empty. This
         // is an internal error.
@@ -117,7 +118,7 @@ impl AccessibilityTreeSpace {
         Ok(())
     }
 
-    fn process_cap_content(input_shm_cap: &mut ShmCap, output_shm_cap: &mut ShmCap) {
+    fn process_cap_content(app_accessibility_tree: &mut Option<AccessibilityTree>, input_shm_cap: &mut ShmCap, output_shm_cap: &mut ShmCap) {
         let untrusted_length = u64::from_le_bytes(input_shm_cap.backing()[0..8].try_into().unwrap());
         if untrusted_length == 0
             || untrusted_length > input_shm_cap.shm_type().page_bytes() - 8
@@ -151,8 +152,8 @@ impl AccessibilityTreeSpace {
                 return;
             },
         };
-        // TODO: Where do we store accessibility_tree?
-        log::info!("{accessibility_tree:?}");
+        log::debug!("{accessibility_tree:?}");
+        *app_accessibility_tree = Some(accessibility_tree);
     }
 
     pub fn destroy_accessibility_tree_cap(&mut self, accessibility_tree_cap_id: AccessibilityTreeCapId) -> Result<(), AccessibilityTreeSpaceError> {
