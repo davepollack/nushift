@@ -169,7 +169,10 @@ impl AccessibilityTreeSpace {
         Ok(())
     }
 
-    fn print_error<E: core::fmt::Display>(output_shm_cap: &mut ShmCap, accessibility_tree_error: AccessibilityTreeError, error: E) {
+    fn print_error<E>(output_shm_cap: &mut ShmCap, accessibility_tree_error: AccessibilityTreeError, error: E)
+    where
+        E: core::fmt::Display,
+    {
         let error_message = format!("{accessibility_tree_error:?}: {error}");
         // Write error code
         output_shm_cap.backing_mut()[0..8].copy_from_slice(&u64::from(accessibility_tree_error).to_le_bytes());
