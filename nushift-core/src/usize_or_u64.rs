@@ -47,3 +47,44 @@ where
     let upcasted = u64_num as usize;
     if order { usize_op(&usize_num, &upcasted) } else { usize_op(&upcasted, &usize_num) }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn eq() {
+        assert!(UsizeOrU64::usize(2) == UsizeOrU64::usize(2));
+        assert!(UsizeOrU64::u64(2) == UsizeOrU64::u64(2));
+        assert!(UsizeOrU64::usize(2) == UsizeOrU64::u64(2));
+        assert!(UsizeOrU64::u64(2) == UsizeOrU64::usize(2));
+        assert!(UsizeOrU64::usize(2) != UsizeOrU64::usize(3));
+        assert!(UsizeOrU64::u64(2) != UsizeOrU64::u64(3));
+        assert!(UsizeOrU64::usize(2) != UsizeOrU64::u64(3));
+        assert!(UsizeOrU64::u64(2) != UsizeOrU64::usize(3));
+    }
+
+    #[test]
+    fn le_lt() {
+        assert!(UsizeOrU64::usize(2) <= UsizeOrU64::usize(2));
+        assert!(UsizeOrU64::u64(2) <= UsizeOrU64::u64(2));
+        assert!(UsizeOrU64::usize(2) <= UsizeOrU64::u64(2));
+        assert!(UsizeOrU64::u64(2) <= UsizeOrU64::usize(2));
+        assert!(UsizeOrU64::usize(2) < UsizeOrU64::usize(3));
+        assert!(UsizeOrU64::u64(2) < UsizeOrU64::u64(3));
+        assert!(UsizeOrU64::usize(2) < UsizeOrU64::u64(3));
+        assert!(UsizeOrU64::u64(2) < UsizeOrU64::usize(3));
+    }
+
+    #[test]
+    fn ge_gt() {
+        assert!(UsizeOrU64::usize(2) >= UsizeOrU64::usize(2));
+        assert!(UsizeOrU64::u64(2) >= UsizeOrU64::u64(2));
+        assert!(UsizeOrU64::usize(2) >= UsizeOrU64::u64(2));
+        assert!(UsizeOrU64::u64(2) >= UsizeOrU64::usize(2));
+        assert!(UsizeOrU64::usize(3) > UsizeOrU64::usize(2));
+        assert!(UsizeOrU64::u64(3) > UsizeOrU64::u64(2));
+        assert!(UsizeOrU64::usize(3) > UsizeOrU64::u64(2));
+        assert!(UsizeOrU64::u64(3) > UsizeOrU64::usize(2));
+    }
+}
