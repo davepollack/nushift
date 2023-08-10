@@ -6,7 +6,7 @@ A new shift in running programs with shareable URLs.
 
 ## Overview
 
-Nushift is a new way of using software that has the accessibility and shareability of web URLs, but uses different technologies than the web. Apps (or pages) are RISC-V programs, that interact with a syscall ABI defined by us.
+Nushift attempts to be an alternative to the web that has the accessibility and shareability of web URLs, but uses different technologies than the web. Apps (or pages) are RISC-V programs, that interact with a syscall ABI defined by us.
 
 The Nushift hypervisor is focused on being small and having a strict API. Visual layout is entirely done by apps themselves, while communicating what is being done through the accessibility tree API.
 
@@ -14,7 +14,7 @@ The Nushift hypervisor is focused on being small and having a strict API. Visual
 
 SHM is the main method of communication between apps and the hypervisor. While it stands for "shared memory", this is mainly to distinguish it from IPC, and the ability to share it is limited.
 
-A region of memory is a "cap" (capability), and this is distinguished from the address it may be mapped into. An SHM cap can only be mapped into one logical thread of execution at a time. To communicate with the hypervisor, an SHM cap is unmapped from the app and mapped into the hypervisor, while the hypervisor is working on it.
+A region of memory is a cap (capability), and this is distinguished from the address it may be mapped into. An SHM cap can only be mapped into one logical thread of execution at a time. To communicate with the hypervisor, an SHM cap is unmapped from the app and mapped into the hypervisor, while the hypervisor is working on it.
 
 ## 64-bit versus 32-bit
 
