@@ -115,11 +115,16 @@ impl<'space> Loader<'space> {
 }
 
 fn flags_map(flags: Flags) -> Result<Sv39Flags, ()> {
+    // The compiler can't tell that is_read, is_write, is_execute from a
+    // different crate don't have side effects, so it keeps calling them if we
+    // don't do them at the top here. Perhaps a different LTO mode would behave
+    // differently.
+    let (r, w, x) = (flags.is_read(), flags.is_write(), flags.is_execute());
     match () {
-        _ if flags.is_read() && !flags.is_write() && !flags.is_execute() => Ok(Sv39Flags::R),
-        _ if flags.is_read() && flags.is_write() && !flags.is_execute() => Ok(Sv39Flags::RW),
-        _ if flags.is_read() && !flags.is_write() && flags.is_execute() => Ok(Sv39Flags::RX),
-        _ if !flags.is_read() && !flags.is_write() && flags.is_execute() => Ok(Sv39Flags::X),
+        _ if r && !w && !x => Ok(Sv39Flags::R),
+        _ if r && w && !x => Ok(Sv39Flags::RW),
+        _ if r && !w && x => Ok(Sv39Flags::RX),
+        _ if !r && !w && x => Ok(Sv39Flags::X),
         _ => Err(()),
     }
 }
