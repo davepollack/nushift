@@ -1,4 +1,5 @@
-use std::{array::TryFromSliceError, mem};
+use core::mem;
+
 use snafu::prelude::*;
 use snafu_cli_debug::SnafuCliDebug;
 
@@ -41,18 +42,18 @@ impl ProtectedMemory {
         Self::load_multi_byte(shm_space, addr, ShmSpace::walk_execute)
     }
 
-    pub fn load_multi_byte<T, W>(shm_space: &ShmSpace, addr: u64, walk: W) -> Result<T, ProtectedMemoryError>
+    pub fn load_multi_byte<T, W, const N: usize>(shm_space: &ShmSpace, addr: u64, walk: W) -> Result<T, ProtectedMemoryError>
     where
-        T: Numeric,
+        T: Numeric<N>,
         W: for<'space> Fn(&'space ShmSpace, u64) -> Result<WalkResult<'space>, PageTableError>,
     {
-        Self::check_within_sv39(addr, mem::size_of::<T>())?;
+        Self::check_within_sv39(addr, N)?;
         let walked = walk(shm_space, addr).context(WalkSnafu)?;
 
         // Fits in page (all aligned accesses are this, and some unaligned accesses).
         let diff_to_end_of_space_slice = walked.space_slice.len() - walked.byte_offset_in_space_slice;
-        if diff_to_end_of_space_slice >= mem::size_of::<T>() {
-            let bytes: T::ByteArray = walked.space_slice[walked.byte_offset_in_space_slice..walked.byte_offset_in_space_slice+mem::size_of::<T>()].try_into().unwrap();
+        if diff_to_end_of_space_slice >= N {
+            let bytes = walked.space_slice[walked.byte_offset_in_space_slice..(walked.byte_offset_in_space_slice + N)].try_into().unwrap();
             let word = T::from_le_bytes(bytes);
             return Ok(word);
         }
@@ -67,7 +68,7 @@ impl ProtectedMemory {
         let next_page = addr + (diff_to_end_of_space_slice as u64);
         let walked_next_page = walk(shm_space, next_page).context(WalkSnafu)?;
 
-        let bytes: T::ByteArray = [&walked.space_slice[walked.byte_offset_in_space_slice..], &walked_next_page.space_slice[..(mem::size_of::<T>() - diff_to_end_of_space_slice)]]
+        let bytes = [&walked.space_slice[walked.byte_offset_in_space_slice..], &walked_next_page.space_slice[..(N - diff_to_end_of_space_slice)]]
             .concat().try_into().unwrap();
         let word = T::from_le_bytes(bytes);
         Ok(word)
@@ -92,10 +93,12 @@ impl ProtectedMemory {
         Self::store_multi_byte(shm_space, addr, value)
     }
 
-    pub fn store_multi_byte<T: Numeric>(shm_space: &mut ShmSpace, addr: u64, value: T) -> Result<(), ProtectedMemoryError> {
-        Self::check_within_sv39(addr, mem::size_of::<T>())?;
-        let le_bytes = T::to_le_bytes(value);
-        let word_bytes = mem::size_of::<T>();
+    pub fn store_multi_byte<T, const N: usize>(shm_space: &mut ShmSpace, addr: u64, value: T) -> Result<(), ProtectedMemoryError>
+    where
+        T: Numeric<N>,
+    {
+        Self::check_within_sv39(addr, N)?;
+        let le_bytes = value.to_le_bytes();
 
         // Non-generic inner function. We can't quite do this with
         // `load_multi_byte`, because there we can't call `from_le_bytes` at the
@@ -143,7 +146,7 @@ impl ProtectedMemory {
 
             Ok(())
         }
-        inner(shm_space, addr, le_bytes.as_ref(), word_bytes)?;
+        inner(shm_space, addr, &le_bytes, N)?;
         Ok(())
     }
 }
@@ -155,19 +158,15 @@ pub enum ProtectedMemoryError {
 }
 
 /// Alternatively, could use the `funty` crate for this.
-pub trait Numeric {
-    type ByteArray: for<'a> TryFrom<&'a [u8], Error = TryFromSliceError> + TryFrom<Vec<u8>, Error = Vec<u8>> + AsRef<[u8]>;
-
-    fn from_le_bytes(bytes: Self::ByteArray) -> Self;
-    fn to_le_bytes(self) -> Self::ByteArray;
+pub trait Numeric<const N: usize> {
+    fn from_le_bytes(bytes: [u8; N]) -> Self;
+    fn to_le_bytes(self) -> [u8; N];
 }
 macro_rules! impl_numeric {
     ($($t:ty),+) => { $(
-        impl Numeric for $t {
-            type ByteArray = [u8; mem::size_of::<Self>()];
-
-            fn from_le_bytes(bytes: Self::ByteArray) -> Self { Self::from_le_bytes(bytes) }
-            fn to_le_bytes(self) -> Self::ByteArray { self.to_le_bytes() }
+        impl Numeric<{mem::size_of::<Self>()}> for $t {
+            fn from_le_bytes(bytes: [u8; mem::size_of::<Self>()]) -> Self { Self::from_le_bytes(bytes) }
+            fn to_le_bytes(self) -> [u8; mem::size_of::<Self>()] { self.to_le_bytes() }
         }
     )+ };
 }
