@@ -142,7 +142,7 @@ impl ShmSpace {
         self.acquire_shm_cap_impl(shm_cap_id, address, Sv39Flags::RW)
     }
 
-    pub fn acquire_shm_cap_executable(&mut self, shm_cap_id: ShmCapId, address: u64, flags: Sv39Flags) -> Result<(), ShmSpaceError> {
+    pub fn acquire_shm_cap_elf(&mut self, shm_cap_id: ShmCapId, address: u64, flags: Sv39Flags) -> Result<(), ShmSpaceError> {
         self.acquire_shm_cap_impl(shm_cap_id, address, flags)
     }
 
