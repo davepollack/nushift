@@ -33,12 +33,8 @@ impl CheckedSections {
         let equal_or_below = equal_or_below.next_back();
 
         match equal_or_below {
-            Some((&existing_vpn, &existing_num_pages)) => {
-                if existing_vpn.checked_add(existing_num_pages).expect("Should be impossible for existing entry to overflow because we validated inputs") > vpn {
-                    return OverlapsSnafu.fail();
-                }
-            },
-            None => {},
+            Some((&existing_vpn, &existing_num_pages)) if existing_vpn.checked_add(existing_num_pages).expect("Should be impossible for existing entry to overflow because we validated inputs") > vpn => return OverlapsSnafu.fail(),
+            _ => {},
         };
 
         // Check if intersects the above entry.
@@ -46,12 +42,8 @@ impl CheckedSections {
         let above = above.next();
 
         match above {
-            Some((&existing_vpn, _)) => {
-                if end_vpn > existing_vpn {
-                    return OverlapsSnafu.fail();
-                }
-            },
-            None => {},
+            Some((&above_vpn, _)) if end_vpn > above_vpn => return OverlapsSnafu.fail(),
+            _ => {},
         }
 
         self.0.insert(vpn, number_of_pages);
