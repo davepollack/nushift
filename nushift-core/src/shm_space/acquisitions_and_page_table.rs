@@ -110,7 +110,7 @@ impl AcquisitionsAndPageTable {
         self.walk_immut_or_mut(vaddr, shm_space_map, Sv39Flags::X)
     }
 
-    fn walk_immut_or_mut<SMR: SpaceMapRef>(&self, vaddr: u64, shm_space_map: SMR, required_permissions: Sv39Flags) -> Result<SMR::Result, PageTableError> {
+    fn walk_immut_or_mut<SMR: SpaceMapRef>(&self, vaddr: u64, shm_space_map: SMR, required_permissions: Sv39Flags) -> Result<<SMR::ShmCapRef as CapRef>::Result, PageTableError> {
         let vpn = vaddr >> 12;
         let vpn2 = vpn >> 18;
         let level_2_table = self.page_table.entries[vpn2 as usize].as_ref().ok_or(PageNotFoundSnafu.build())?;
@@ -164,7 +164,7 @@ impl AcquisitionsAndPageTable {
             .try_into()
             .map_err(|_| PageTooLargeToFitInHostPlatformWordSnafu { shm_cap_id: entry.shm_cap_id, shm_type: shm_cap.shm_type(), offset: entry.shm_cap_offset }.build())?;
 
-        Ok(SMR::backing_reslice_and_result(shm_cap_ref, byte_start, byte_end, byte_offset_in_space_slice))
+        Ok(shm_cap_ref.backing_reslice_and_result(byte_start, byte_end, byte_offset_in_space_slice))
     }
 
     fn check_shm_type_mismatch_and_permissions(current_level: u8, entry: &PageTableEntry, shm_cap: &ShmCap, expected_shm_type: ShmType, required_permissions: Sv39Flags) -> Result<(), PageTableError> {
@@ -193,11 +193,25 @@ pub struct WalkResultMut<'space> {
 }
 
 trait SpaceMapRef {
-    type ShmCapRef: AsRef<ShmCap>;
-    type Result;
+    type ShmCapRef: AsRef<ShmCap> + CapRef;
 
     fn get_shm_cap(self, shm_cap_id: ShmCapId) -> Option<Self::ShmCapRef>;
-    fn backing_reslice_and_result(shm_cap_ref: Self::ShmCapRef, byte_start: usize, byte_end: usize, byte_offset_in_space_slice: usize) -> Self::Result;
+}
+
+impl<'space> SpaceMapRef for &'space ShmSpaceMap {
+    type ShmCapRef = &'space ShmCap;
+
+    fn get_shm_cap(self, shm_cap_id: ShmCapId) -> Option<Self::ShmCapRef> {
+        self.get(&shm_cap_id)
+    }
+}
+
+impl<'space> SpaceMapRef for &'space mut ShmSpaceMap {
+    type ShmCapRef = &'space mut ShmCap;
+
+    fn get_shm_cap(self, shm_cap_id: ShmCapId) -> Option<Self::ShmCapRef> {
+        self.get_mut(&shm_cap_id)
+    }
 }
 
 impl<'space> AsRef<ShmCap> for &'space ShmCap {
@@ -212,30 +226,26 @@ impl<'space> AsRef<ShmCap> for &'space mut ShmCap {
     }
 }
 
-impl<'space> SpaceMapRef for &'space ShmSpaceMap {
-    type ShmCapRef = &'space ShmCap;
+trait CapRef {
+    type Result;
+
+    fn backing_reslice_and_result(self, byte_start: usize, byte_end: usize, byte_offset_in_space_slice: usize) -> Self::Result;
+}
+
+impl<'space> CapRef for &'space ShmCap {
     type Result = WalkResult<'space>;
 
-    fn get_shm_cap(self, shm_cap_id: ShmCapId) -> Option<Self::ShmCapRef> {
-        self.get(&shm_cap_id)
-    }
-
-    fn backing_reslice_and_result(shm_cap_ref: Self::ShmCapRef, byte_start: usize, byte_end: usize, byte_offset_in_space_slice: usize) -> WalkResult<'space> {
-        let space_slice = &shm_cap_ref.backing()[byte_start..byte_end];
+    fn backing_reslice_and_result(self, byte_start: usize, byte_end: usize, byte_offset_in_space_slice: usize) -> WalkResult<'space> {
+        let space_slice = &self.backing()[byte_start..byte_end];
         WalkResult { space_slice, byte_offset_in_space_slice }
     }
 }
 
-impl<'space> SpaceMapRef for &'space mut ShmSpaceMap {
-    type ShmCapRef = &'space mut ShmCap;
+impl<'space> CapRef for &'space mut ShmCap {
     type Result = WalkResultMut<'space>;
 
-    fn get_shm_cap(self, shm_cap_id: ShmCapId) -> Option<Self::ShmCapRef> {
-        self.get_mut(&shm_cap_id)
-    }
-
-    fn backing_reslice_and_result(shm_cap_ref: Self::ShmCapRef, byte_start: usize, byte_end: usize, byte_offset_in_space_slice: usize) -> WalkResultMut<'space> {
-        let space_slice = &mut shm_cap_ref.backing_mut()[byte_start..byte_end];
+    fn backing_reslice_and_result(self, byte_start: usize, byte_end: usize, byte_offset_in_space_slice: usize) -> WalkResultMut<'space> {
+        let space_slice = &mut self.backing_mut()[byte_start..byte_end];
         WalkResultMut { space_slice, byte_offset_in_space_slice }
     }
 }
