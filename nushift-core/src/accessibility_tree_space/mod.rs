@@ -137,7 +137,7 @@ impl AccessibilityTreeSpace {
             Ok(str) => str,
             Err(utf8_error) => {
                 log::debug!("from_utf8 error: {utf8_error}");
-                Self::print_error(output_shm_cap, AccessibilityTreeError::InvalidDataUtf8, utf8_error);
+                Self::print_error(output_shm_cap, AccessibilityTreeError::InvalidDataUtf8, &utf8_error);
                 return;
             },
         };
@@ -146,7 +146,7 @@ impl AccessibilityTreeSpace {
             Ok(accessibility_tree) => accessibility_tree,
             Err(spanned_error) => {
                 log::debug!("Deserialisation error: {spanned_error}");
-                Self::print_error(output_shm_cap, AccessibilityTreeError::InvalidDataRon, spanned_error);
+                Self::print_error(output_shm_cap, AccessibilityTreeError::InvalidDataRon, &spanned_error);
                 return;
             },
         };
@@ -167,10 +167,7 @@ impl AccessibilityTreeSpace {
         Ok(())
     }
 
-    fn print_error<E>(output_shm_cap: &mut ShmCap, accessibility_tree_error: AccessibilityTreeError, error: E)
-    where
-        E: core::fmt::Display,
-    {
+    fn print_error(output_shm_cap: &mut ShmCap, accessibility_tree_error: AccessibilityTreeError, error: &dyn core::fmt::Display) {
         let error_message = format!("{accessibility_tree_error:?}: {error}");
         // Write error code
         output_shm_cap.backing_mut()[0..8].copy_from_slice(&u64::from(accessibility_tree_error).to_le_bytes());
