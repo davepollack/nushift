@@ -2,7 +2,7 @@ use ckb_vm::Register;
 use num_enum::{TryFromPrimitive, IntoPrimitive};
 
 use super::accessibility_tree_space::{AccessibilityTreeSpace, AccessibilityTreeSpaceError, AccessibilityTreeCapId};
-use super::shm_space::{ShmType, ShmSpace, ShmSpaceError};
+use super::shm_space::{CapType, ShmType, ShmSpace, ShmSpaceError};
 use super::register_ipc::{SyscallEnter, SyscallReturn, SYSCALL_NUM_REGISTER_INDEX, FIRST_ARG_REGISTER_INDEX, SECOND_ARG_REGISTER_INDEX, THIRD_ARG_REGISTER_INDEX};
 
 // Regarding the use of `u64`s in this file:
@@ -44,6 +44,7 @@ pub enum SyscallError {
     InternalError = 1, // Should never happen, and indicates a bug in Nushift's code.
     Exhausted = 2,
     CapNotFound = 6,
+    PermissionDenied = 12,
 
     ShmUnknownShmType = 3,
     ShmInvalidLength = 4,
@@ -110,6 +111,7 @@ fn marshall_shm_space_error<R: Register>(shm_space_error: ShmSpaceError) -> Sysc
         ShmSpaceError::AddressOutOfBounds => set_error(SyscallError::ShmAddressOutOfBounds),
         ShmSpaceError::AddressNotAligned => set_error(SyscallError::ShmAddressNotAligned),
         ShmSpaceError::OverlapsExistingAcquisition => set_error(SyscallError::ShmOverlapsExistingAcquisition),
+        ShmSpaceError::PermissionDenied => set_error(SyscallError::PermissionDenied),
     }
 }
 
@@ -121,8 +123,9 @@ fn marshall_accessibility_tree_space_error<R: Register>(accessibility_tree_space
         AccessibilityTreeSpaceError::Exhausted
         | AccessibilityTreeSpaceError::ShmExhausted => set_error(SyscallError::Exhausted),
         AccessibilityTreeSpaceError::CapNotFound { .. }
-        | AccessibilityTreeSpaceError::ShmCapNotFound { .. }=> set_error(SyscallError::CapNotFound),
+        | AccessibilityTreeSpaceError::ShmCapNotFound { .. } => set_error(SyscallError::CapNotFound),
         AccessibilityTreeSpaceError::InProgress => set_error(SyscallError::AccessibilityTreeInProgress),
+        AccessibilityTreeSpaceError::ShmPermissionDenied { .. } => set_error(SyscallError::PermissionDenied),
         AccessibilityTreeSpaceError::ShmCapacityNotAvailable => set_error(SyscallError::ShmCapacityNotAvailable),
     }
 }
@@ -166,7 +169,7 @@ impl NushiftSubsystem {
                 };
                 let length = registers[SECOND_ARG_REGISTER_INDEX].to_u64();
 
-                let shm_cap_id = match self.shm_space_mut().new_shm_cap(shm_type, length) {
+                let shm_cap_id = match self.shm_space_mut().new_shm_cap(shm_type, length, CapType::UserCap) {
                     Ok((shm_cap_id, _)) => shm_cap_id,
                     Err(shm_space_error) => return marshall_shm_space_error(shm_space_error),
                 };
@@ -192,7 +195,7 @@ impl NushiftSubsystem {
                 let length = registers[SECOND_ARG_REGISTER_INDEX].to_u64();
                 let address = registers[THIRD_ARG_REGISTER_INDEX].to_u64();
 
-                let shm_cap_id = match self.shm_space_mut().new_shm_cap(shm_type, length) {
+                let shm_cap_id = match self.shm_space_mut().new_shm_cap(shm_type, length, CapType::UserCap) {
                     Ok((shm_cap_id, _)) => shm_cap_id,
                     Err(shm_space_error) => return marshall_shm_space_error(shm_space_error),
                 };
@@ -201,7 +204,7 @@ impl NushiftSubsystem {
                     Ok(_) => {},
                     Err(shm_space_error) => {
                         // If an acquire error occurs, roll back the just-created cap.
-                        let shm_space_error = self.shm_space_mut().destroy_shm_cap(shm_cap_id)
+                        let shm_space_error = self.shm_space_mut().destroy_shm_cap(shm_cap_id, CapType::UserCap)
                             .map_err(|_| ShmSpaceError::AcquireReleaseInternalError)
                             // If error occurred in destroy, use that (now mapped to internal) error. Otherwise, use the original shm_space_error.
                             .map_or_else(|err| err, |_| shm_space_error);
@@ -215,7 +218,7 @@ impl NushiftSubsystem {
             Ok(Syscall::ShmRelease) => {
                 let shm_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
 
-                match self.shm_space_mut().release_shm_cap(shm_cap_id) {
+                match self.shm_space_mut().release_shm_cap(shm_cap_id, CapType::UserCap) {
                     Ok(_) => {},
                     Err(shm_space_error) => return marshall_shm_space_error(shm_space_error),
                 };
@@ -225,7 +228,7 @@ impl NushiftSubsystem {
             Ok(Syscall::ShmDestroy) => {
                 let shm_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
 
-                match self.shm_space_mut().destroy_shm_cap(shm_cap_id) {
+                match self.shm_space_mut().destroy_shm_cap(shm_cap_id, CapType::UserCap) {
                     Ok(_) => {},
                     Err(shm_space_error) => return marshall_shm_space_error(shm_space_error),
                 };
@@ -235,13 +238,13 @@ impl NushiftSubsystem {
             Ok(Syscall::ShmReleaseAndDestroy) => {
                 let shm_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
 
-                match self.shm_space_mut().release_shm_cap(shm_cap_id) {
+                match self.shm_space_mut().release_shm_cap(shm_cap_id, CapType::UserCap) {
                     Ok(_) => {},
                     Err(shm_space_error) => return marshall_shm_space_error(shm_space_error),
                 };
 
                 // If the release succeeded, destroy should never fail, thus do not rollback (re-acquire).
-                match self.shm_space_mut().destroy_shm_cap(shm_cap_id) {
+                match self.shm_space_mut().destroy_shm_cap(shm_cap_id, CapType::UserCap) {
                     Ok(_) => {},
                     Err(shm_space_error) => return marshall_shm_space_error(shm_space_error),
                 };

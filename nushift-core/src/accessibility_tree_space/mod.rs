@@ -6,7 +6,7 @@ use snafu::prelude::*;
 use snafu_cli_debug::SnafuCliDebug;
 
 use self::accessibility_tree::AccessibilityTree;
-use super::shm_space::{OwnedShmIdAndCap, ShmSpace, ShmCapId, ShmCap, ShmSpaceError, ShmType};
+use super::shm_space::{CapType, OwnedShmIdAndCap, ShmSpace, ShmCapId, ShmCap, ShmSpaceError, ShmType};
 use super::usize_or_u64::UsizeOrU64;
 
 mod accessibility_tree;
@@ -63,20 +63,18 @@ impl AccessibilityTreeSpace {
 
         // Currently, you can't queue/otherwise process an accessibility tree
         // while one is being processed.
-        match accessibility_tree_cap.in_progress_cap {
-            Some(_) => return InProgressSnafu.fail(),
-            None => {},
-        };
+        matches!(accessibility_tree_cap.in_progress_cap, None).then_some(()).ok_or_else(|| InProgressSnafu.build())?;
 
-        shm_space.release_shm_cap(input_shm_cap_id).map_err(|shm_space_error| match shm_space_error {
+        shm_space.release_shm_cap(input_shm_cap_id, CapType::UserCap).map_err(|shm_space_error| match shm_space_error {
             ShmSpaceError::CapNotFound => ShmCapNotFoundSnafu { id: input_shm_cap_id }.build(),
+            ShmSpaceError::PermissionDenied => ShmPermissionDeniedSnafu { id: input_shm_cap_id }.build(),
             err => AccessibilityTreeSpaceError::ShmSpaceInternalError { source: err },
         })?;
 
         // Move out of the SHM space for the duration of us processing it.
         let input_shm_cap = shm_space.move_shm_cap_to_other_space(input_shm_cap_id).ok_or_else(|| PublishInternalSnafu.build())?; // Internal error because presence was already checked in release
         // Create an output cap
-        let (output_shm_cap_id, _) = shm_space.new_shm_cap(ShmType::FourKiB, 1).map_err(|shm_new_error| match shm_new_error {
+        let (output_shm_cap_id, _) = shm_space.new_shm_cap(ShmType::FourKiB, 1, CapType::UserCap).map_err(|shm_new_error| match shm_new_error {
             ShmSpaceError::CapacityNotAvailable
             | ShmSpaceError::BackingCapacityNotAvailable { .. }
             | ShmSpaceError::BackingCapacityNotAvailableOverflows => ShmCapacityNotAvailableSnafu.build(),
@@ -198,6 +196,8 @@ pub enum AccessibilityTreeSpaceError {
     InProgress,
     #[snafu(display("The SHM cap with ID {id} was not found."))]
     ShmCapNotFound { id: ShmCapId },
+    #[snafu(display("The SHM cap with ID {id} is not allowed to be used as an input cap, possibly because it is an ELF cap."))]
+    ShmPermissionDenied { id: ShmCapId },
     ShmExhausted,
     ShmCapacityNotAvailable,
     ShmSpaceInternalError { source: ShmSpaceError }, // Should never occur, indicates a bug in Nushift's code

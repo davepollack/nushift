@@ -36,6 +36,7 @@ pub const SyscallError = enum(usize) {
     internal_error = 1,
     exhausted = 2,
     cap_not_found = 6,
+    permission_denied = 12,
 
     shm_unknown_shm_type = 3,
     shm_invalid_length = 4,

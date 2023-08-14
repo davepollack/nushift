@@ -4,7 +4,7 @@ use elfloader::{ElfLoader, ElfLoaderErr, LoadableHeaders, Flags, VAddr, Relocati
 use snafu::prelude::*;
 use snafu_cli_debug::SnafuCliDebug;
 
-use super::shm_space::{ShmSpace, ShmType, ShmCapId, acquisitions_and_page_table::Sv39Flags};
+use super::shm_space::{CapType, ShmSpace, ShmType, ShmCapId, acquisitions_and_page_table::Sv39Flags};
 
 // The loader in this file should be robust against:
 //
@@ -154,17 +154,12 @@ impl ElfLoader for Loader<'_> {
             // implementation of new_shm_cap changes such that this is no
             // longer the case, and you didn't check this usage of
             // new_shm_cap, well, that is not good.
-            let (shm_cap_id, _) = self.shm_space.new_shm_cap(ShmType::FourKiB, number_of_pages)
+            let (shm_cap_id, _) = self.shm_space.new_shm_cap(ShmType::FourKiB, number_of_pages, CapType::ElfCap)
                 .map_err(|err| {
                     log::error!("ELF loading: new_shm_cap either exhausted or is an internal error: {err:?}");
                     ElfLoaderErr::UnsupportedSectionData
                 })?;
 
-            // TODO: Should have rwx bits in the page entry, the ELF flags
-            // should be copied to it (gonna be either r--, r-x or --x), to
-            // prevent app from either reading, writing or executing it if
-            // it's not allowed. Furthermore, other operations on the caps
-            // by the app should be disallowed.
             match self.shm_space.acquire_shm_cap_elf(shm_cap_id, rounded_down_start_vpn << 12, sv39_flags) {
                 Ok(_) => {},
                 Err(err) => {
@@ -180,12 +175,12 @@ impl ElfLoader for Loader<'_> {
 
         if errored_caps.len() > 0 {
             for shm_cap_id in errored_caps.into_iter().rev() {
-                self.shm_space.release_shm_cap(shm_cap_id)
+                self.shm_space.release_shm_cap(shm_cap_id, CapType::ElfCap)
                     .map_err(|err| {
                         log::error!("Error while rolling back, release_shm_cap internal error: {err:?}");
                         ElfLoaderErr::UnsupportedSectionData
                     })?;
-                self.shm_space.destroy_shm_cap(shm_cap_id)
+                self.shm_space.destroy_shm_cap(shm_cap_id, CapType::ElfCap)
                     .map_err(|err| {
                         log::error!("Error while rolling back, destroy_shm_cap internal error: {err:?}");
                         ElfLoaderErr::UnsupportedSectionData

@@ -12,7 +12,7 @@ pub mod acquisitions_and_page_table;
 
 pub const SV39_BITS: u8 = 39;
 
-#[derive(TryFromPrimitive, Debug, Clone, Copy, PartialEq)]
+#[derive(TryFromPrimitive, Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u64)]
 #[non_exhaustive] // Remove this if all of Sv32, Sv48 and Sv57 have been supported. Possibly.
 pub enum ShmType {
@@ -41,15 +41,22 @@ impl ShmType {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CapType {
+    UserCap,
+    ElfCap,
+}
+
 #[derive(Debug)]
 pub struct ShmCap<B = MmapMut> {
     shm_type: ShmType,
     length: ShmCapLength,
     backing: B,
+    cap_type: CapType,
 }
 impl<B> ShmCap<B> {
-    pub fn new(shm_type: ShmType, length: ShmCapLength, backing: B) -> Self {
-        ShmCap { shm_type, length, backing }
+    pub fn new(shm_type: ShmType, length: ShmCapLength, backing: B, cap_type: CapType) -> Self {
+        ShmCap { shm_type, length, backing, cap_type }
     }
 
     pub fn shm_type(&self) -> ShmType {
@@ -62,6 +69,10 @@ impl<B> ShmCap<B> {
 
     pub fn length_u64(&self) -> u64 {
         self.length.get()
+    }
+
+    pub fn cap_type(&self) -> CapType {
+        self.cap_type
     }
 }
 impl<B> ShmCap<B>
@@ -105,7 +116,7 @@ impl ShmSpace {
         }
     }
 
-    pub fn new_shm_cap(&mut self, shm_type: ShmType, length: u64) -> Result<(ShmCapId, &ShmCap), ShmSpaceError> {
+    pub fn new_shm_cap(&mut self, shm_type: ShmType, length: u64, cap_type: CapType) -> Result<(ShmCapId, &ShmCap), ShmSpaceError> {
         let length = NonZeroU64::new(length).ok_or(InvalidLengthSnafu.build())?;
         let length_u64 = length.get();
 
@@ -130,7 +141,7 @@ impl ShmSpace {
 
         let shm_cap = match self.space.entry(id) {
             Entry::Occupied(_) => return DuplicateIdSnafu.fail(),
-            Entry::Vacant(vacant_entry) => vacant_entry.insert(ShmCap::new(shm_type, length, mmap_mut)),
+            Entry::Vacant(vacant_entry) => vacant_entry.insert(ShmCap::new(shm_type, length, mmap_mut, cap_type)),
         };
 
         Self::sv39_increment_stats(&mut self.stats, shm_type, sv39_length);
@@ -139,18 +150,22 @@ impl ShmSpace {
     }
 
     pub fn acquire_shm_cap(&mut self, shm_cap_id: ShmCapId, address: u64) -> Result<(), ShmSpaceError> {
-        self.acquire_shm_cap_impl(shm_cap_id, address, Sv39Flags::RW)
+        let shm_cap = self.space.get(&shm_cap_id).ok_or_else(|| CapNotFoundSnafu.build())?;
+        matches!(shm_cap.cap_type(), CapType::UserCap).then_some(()).ok_or_else(|| PermissionDeniedSnafu.build())?;
+
+        Self::try_acquire(&mut self.acquisitions, shm_cap_id, shm_cap, address, Sv39Flags::RW)
     }
 
     pub fn acquire_shm_cap_elf(&mut self, shm_cap_id: ShmCapId, address: u64, flags: Sv39Flags) -> Result<(), ShmSpaceError> {
-        self.acquire_shm_cap_impl(shm_cap_id, address, flags)
+        let shm_cap = self.space.get(&shm_cap_id).ok_or_else(|| CapNotFoundSnafu.build())?;
+        matches!(shm_cap.cap_type(), CapType::ElfCap).then_some(()).ok_or_else(|| PermissionDeniedSnafu.build())?;
+
+        Self::try_acquire(&mut self.acquisitions, shm_cap_id, shm_cap, address, flags)
     }
 
-    fn acquire_shm_cap_impl(&mut self, shm_cap_id: ShmCapId, address: u64, flags: Sv39Flags) -> Result<(), ShmSpaceError> {
-        let shm_cap = self.space.get(&shm_cap_id).ok_or_else(|| CapNotFoundSnafu.build())?;
-
+    fn try_acquire(acquisitions: &mut AcquisitionsAndPageTable, shm_cap_id: ShmCapId, shm_cap: &ShmCap, address: u64, flags: Sv39Flags) -> Result<(), ShmSpaceError> {
         // try_acquire does the out-of-bounds and alignment checks. We map the errors here.
-        self.acquisitions.try_acquire(shm_cap_id, shm_cap, address, flags)
+        acquisitions.try_acquire(shm_cap_id, shm_cap, address, flags)
             .map_err(|acquire_error| match acquire_error {
                 AcquireError::AcquiringAlreadyAcquiredCap { address } => CurrentlyAcquiredCapSnafu { address }.build(),
                 AcquireError::AcquireExceedsSv39 => AddressOutOfBoundsSnafu.build(),
@@ -160,8 +175,9 @@ impl ShmSpace {
             })
     }
 
-    pub fn release_shm_cap(&mut self, shm_cap_id: ShmCapId) -> Result<(), ShmSpaceError> {
+    pub fn release_shm_cap(&mut self, shm_cap_id: ShmCapId, expected_cap_type: CapType) -> Result<(), ShmSpaceError> {
         let shm_cap = self.space.get(&shm_cap_id).ok_or_else(|| CapNotFoundSnafu.build())?;
+        (shm_cap.cap_type() == expected_cap_type).then_some(()).ok_or_else(|| PermissionDeniedSnafu.build())?;
 
         match self.acquisitions.try_release(shm_cap_id, shm_cap) {
             Ok(_) => Ok(()),
@@ -170,8 +186,9 @@ impl ShmSpace {
         }
     }
 
-    pub fn destroy_shm_cap(&mut self, shm_cap_id: ShmCapId) -> Result<(), ShmSpaceError> {
-        self.space.contains_key(&shm_cap_id).then_some(()).ok_or_else(|| CapNotFoundSnafu.build())?;
+    pub fn destroy_shm_cap(&mut self, shm_cap_id: ShmCapId, expected_cap_type: CapType) -> Result<(), ShmSpaceError> {
+        let shm_cap = self.space.get(&shm_cap_id).ok_or_else(|| CapNotFoundSnafu.build())?;
+        (shm_cap.cap_type() == expected_cap_type).then_some(()).ok_or_else(|| PermissionDeniedSnafu.build())?;
         self.acquisitions.check_not_acquired(shm_cap_id).map_err(|address| DestroyingCurrentlyAcquiredCapSnafu { address }.build())?;
         // TODO: Check that it must not be contained by any other dependents. E.g. accessibility tree.
 
@@ -292,6 +309,8 @@ pub enum ShmSpaceError {
     OverlapsExistingAcquisition,
     #[snafu(display("An internal error occurred while acquiring or releasing. This should never happen and indicates a bug in Nushift's code."))]
     AcquireReleaseInternalError,
+    #[snafu(display("Operation is not allowed on this cap, for example it is an ELF cap that the user app is not allowed to operate on."))]
+    PermissionDenied,
 }
 
 #[cfg(test)]
