@@ -46,7 +46,7 @@ These correspond to the page and superpage sizes available in the Sv39 scheme de
 
 Arguments: type (`ShmType`), length (`u64`).\
 Returns: shm_cap_id (`u64`).\
-Errors: `ShmInternalError`, `ShmExhausted`, `ShmUnknownShmType`, `ShmInvalidLength`, `ShmCapacityNotAvailable`
+Errors: `InternalError`, `Exhausted`, `ShmUnknownShmType`, `ShmInvalidLength`, `ShmCapacityNotAvailable`
 
 Creates a new SHM cap. The size (in bytes) of the backing memory of the cap is the page size (in bytes) represented by the `ShmType` provided multiplied by the `length` provided.
 
@@ -58,7 +58,7 @@ On current commodity operating systems, mmap is used to reserve the memory when 
 
 Arguments: shm_cap_id (`u64`), address (`u64`).\
 Returns: `0u64`.\
-Errors: `ShmInternalError`, `ShmCapCurrentlyAcquired`, `ShmCapNotFound`, `ShmAddressOutOfBounds`, `ShmAddressNotAligned`, `ShmOverlapsExistingAcquisition`
+Errors: `InternalError`, `CapNotFound`, `PermissionDenied`, `ShmCapCurrentlyAcquired`, `ShmAddressOutOfBounds`, `ShmAddressNotAligned`, `ShmOverlapsExistingAcquisition`
 
 Maps (acquires) the requested cap into the app at the requested address.
 
@@ -68,7 +68,7 @@ Maps (acquires) the requested cap into the app at the requested address.
 
 Arguments: type (`ShmType`), length (`u64`), address (`u64`).\
 Returns: shm_cap_id (`u64`).\
-Errors: `ShmInternalError`, `ShmExhausted`, `ShmUnknownShmType`, `ShmInvalidLength`, `ShmCapacityNotAvailable`, `ShmAddressOutOfBounds`, `ShmAddressNotAligned`, `ShmOverlapsExistingAcquisition`
+Errors: `InternalError`, `Exhausted`, `ShmUnknownShmType`, `ShmInvalidLength`, `ShmCapacityNotAvailable`, `ShmAddressOutOfBounds`, `ShmAddressNotAligned`, `ShmOverlapsExistingAcquisition`
 
 Calls `ShmNew` and `ShmAcquire` in one system call.
 
@@ -76,7 +76,7 @@ Calls `ShmNew` and `ShmAcquire` in one system call.
 
 Arguments: shm_cap_id (`u64`).\
 Returns: `0u64`.\
-Errors: `ShmInternalError`, `ShmCapNotFound`
+Errors: `InternalError`, `CapNotFound`, `PermissionDenied`
 
 Unmaps (releases) the requested cap from the app.
 
@@ -86,7 +86,7 @@ Silently succeeds if the requested cap is not currently acquired.
 
 Arguments: shm_cap_id (`u64`).\
 Returns: `0u64`.\
-Errors: `ShmCapNotFound`, `ShmCapCurrentlyAcquired`
+Errors: `CapNotFound`, `PermissionDenied`, `ShmCapCurrentlyAcquired`
 
 Deletes a cap.
 
@@ -96,7 +96,7 @@ The cap must be released before destroying, otherwise `ShmCapCurrentlyAcquired` 
 
 Arguments: shm_cap_id (`u64`).\
 Returns: `0u64`.\
-Errors: `ShmInternalError`, `ShmCapNotFound`
+Errors: `InternalError`, `CapNotFound`, `PermissionDenied`
 
 Calls `ShmRelease` and `ShmDestroy` in one system call.
 
