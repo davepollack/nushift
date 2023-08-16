@@ -1,5 +1,9 @@
 use core::ops::Index;
 
+// Instead of using the structs in this file for mpsc IPC, I would like to go
+// back to using a condition variable. However with the current structure of the
+// ckb-vm library, it might not be possible to do that.
+
 pub struct SyscallEnter<R>([R; 4]);
 impl<R> SyscallEnter<R> {
     pub fn new(syscall_num: R, first_arg: R, second_arg: R, third_arg: R) -> Self {
