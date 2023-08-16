@@ -179,7 +179,7 @@ pub mod tests {
         let _tab1 = root_data.add_new_tab(&Env::default());
         let tab2 = root_data.add_new_tab(&Env::default());
         let reusable_id_pool = ReusableIdPool::new();
-        let other_id = ReusableIdPool::allocate(&reusable_id_pool);
+        let other_id = reusable_id_pool.allocate();
 
         root_data.close_tab(&other_id);
 

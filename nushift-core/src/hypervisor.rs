@@ -1,10 +1,10 @@
-use std::{sync::{Mutex, Arc}, fs};
+use std::fs;
 use reusable_id_pool::{ReusableIdPool, ArcId};
 use super::tab::Tab;
 
 pub struct Hypervisor {
     tabs: Vec<Tab>,
-    tabs_reusable_id_pool: Arc<Mutex<ReusableIdPool>>,
+    tabs_reusable_id_pool: ReusableIdPool,
 }
 
 impl Hypervisor {
@@ -23,7 +23,7 @@ impl Hypervisor {
     ///
     /// The newly-created ID is returned.
     pub fn add_new_tab<S: Into<String>>(&mut self, title: S) -> ArcId {
-        let new_tab_id = ReusableIdPool::allocate(&self.tabs_reusable_id_pool);
+        let new_tab_id = self.tabs_reusable_id_pool.allocate();
         let mut new_tab = Tab::new(new_tab_id, title);
 
         let binary_blob_result = fs::read("../examples/hello-world/zig-out/bin/hello-world");
@@ -86,7 +86,7 @@ mod tests {
     #[test]
     fn hypervisor_close_tab_does_nothing_if_tab_does_not_exist() {
         let mut hypervisor = Hypervisor::new();
-        let tab_id = ReusableIdPool::allocate(&ReusableIdPool::new());
+        let tab_id = ReusableIdPool::new().allocate();
 
         hypervisor.close_tab(&tab_id);
 

@@ -16,7 +16,7 @@ pub mod tests {
     pub fn mock() -> TabData {
         let reusable_id_pool = ReusableIdPool::new();
         TabData {
-            id: ReusableIdPool::allocate(&reusable_id_pool),
+            id: reusable_id_pool.allocate(),
             title: "Mock title".into()
         }
     }
