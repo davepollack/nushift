@@ -1,7 +1,8 @@
 use ckb_vm::Register;
 use num_enum::{TryFromPrimitive, IntoPrimitive};
 
-use super::accessibility_tree_space::{AccessibilityTreeSpace, AccessibilityTreeSpaceError, AccessibilityTreeCapId};
+use super::accessibility_tree_space::{AccessibilityTreeSpace, AccessibilityTreeCapId};
+use super::deferred_space::DeferredSpaceError;
 use super::shm_space::{CapType, ShmType, ShmSpace, ShmSpaceError};
 use super::register_ipc::{SyscallEnter, SyscallReturn, SYSCALL_NUM_REGISTER_INDEX, FIRST_ARG_REGISTER_INDEX, SECOND_ARG_REGISTER_INDEX, THIRD_ARG_REGISTER_INDEX};
 
@@ -115,18 +116,18 @@ fn marshall_shm_space_error<R: Register>(shm_space_error: ShmSpaceError) -> Sysc
     }
 }
 
-fn marshall_accessibility_tree_space_error<R: Register>(accessibility_tree_space_error: AccessibilityTreeSpaceError) -> SyscallReturnAndTask<R> {
-    match accessibility_tree_space_error {
-        AccessibilityTreeSpaceError::DuplicateId
-        | AccessibilityTreeSpaceError::ShmSpaceInternalError { .. }
-        | AccessibilityTreeSpaceError::PublishInternalError => set_error(SyscallError::InternalError),
-        AccessibilityTreeSpaceError::Exhausted
-        | AccessibilityTreeSpaceError::ShmExhausted => set_error(SyscallError::Exhausted),
-        AccessibilityTreeSpaceError::CapNotFound { .. }
-        | AccessibilityTreeSpaceError::ShmCapNotFound { .. } => set_error(SyscallError::CapNotFound),
-        AccessibilityTreeSpaceError::InProgress => set_error(SyscallError::AccessibilityTreeInProgress),
-        AccessibilityTreeSpaceError::ShmPermissionDenied { .. } => set_error(SyscallError::PermissionDenied),
-        AccessibilityTreeSpaceError::ShmCapacityNotAvailable => set_error(SyscallError::ShmCapacityNotAvailable),
+fn marshall_deferred_space_error<R: Register>(deferred_space_error: DeferredSpaceError) -> SyscallReturnAndTask<R> {
+    match deferred_space_error {
+        DeferredSpaceError::DuplicateId
+        | DeferredSpaceError::ShmSpaceInternalError { .. }
+        | DeferredSpaceError::PublishInternalError => set_error(SyscallError::InternalError),
+        DeferredSpaceError::Exhausted { .. }
+        | DeferredSpaceError::ShmExhausted => set_error(SyscallError::Exhausted),
+        DeferredSpaceError::CapNotFound { .. }
+        | DeferredSpaceError::ShmCapNotFound { .. } => set_error(SyscallError::CapNotFound),
+        DeferredSpaceError::InProgress { .. } => set_error(SyscallError::AccessibilityTreeInProgress),
+        DeferredSpaceError::ShmPermissionDenied { .. } => set_error(SyscallError::PermissionDenied),
+        DeferredSpaceError::ShmCapacityNotAvailable => set_error(SyscallError::ShmCapacityNotAvailable),
     }
 }
 
@@ -255,7 +256,7 @@ impl NushiftSubsystem {
             Ok(Syscall::AccessibilityTreeNewCap) => {
                 let accessibility_tree_cap_id = match self.accessibility_tree_space.new_accessibility_tree_cap() {
                     Ok(accessibility_tree_cap_id) => accessibility_tree_cap_id,
-                    Err(accessibility_tree_space_error) => return marshall_accessibility_tree_space_error(accessibility_tree_space_error),
+                    Err(deferred_space_error) => return marshall_deferred_space_error(deferred_space_error),
                 };
 
                 set_success(accessibility_tree_cap_id)
@@ -265,7 +266,7 @@ impl NushiftSubsystem {
 
                 match self.accessibility_tree_space.destroy_accessibility_tree_cap(accessibility_tree_cap_id) {
                     Ok(_) => {},
-                    Err(accessibility_tree_space_error) => return marshall_accessibility_tree_space_error(accessibility_tree_space_error),
+                    Err(deferred_space_error) => return marshall_deferred_space_error(deferred_space_error),
                 };
 
                 set_success(0)
@@ -276,7 +277,7 @@ impl NushiftSubsystem {
 
                 match self.accessibility_tree_space.publish_accessibility_tree_blocking(accessibility_tree_cap_id, input_shm_cap_id, &mut self.shm_space) {
                     Ok(_) => {},
-                    Err(accessibility_tree_space_error) => return marshall_accessibility_tree_space_error(accessibility_tree_space_error),
+                    Err(deferred_space_error) => return marshall_deferred_space_error(deferred_space_error),
                 };
 
                 set_success_with_task(0, Task::AccessibilityTreePublish { accessibility_tree_cap_id })
