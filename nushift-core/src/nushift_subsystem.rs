@@ -45,6 +45,7 @@ pub enum SyscallError {
     InternalError = 1, // Should never happen, and indicates a bug in Nushift's code.
     Exhausted = 2,
     CapNotFound = 6,
+    InProgress = 11,
     PermissionDenied = 12,
 
     ShmUnknownShmType = 3,
@@ -54,8 +55,6 @@ pub enum SyscallError {
     ShmAddressOutOfBounds = 8,
     ShmAddressNotAligned = 9,
     ShmOverlapsExistingAcquisition = 10,
-
-    AccessibilityTreeInProgress = 11,
 }
 
 trait AsOption<T> {
@@ -125,7 +124,7 @@ fn marshall_deferred_space_error<R: Register>(deferred_space_error: DeferredSpac
         | DeferredSpaceError::ShmExhausted => set_error(SyscallError::Exhausted),
         DeferredSpaceError::CapNotFound { .. }
         | DeferredSpaceError::ShmCapNotFound { .. } => set_error(SyscallError::CapNotFound),
-        DeferredSpaceError::InProgress { .. } => set_error(SyscallError::AccessibilityTreeInProgress),
+        DeferredSpaceError::InProgress { .. } => set_error(SyscallError::InProgress),
         DeferredSpaceError::ShmPermissionDenied { .. } => set_error(SyscallError::PermissionDenied),
         DeferredSpaceError::ShmCapacityNotAvailable => set_error(SyscallError::ShmCapacityNotAvailable),
     }
