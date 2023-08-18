@@ -11,8 +11,12 @@ pub const Syscall = enum(usize) {
     shm_release_and_destroy = 6,
 
     accessibility_tree_new_cap = 7,
-    accessibility_tree_destroy_cap = 8,
-    accessibility_tree_publish = 9,
+    accessibility_tree_publish = 8,
+    accessibility_tree_destroy_cap = 9,
+
+    title_new_cap = 10,
+    title_publish = 11,
+    title_destroy_cap = 12,
 };
 
 pub fn SyscallArgs(comptime sys: Syscall) type {
@@ -25,8 +29,12 @@ pub fn SyscallArgs(comptime sys: Syscall) type {
         .shm_release, .shm_destroy, .shm_release_and_destroy => struct { shm_cap_id: usize },
 
         .accessibility_tree_new_cap => struct {},
-        .accessibility_tree_destroy_cap => struct { accessibility_tree_cap_id: usize },
         .accessibility_tree_publish => struct { accessibility_tree_cap_id: usize, input_shm_cap_id: usize },
+        .accessibility_tree_destroy_cap => struct { accessibility_tree_cap_id: usize },
+
+        .title_new_cap => struct {},
+        .title_publish => struct { title_cap_id: usize, input_shm_cap_id: usize },
+        .title_destroy_cap => struct { title_cap_id: usize },
     };
 }
 
@@ -78,8 +86,12 @@ fn syscall_internal(comptime sys: Syscall, sys_args: SyscallArgs(sys), comptime 
 
         // Send maxInt(usize) as the first argument. The first argument is not used yet, but may be in the future.
         .accessibility_tree_new_cap => syscall_internal_args(@intFromEnum(sys), 1, .{std.math.maxInt(usize)}, ignore_errors, ReturnType),
-        .accessibility_tree_destroy_cap => syscall_internal_args(@intFromEnum(sys), 1, .{sys_args.accessibility_tree_cap_id}, ignore_errors, ReturnType),
         .accessibility_tree_publish => syscall_internal_args(@intFromEnum(sys), 2, .{ sys_args.accessibility_tree_cap_id, sys_args.input_shm_cap_id }, ignore_errors, ReturnType),
+        .accessibility_tree_destroy_cap => syscall_internal_args(@intFromEnum(sys), 1, .{sys_args.accessibility_tree_cap_id}, ignore_errors, ReturnType),
+
+        .title_new_cap => syscall_internal_args(@intFromEnum(sys), 0, .{}, ignore_errors, ReturnType),
+        .title_publish => syscall_internal_args(@intFromEnum(sys), 2, .{ sys_args.title_cap_id, sys_args.input_shm_cap_id }, ignore_errors, ReturnType),
+        .title_destroy_cap => syscall_internal_args(@intFromEnum(sys), 1, .{sys_args.title_cap_id}, ignore_errors, ReturnType),
     };
 }
 

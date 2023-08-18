@@ -1,10 +1,11 @@
 use ckb_vm::Register;
 use num_enum::{TryFromPrimitive, IntoPrimitive};
 
-use super::accessibility_tree_space::{AccessibilityTreeSpace, AccessibilityTreeCapId};
+use super::accessibility_tree_space::AccessibilityTreeSpace;
 use super::deferred_space::DeferredSpaceError;
+use super::register_ipc::{SyscallEnter, SyscallReturn, SyscallReturnAndTask, Task, SYSCALL_NUM_REGISTER_INDEX, FIRST_ARG_REGISTER_INDEX, SECOND_ARG_REGISTER_INDEX, THIRD_ARG_REGISTER_INDEX};
 use super::shm_space::{CapType, ShmType, ShmSpace, ShmSpaceError};
-use super::register_ipc::{SyscallEnter, SyscallReturn, SYSCALL_NUM_REGISTER_INDEX, FIRST_ARG_REGISTER_INDEX, SECOND_ARG_REGISTER_INDEX, THIRD_ARG_REGISTER_INDEX};
+use super::title_space::TitleSpace;
 
 // Regarding the use of `u64`s in this file:
 //
@@ -32,8 +33,12 @@ enum Syscall {
     ShmReleaseAndDestroy = 6,
 
     AccessibilityTreeNewCap = 7,
-    AccessibilityTreeDestroyCap = 8,
-    AccessibilityTreePublish = 9,
+    AccessibilityTreePublish = 8,
+    AccessibilityTreeDestroyCap = 9,
+
+    TitleNewCap = 10,
+    TitlePublish = 11,
+    TitleDestroyCap = 12,
 }
 
 #[derive(IntoPrimitive)]
@@ -69,11 +74,6 @@ impl<T> AsOption<T> for Option<T> {
     fn as_option(self) -> Option<T> {
         self
     }
-}
-
-pub struct SyscallReturnAndTask<R>(pub SyscallReturn<R>, pub Option<Task>);
-pub enum Task {
-    AccessibilityTreePublish { accessibility_tree_cap_id: AccessibilityTreeCapId },
 }
 
 fn set_error<R: Register>(error: SyscallError) -> SyscallReturnAndTask<R> {
@@ -133,11 +133,16 @@ fn marshall_deferred_space_error<R: Register>(deferred_space_error: DeferredSpac
 pub struct NushiftSubsystem {
     pub(crate) shm_space: ShmSpace,
     pub(crate) accessibility_tree_space: AccessibilityTreeSpace,
+    pub(crate) title_space: TitleSpace,
 }
 
 impl NushiftSubsystem {
     pub fn new() -> Self {
-        NushiftSubsystem { shm_space: ShmSpace::new(), accessibility_tree_space: AccessibilityTreeSpace::new() }
+        NushiftSubsystem {
+            shm_space: ShmSpace::new(),
+            accessibility_tree_space: AccessibilityTreeSpace::new(),
+            title_space: TitleSpace::new(),
+        }
     }
 
     pub(crate) fn shm_space(&self) -> &ShmSpace {
@@ -260,16 +265,6 @@ impl NushiftSubsystem {
 
                 set_success(accessibility_tree_cap_id)
             },
-            Ok(Syscall::AccessibilityTreeDestroyCap) => {
-                let accessibility_tree_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
-
-                match self.accessibility_tree_space.destroy_accessibility_tree_cap(accessibility_tree_cap_id) {
-                    Ok(_) => {},
-                    Err(deferred_space_error) => return marshall_deferred_space_error(deferred_space_error),
-                };
-
-                set_success(0)
-            },
             Ok(Syscall::AccessibilityTreePublish) => {
                 let accessibility_tree_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
                 let input_shm_cap_id = registers[SECOND_ARG_REGISTER_INDEX].to_u64();
@@ -280,6 +275,46 @@ impl NushiftSubsystem {
                 };
 
                 set_success_with_task(0, Task::AccessibilityTreePublish { accessibility_tree_cap_id })
+            },
+            Ok(Syscall::AccessibilityTreeDestroyCap) => {
+                let accessibility_tree_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
+
+                match self.accessibility_tree_space.destroy_accessibility_tree_cap(accessibility_tree_cap_id) {
+                    Ok(_) => {},
+                    Err(deferred_space_error) => return marshall_deferred_space_error(deferred_space_error),
+                };
+
+                set_success(0)
+            },
+
+            Ok(Syscall::TitleNewCap) => {
+                let title_cap_id = match self.title_space.new_title_cap() {
+                    Ok(title_cap_id) => title_cap_id,
+                    Err(deferred_space_error) => return marshall_deferred_space_error(deferred_space_error),
+                };
+
+                set_success(title_cap_id)
+            },
+            Ok(Syscall::TitlePublish) => {
+                let title_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
+                let input_shm_cap_id = registers[SECOND_ARG_REGISTER_INDEX].to_u64();
+
+                match self.title_space.publish_title_blocking(title_cap_id, input_shm_cap_id, &mut self.shm_space) {
+                    Ok(_) => {},
+                    Err(deferred_space_error) => return marshall_deferred_space_error(deferred_space_error),
+                };
+
+                set_success_with_task(0, Task::TitlePublish { title_cap_id })
+            },
+            Ok(Syscall::TitleDestroyCap) => {
+                let title_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
+
+                match self.title_space.destroy_title_cap(title_cap_id) {
+                    Ok(_) => {},
+                    Err(deferred_space_error) => return marshall_deferred_space_error(deferred_space_error),
+                };
+
+                set_success(0)
             },
         }
     }

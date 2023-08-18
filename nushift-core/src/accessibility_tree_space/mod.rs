@@ -39,7 +39,7 @@ impl AccessibilityTreeSpaceSpecific {
 
 impl AccessibilityTreeSpace {
     pub fn new() -> Self {
-        AccessibilityTreeSpace {
+        Self {
             deferred_space: DefaultDeferredSpace::new(),
             accessibility_tree_space_specific: AccessibilityTreeSpaceSpecific::new(),
         }

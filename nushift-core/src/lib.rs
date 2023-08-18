@@ -9,5 +9,6 @@ mod register_ipc;
 mod usize_or_u64;
 mod elf_loader;
 mod deferred_space;
+mod title_space;
 
 pub use crate::hypervisor::Hypervisor;

@@ -5,8 +5,9 @@ use std::thread;
 
 use reusable_id_pool::ArcId;
 
-use super::nushift_subsystem::{NushiftSubsystem, Task};
+use super::nushift_subsystem::NushiftSubsystem;
 use super::process_control_block::ProcessControlBlock;
+use super::register_ipc::Task;
 
 pub struct Tab {
     id: ArcId,
@@ -73,13 +74,24 @@ impl Tab {
             // Call the non-blocking bit of ecall here. Asynchronous tasks?
             // If this "non-blocking" bit locks the subsystem, it's not going to
             // be non-blocking with the bits of the app that access memory.
-            if let Some(Task::AccessibilityTreePublish { accessibility_tree_cap_id }) = syscall_return.1 {
-                let mut guard = subsystem.lock().unwrap();
-                let subsystem = guard.deref_mut();
-                match subsystem.accessibility_tree_space.publish_accessibility_tree_deferred(accessibility_tree_cap_id, &mut subsystem.shm_space) {
-                    Ok(_) => {},
-                    Err(_) => {}, // TODO: On internal error, terminate app (?)
-                }
+            match syscall_return.1 {
+                Some(Task::AccessibilityTreePublish { accessibility_tree_cap_id }) => {
+                    let mut guard = subsystem.lock().unwrap();
+                    let subsystem = guard.deref_mut();
+                    match subsystem.accessibility_tree_space.publish_accessibility_tree_deferred(accessibility_tree_cap_id, &mut subsystem.shm_space) {
+                        Ok(_) => {},
+                        Err(_) => {}, // TODO: On internal error, terminate app (?)
+                    }
+                },
+                Some(Task::TitlePublish { title_cap_id }) => {
+                    let mut guard = subsystem.lock().unwrap();
+                    let subsystem = guard.deref_mut();
+                    match subsystem.title_space.publish_title_deferred(title_cap_id, &mut subsystem.shm_space) {
+                        Ok(_) => {},
+                        Err(_) => {}, // TODO: On internal error, terminate app (?)
+                    }
+                },
+                _ => {},
             }
         }
 
