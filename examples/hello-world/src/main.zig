@@ -8,8 +8,8 @@ const TITLE_INPUT_ACQUIRE_ADDRESS: usize = 0x90000000;
 const A11Y_INPUT_ACQUIRE_ADDRESS: usize = 0x90001000;
 
 pub fn main() usize {
-    const title_new_cap_result = OsNushift.syscall(.title_new_cap, .{});
-    const title_cap_id = switch (title_new_cap_result) {
+    const title_new_result = OsNushift.syscall(.title_new, .{});
+    const title_cap_id = switch (title_new_result) {
         .ok => |val| val,
         .fail => |err_enum| return @intFromEnum(err_enum),
     };
@@ -29,8 +29,8 @@ pub fn main() usize {
 
     // TODO: Destroy input SHM cap? Wait for it to be remapped? Destroy title cap?
 
-    const a11y_tree_new_cap_result = OsNushift.syscall(.accessibility_tree_new_cap, .{});
-    const a11y_tree_cap_id = switch (a11y_tree_new_cap_result) {
+    const a11y_tree_new_result = OsNushift.syscall(.accessibility_tree_new, .{});
+    const a11y_tree_cap_id = switch (a11y_tree_new_result) {
         .ok => |val| val,
         .fail => |err_enum| return @intFromEnum(err_enum),
     };
@@ -50,7 +50,7 @@ pub fn main() usize {
 
     // TODO: Destroy input SHM cap? Wait for it to be remapped?
 
-    const destroy_result = OsNushift.syscall(.accessibility_tree_destroy_cap, .{ .accessibility_tree_cap_id = a11y_tree_cap_id });
+    const destroy_result = OsNushift.syscall(.accessibility_tree_destroy, .{ .accessibility_tree_cap_id = a11y_tree_cap_id });
     switch (destroy_result) {
         .ok => {},
         .fail => |err_enum| return @intFromEnum(err_enum),

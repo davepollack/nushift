@@ -10,13 +10,13 @@ pub const Syscall = enum(usize) {
     shm_destroy = 5,
     shm_release_and_destroy = 6,
 
-    accessibility_tree_new_cap = 7,
+    accessibility_tree_new = 7,
     accessibility_tree_publish = 8,
-    accessibility_tree_destroy_cap = 9,
+    accessibility_tree_destroy = 9,
 
-    title_new_cap = 10,
+    title_new = 10,
     title_publish = 11,
-    title_destroy_cap = 12,
+    title_destroy = 12,
 };
 
 pub fn SyscallArgs(comptime sys: Syscall) type {
@@ -28,13 +28,13 @@ pub fn SyscallArgs(comptime sys: Syscall) type {
         .shm_new_and_acquire => struct { shm_type: ShmType, length: usize, address: usize },
         .shm_release, .shm_destroy, .shm_release_and_destroy => struct { shm_cap_id: usize },
 
-        .accessibility_tree_new_cap => struct {},
+        .accessibility_tree_new => struct {},
         .accessibility_tree_publish => struct { accessibility_tree_cap_id: usize, input_shm_cap_id: usize },
-        .accessibility_tree_destroy_cap => struct { accessibility_tree_cap_id: usize },
+        .accessibility_tree_destroy => struct { accessibility_tree_cap_id: usize },
 
-        .title_new_cap => struct {},
+        .title_new => struct {},
         .title_publish => struct { title_cap_id: usize, input_shm_cap_id: usize },
-        .title_destroy_cap => struct { title_cap_id: usize },
+        .title_destroy => struct { title_cap_id: usize },
     };
 }
 
@@ -85,13 +85,13 @@ fn syscall_internal(comptime sys: Syscall, sys_args: SyscallArgs(sys), comptime 
         .shm_release, .shm_destroy, .shm_release_and_destroy => syscall_internal_args(@intFromEnum(sys), 1, .{sys_args.shm_cap_id}, ignore_errors, ReturnType),
 
         // Send maxInt(usize) as the first argument. The first argument is not used yet, but may be in the future.
-        .accessibility_tree_new_cap => syscall_internal_args(@intFromEnum(sys), 1, .{std.math.maxInt(usize)}, ignore_errors, ReturnType),
+        .accessibility_tree_new => syscall_internal_args(@intFromEnum(sys), 1, .{std.math.maxInt(usize)}, ignore_errors, ReturnType),
         .accessibility_tree_publish => syscall_internal_args(@intFromEnum(sys), 2, .{ sys_args.accessibility_tree_cap_id, sys_args.input_shm_cap_id }, ignore_errors, ReturnType),
-        .accessibility_tree_destroy_cap => syscall_internal_args(@intFromEnum(sys), 1, .{sys_args.accessibility_tree_cap_id}, ignore_errors, ReturnType),
+        .accessibility_tree_destroy => syscall_internal_args(@intFromEnum(sys), 1, .{sys_args.accessibility_tree_cap_id}, ignore_errors, ReturnType),
 
-        .title_new_cap => syscall_internal_args(@intFromEnum(sys), 0, .{}, ignore_errors, ReturnType),
+        .title_new => syscall_internal_args(@intFromEnum(sys), 0, .{}, ignore_errors, ReturnType),
         .title_publish => syscall_internal_args(@intFromEnum(sys), 2, .{ sys_args.title_cap_id, sys_args.input_shm_cap_id }, ignore_errors, ReturnType),
-        .title_destroy_cap => syscall_internal_args(@intFromEnum(sys), 1, .{sys_args.title_cap_id}, ignore_errors, ReturnType),
+        .title_destroy => syscall_internal_args(@intFromEnum(sys), 1, .{sys_args.title_cap_id}, ignore_errors, ReturnType),
     };
 }
 

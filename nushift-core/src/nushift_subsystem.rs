@@ -32,13 +32,13 @@ enum Syscall {
     ShmDestroy = 5,
     ShmReleaseAndDestroy = 6,
 
-    AccessibilityTreeNewCap = 7,
+    AccessibilityTreeNew = 7,
     AccessibilityTreePublish = 8,
-    AccessibilityTreeDestroyCap = 9,
+    AccessibilityTreeDestroy = 9,
 
-    TitleNewCap = 10,
+    TitleNew = 10,
     TitlePublish = 11,
-    TitleDestroyCap = 12,
+    TitleDestroy = 12,
 }
 
 #[derive(IntoPrimitive)]
@@ -257,7 +257,7 @@ impl NushiftSubsystem {
                 set_success(0)
             },
 
-            Ok(Syscall::AccessibilityTreeNewCap) => {
+            Ok(Syscall::AccessibilityTreeNew) => {
                 let accessibility_tree_cap_id = match self.accessibility_tree_space.new_accessibility_tree_cap() {
                     Ok(accessibility_tree_cap_id) => accessibility_tree_cap_id,
                     Err(deferred_space_error) => return marshall_deferred_space_error(deferred_space_error),
@@ -276,7 +276,7 @@ impl NushiftSubsystem {
 
                 set_success_with_task(0, Task::AccessibilityTreePublish { accessibility_tree_cap_id })
             },
-            Ok(Syscall::AccessibilityTreeDestroyCap) => {
+            Ok(Syscall::AccessibilityTreeDestroy) => {
                 let accessibility_tree_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
 
                 match self.accessibility_tree_space.destroy_accessibility_tree_cap(accessibility_tree_cap_id) {
@@ -287,7 +287,7 @@ impl NushiftSubsystem {
                 set_success(0)
             },
 
-            Ok(Syscall::TitleNewCap) => {
+            Ok(Syscall::TitleNew) => {
                 let title_cap_id = match self.title_space.new_title_cap() {
                     Ok(title_cap_id) => title_cap_id,
                     Err(deferred_space_error) => return marshall_deferred_space_error(deferred_space_error),
@@ -306,7 +306,7 @@ impl NushiftSubsystem {
 
                 set_success_with_task(0, Task::TitlePublish { title_cap_id })
             },
-            Ok(Syscall::TitleDestroyCap) => {
+            Ok(Syscall::TitleDestroy) => {
                 let title_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
 
                 match self.title_space.destroy_title_cap(title_cap_id) {
