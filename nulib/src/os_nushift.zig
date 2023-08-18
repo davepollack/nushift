@@ -68,34 +68,38 @@ pub const ShmType = enum(usize) {
 };
 
 pub fn syscall(comptime sys: Syscall, sys_args: SyscallArgs(sys)) SyscallResult {
-    return syscall_internal(sys, sys_args, false, SyscallResult);
+    return syscall_internal(sys, sys_args, false);
 }
 
 pub fn syscall_ignore_errors(comptime sys: Syscall, sys_args: SyscallArgs(sys)) usize {
-    return syscall_internal(sys, sys_args, true, usize);
+    return syscall_internal(sys, sys_args, true);
 }
 
-fn syscall_internal(comptime sys: Syscall, sys_args: SyscallArgs(sys), comptime ignore_errors: bool, comptime ReturnType: type) ReturnType {
-    return switch (sys) {
-        .exit => syscall_internal_args(@intFromEnum(sys), 1, .{sys_args.exit_reason}, ignore_errors, ReturnType),
+fn SyscallInternalReturnType(comptime ignore_errors: bool) type {
+    return if (ignore_errors) usize else SyscallResult;
+}
 
-        .shm_new => syscall_internal_args(@intFromEnum(sys), 2, .{ @intFromEnum(sys_args.shm_type), sys_args.length }, ignore_errors, ReturnType),
-        .shm_acquire => syscall_internal_args(@intFromEnum(sys), 2, .{ sys_args.shm_cap_id, sys_args.address }, ignore_errors, ReturnType),
-        .shm_new_and_acquire => syscall_internal_args(@intFromEnum(sys), 3, .{ @intFromEnum(sys_args.shm_type), sys_args.length, sys_args.address }, ignore_errors, ReturnType),
-        .shm_release, .shm_destroy, .shm_release_and_destroy => syscall_internal_args(@intFromEnum(sys), 1, .{sys_args.shm_cap_id}, ignore_errors, ReturnType),
+fn syscall_internal(comptime sys: Syscall, sys_args: SyscallArgs(sys), comptime ignore_errors: bool) SyscallInternalReturnType(ignore_errors) {
+    return switch (sys) {
+        .exit => syscall_internal_args(@intFromEnum(sys), 1, .{sys_args.exit_reason}, ignore_errors),
+
+        .shm_new => syscall_internal_args(@intFromEnum(sys), 2, .{ @intFromEnum(sys_args.shm_type), sys_args.length }, ignore_errors),
+        .shm_acquire => syscall_internal_args(@intFromEnum(sys), 2, .{ sys_args.shm_cap_id, sys_args.address }, ignore_errors),
+        .shm_new_and_acquire => syscall_internal_args(@intFromEnum(sys), 3, .{ @intFromEnum(sys_args.shm_type), sys_args.length, sys_args.address }, ignore_errors),
+        .shm_release, .shm_destroy, .shm_release_and_destroy => syscall_internal_args(@intFromEnum(sys), 1, .{sys_args.shm_cap_id}, ignore_errors),
 
         // Send maxInt(usize) as the first argument. The first argument is not used yet, but may be in the future.
-        .accessibility_tree_new => syscall_internal_args(@intFromEnum(sys), 1, .{std.math.maxInt(usize)}, ignore_errors, ReturnType),
-        .accessibility_tree_publish => syscall_internal_args(@intFromEnum(sys), 2, .{ sys_args.accessibility_tree_cap_id, sys_args.input_shm_cap_id }, ignore_errors, ReturnType),
-        .accessibility_tree_destroy => syscall_internal_args(@intFromEnum(sys), 1, .{sys_args.accessibility_tree_cap_id}, ignore_errors, ReturnType),
+        .accessibility_tree_new => syscall_internal_args(@intFromEnum(sys), 1, .{std.math.maxInt(usize)}, ignore_errors),
+        .accessibility_tree_publish => syscall_internal_args(@intFromEnum(sys), 2, .{ sys_args.accessibility_tree_cap_id, sys_args.input_shm_cap_id }, ignore_errors),
+        .accessibility_tree_destroy => syscall_internal_args(@intFromEnum(sys), 1, .{sys_args.accessibility_tree_cap_id}, ignore_errors),
 
-        .title_new => syscall_internal_args(@intFromEnum(sys), 0, .{}, ignore_errors, ReturnType),
-        .title_publish => syscall_internal_args(@intFromEnum(sys), 2, .{ sys_args.title_cap_id, sys_args.input_shm_cap_id }, ignore_errors, ReturnType),
-        .title_destroy => syscall_internal_args(@intFromEnum(sys), 1, .{sys_args.title_cap_id}, ignore_errors, ReturnType),
+        .title_new => syscall_internal_args(@intFromEnum(sys), 0, .{}, ignore_errors),
+        .title_publish => syscall_internal_args(@intFromEnum(sys), 2, .{ sys_args.title_cap_id, sys_args.input_shm_cap_id }, ignore_errors),
+        .title_destroy => syscall_internal_args(@intFromEnum(sys), 1, .{sys_args.title_cap_id}, ignore_errors),
     };
 }
 
-fn syscall_internal_args(syscall_number: usize, comptime num_args: comptime_int, args: [num_args]usize, comptime ignore_errors: bool, comptime ReturnType: type) ReturnType {
+fn syscall_internal_args(syscall_number: usize, comptime num_args: comptime_int, args: [num_args]usize, comptime ignore_errors: bool) SyscallInternalReturnType(ignore_errors) {
     if (ignore_errors) {
         return switch (num_args) {
             0 => asm volatile ("ecall"
