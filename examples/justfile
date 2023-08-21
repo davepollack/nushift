@@ -2,8 +2,8 @@ set windows-shell := ["pwsh.exe", "-NoLogo", "-Command"]
 
 [windows]
 build:
-    & ".\build_parallel.ps1"
+    & ".\build-parallel.ps1"
 
 [unix]
 build:
-    ./build_parallel.sh
+    ./build-parallel.sh
