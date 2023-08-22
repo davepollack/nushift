@@ -186,7 +186,7 @@ impl DefaultDeferredSpace {
                 || untrusted_length > input_shm_cap.shm_type().page_bytes() - 8
                 || UsizeOrU64::u64(untrusted_length) > UsizeOrU64::usize(usize::MAX - 8)
             {
-                log::debug!("Invalid length: {untrusted_length}");
+                tracing::debug!("Invalid length: {untrusted_length}");
                 output_shm_cap.backing_mut()[0..8].copy_from_slice(&u64::from(DeferredError::InvalidLength).to_le_bytes());
                 return Err(());
             }
@@ -199,7 +199,7 @@ impl DefaultDeferredSpace {
 
             core::str::from_utf8(&input_shm_cap.backing()[8..8+(untrusted_length as usize)])
                 .map_err(|utf8_error| {
-                    log::debug!("from_utf8 error: {utf8_error}");
+                    tracing::debug!("from_utf8 error: {utf8_error}");
                     print_error(output_shm_cap, DeferredError::InvalidDataUtf8, &utf8_error);
                     ()
                 })

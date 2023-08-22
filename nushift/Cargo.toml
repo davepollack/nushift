@@ -7,9 +7,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+# Use a revision a bit newer than 0.8.3 that fixes the window light theme detection being backwards
+druid = { git = "https://github.com/linebender/druid.git", rev = "af94bdd02798c84f7927e898b1ed28ebcec16b30", features = ["im"] }
 nushift-core = { path = "../nushift-core" }
 reusable-id-pool = { path = "../reusable-id-pool" }
-
-[dependencies.druid]
-version = "0.7.0"
-features = ["im"]

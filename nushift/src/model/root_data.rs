@@ -9,7 +9,7 @@ use super::tab_data::TabData;
 #[derive(Clone, Data, Lens)]
 pub struct RootData {
     pub tabs: Vector<TabData>,
-    #[data(same_fn="PartialEq::eq")]
+    #[data(eq)]
     pub currently_selected_tab_id: Option<ArcId>,
 
     #[data(ignore)]
@@ -97,7 +97,7 @@ pub mod tests {
     fn add_new_tab_adds_new_and_sets_currently_selected() {
         let mut root_data = mock();
 
-        let newly_added_tab_id = root_data.add_new_tab(&Env::default());
+        let newly_added_tab_id = root_data.add_new_tab(&Env::empty());
 
         assert_eq!(1, root_data.tabs.len());
         assert!(root_data.tabs[0].id == newly_added_tab_id);
@@ -109,8 +109,8 @@ pub mod tests {
     fn select_tab_selects_tab() {
         let mut root_data = mock();
 
-        let tab1 = root_data.add_new_tab(&Env::default());
-        let tab2 = root_data.add_new_tab(&Env::default());
+        let tab1 = root_data.add_new_tab(&Env::empty());
+        let tab2 = root_data.add_new_tab(&Env::empty());
 
         assert!(root_data.currently_selected_tab_id.as_ref().unwrap() == &tab2);
 
@@ -122,7 +122,7 @@ pub mod tests {
     #[test]
     fn close_tab_should_remove_from_tabs_vector() {
         let mut root_data = mock();
-        let tab1 = root_data.add_new_tab(&Env::default());
+        let tab1 = root_data.add_new_tab(&Env::empty());
 
         root_data.close_tab(&tab1);
 
@@ -132,7 +132,7 @@ pub mod tests {
     #[test]
     fn close_tab_should_set_currently_selected_to_none_if_no_tabs_left() {
         let mut root_data = mock();
-        let tab1 = root_data.add_new_tab(&Env::default());
+        let tab1 = root_data.add_new_tab(&Env::empty());
 
         root_data.close_tab(&tab1);
 
@@ -142,8 +142,8 @@ pub mod tests {
     #[test]
     fn close_tab_should_set_currently_selected_to_next_tab_if_first_tab_was_closed() {
         let mut root_data = mock();
-        let tab1 = root_data.add_new_tab(&Env::default());
-        let tab2 = root_data.add_new_tab(&Env::default());
+        let tab1 = root_data.add_new_tab(&Env::empty());
+        let tab2 = root_data.add_new_tab(&Env::empty());
         root_data.select_tab(&tab1);
 
         root_data.close_tab(&tab1);
@@ -154,8 +154,8 @@ pub mod tests {
     #[test]
     fn close_tab_should_set_currently_selected_to_previous_tab_if_tab_other_than_first_was_closed() {
         let mut root_data = mock();
-        let tab1 = root_data.add_new_tab(&Env::default());
-        let tab2 = root_data.add_new_tab(&Env::default());
+        let tab1 = root_data.add_new_tab(&Env::empty());
+        let tab2 = root_data.add_new_tab(&Env::empty());
 
         root_data.close_tab(&tab2);
 
@@ -165,8 +165,8 @@ pub mod tests {
     #[test]
     fn close_tab_should_not_set_currently_selected_if_not_currently_selected_tab_was_closed() {
         let mut root_data = mock();
-        let tab1 = root_data.add_new_tab(&Env::default());
-        let tab2 = root_data.add_new_tab(&Env::default());
+        let tab1 = root_data.add_new_tab(&Env::empty());
+        let tab2 = root_data.add_new_tab(&Env::empty());
 
         root_data.close_tab(&tab1);
 
@@ -176,8 +176,8 @@ pub mod tests {
     #[test]
     fn close_tab_should_do_nothing_if_other_id_is_passed_in() {
         let mut root_data = mock();
-        let _tab1 = root_data.add_new_tab(&Env::default());
-        let tab2 = root_data.add_new_tab(&Env::default());
+        let _tab1 = root_data.add_new_tab(&Env::empty());
+        let tab2 = root_data.add_new_tab(&Env::empty());
         let reusable_id_pool = ReusableIdPool::new();
         let other_id = reusable_id_pool.allocate();
 

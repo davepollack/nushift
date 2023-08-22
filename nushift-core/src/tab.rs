@@ -44,7 +44,7 @@ impl Tab {
         // If an error occurred, log the error and return.
         match result {
             Err(wrapper_error) => {
-                log::error!("Failed to load machine: {:?}, tab ID: {:?}", wrapper_error, self.id);
+                tracing::error!("Failed to load machine: {:?}, tab ID: {:?}", wrapper_error, self.id);
                 return;
             },
             Ok(_) => {},
@@ -54,7 +54,7 @@ impl Tab {
         let machine_thread = builder.spawn(move || machine.run());
         let machine_thread = match machine_thread {
             Err(os_error) => {
-                log::error!("Failed to create OS thread: {:?}, tab ID {:?}", os_error, self.id);
+                tracing::error!("Failed to create OS thread: {:?}, tab ID {:?}", os_error, self.id);
                 return;
             },
             Ok(machine_thread) => machine_thread,
@@ -97,15 +97,15 @@ impl Tab {
 
         let run_result = match machine_thread.join() {
             Err(join_error) => {
-                log::error!("Thread panicked: {:?}, tab ID {:?}", join_error, self.id);
+                tracing::error!("Thread panicked: {:?}, tab ID {:?}", join_error, self.id);
                 return;
             },
             Ok(run_result) => run_result,
         };
 
         match run_result {
-            Ok(exit_reason) => log::info!("Exit reason: {exit_reason:?}"),
-            Err(run_error) => log::error!("Run error: {:?}, tab ID {:?}", run_error, self.id),
+            Ok(exit_reason) => tracing::info!("Exit reason: {exit_reason:?}"),
+            Err(run_error) => tracing::error!("Run error: {:?}, tab ID {:?}", run_error, self.id),
         }
     }
 }

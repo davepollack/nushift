@@ -349,8 +349,8 @@ where
             match err {
                 ProtectedMemoryError::WalkError {
                     source: PageTableError::PermissionDenied { shm_cap_id, required_permissions, present_permissions }
-                } => log::error!("Permission denied load: addr {addr:#x}, PC {:#x}, owning cap ID {shm_cap_id}, required permissions: {required_permissions:?}, present permissions: {present_permissions:?}", pcb.pc()),
-                _ => log::error!("Out of bounds load: addr {addr:#x}, PC {:#x}", pcb.pc()),
+                } => tracing::error!("Permission denied load: addr {addr:#x}, PC {:#x}, owning cap ID {shm_cap_id}, required permissions: {required_permissions:?}, present permissions: {present_permissions:?}", pcb.pc()),
+                _ => tracing::error!("Out of bounds load: addr {addr:#x}, PC {:#x}", pcb.pc()),
             }
             CKBVMError::MemOutOfBound
         })
@@ -368,8 +368,8 @@ where
             match err {
                 ProtectedMemoryError::WalkError {
                     source: PageTableError::PermissionDenied { shm_cap_id, required_permissions, present_permissions }
-                } => log::error!("Permission denied store: addr {addr:#x}, PC {:#x}, owning cap ID {shm_cap_id}, required permissions: {required_permissions:?}, present permissions: {present_permissions:?}", pcb.pc()),
-                _ => log::error!("Out of bounds store: addr {addr:#x}, PC {:#x}", pcb.pc()),
+                } => tracing::error!("Permission denied store: addr {addr:#x}, PC {:#x}, owning cap ID {shm_cap_id}, required permissions: {required_permissions:?}, present permissions: {present_permissions:?}", pcb.pc()),
+                _ => tracing::error!("Out of bounds store: addr {addr:#x}, PC {:#x}", pcb.pc()),
             }
             CKBVMError::MemOutOfBound
         })

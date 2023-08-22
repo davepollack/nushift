@@ -103,7 +103,7 @@ impl ElfLoader for Loader<'_> {
 
             // Only allow certain combinations of flags.
             let sv39_flags = flags_map(flags).map_err(|_| {
-                log::error!(
+                tracing::error!(
                     "Section at vaddr {:#x} has unsupported flags, the only supported combinations are r--, rw-, r-x, --x.",
                     header.virtual_addr(),
                 );
@@ -114,7 +114,7 @@ impl ElfLoader for Loader<'_> {
 
             let last_occupied_vpn = last_occupied_page_number(header.virtual_addr(), header.mem_size())
                 .map_err(|_| {
-                    log::error!(
+                    tracing::error!(
                         "Section at vaddr {:#x} and mem_size {:#x} either overflows, or mem_size is 0, aborting loading program.",
                         header.virtual_addr(),
                         header.mem_size(),
@@ -131,12 +131,12 @@ impl ElfLoader for Loader<'_> {
             checked_sections.add_region(rounded_down_start_vpn, number_of_pages)
                 .map_err(|err| {
                     match err {
-                        CheckedSectionsError::VpnPlusNumPagesOverflow => log::error!(
+                        CheckedSectionsError::VpnPlusNumPagesOverflow => tracing::error!(
                             "Section at vaddr {:#x} and mem_size {:#x}: An internal error when adding VPN and number of pages occurred, this should never happen regardless of the data in the ELF and indicates a bug in Nushift's code.",
                             header.virtual_addr(),
                             header.mem_size(),
                         ),
-                        CheckedSectionsError::Overlaps => log::error!(
+                        CheckedSectionsError::Overlaps => tracing::error!(
                             concat!(
                                 "Section at vaddr {:#x} and mem_size {:#x} when rounded down to the nearest 4 KiB page, overlaps a previously loaded section. ",
                                 "The reason why we don't currently allow sub-page sections that also overlap a particular page, is because we apply section permissions on a page level, and if your sections have the same permissions, we don't yet support merging them.",
@@ -156,7 +156,7 @@ impl ElfLoader for Loader<'_> {
             // new_shm_cap, well, that is not good.
             let (shm_cap_id, _) = self.shm_space.new_shm_cap(ShmType::FourKiB, number_of_pages, CapType::ElfCap)
                 .map_err(|err| {
-                    log::error!("ELF loading: new_shm_cap either exhausted or is an internal error: {err:?}");
+                    tracing::error!("ELF loading: new_shm_cap either exhausted or is an internal error: {err:?}");
                     ElfLoaderErr::UnsupportedSectionData
                 })?;
 
@@ -164,7 +164,7 @@ impl ElfLoader for Loader<'_> {
                 Ok(_) => {},
                 Err(err) => {
                     // TODO: It's not necessarily an internal error. We haven't yet checked that it doesn't exceed 2^39.
-                    log::error!("ELF loading: acquire_shm_cap internal error: {err:?}");
+                    tracing::error!("ELF loading: acquire_shm_cap internal error: {err:?}");
                     errored_caps.push(shm_cap_id);
                     break;
                 }
@@ -177,12 +177,12 @@ impl ElfLoader for Loader<'_> {
             for shm_cap_id in errored_caps.into_iter().rev() {
                 self.shm_space.release_shm_cap(shm_cap_id, CapType::ElfCap)
                     .map_err(|err| {
-                        log::error!("Error while rolling back, release_shm_cap internal error: {err:?}");
+                        tracing::error!("Error while rolling back, release_shm_cap internal error: {err:?}");
                         ElfLoaderErr::UnsupportedSectionData
                     })?;
                 self.shm_space.destroy_shm_cap(shm_cap_id, CapType::ElfCap)
                     .map_err(|err| {
-                        log::error!("Error while rolling back, destroy_shm_cap internal error: {err:?}");
+                        tracing::error!("Error while rolling back, destroy_shm_cap internal error: {err:?}");
                         ElfLoaderErr::UnsupportedSectionData
                     })?;
             }
@@ -193,7 +193,7 @@ impl ElfLoader for Loader<'_> {
     }
 
     fn load(&mut self, flags: Flags, base: VAddr, region: &[u8]) -> Result<(), ElfLoaderErr> {
-        log::debug!(
+        tracing::debug!(
             "Loading region with base {:#x} and length {}, flags [{}]",
             base,
             region.len(),
@@ -210,18 +210,18 @@ impl ElfLoader for Loader<'_> {
         let offset: usize = (base & ((1 << 12) - 1))
             .try_into()
             .map_err(|_| {
-                log::error!("usize on this host machine is less than 12 bits. This is unexpected.");
+                tracing::error!("usize on this host machine is less than 12 bits. This is unexpected.");
                 ElfLoaderErr::UnsupportedSectionData
             })?;
 
         let &shm_cap_id = self.vpn_to_shm_cap_id.get(&rounded_down_start_vpn).ok_or_else(|| {
-            log::error!("Internal error refetching SHM cap ID when loading ELF data");
+            tracing::error!("Internal error refetching SHM cap ID when loading ELF data");
             ElfLoaderErr::UnsupportedSectionData
         })?;
 
         self.shm_space.get_mut(shm_cap_id)
             .ok_or_else(|| {
-                log::error!("Internal error refetching SHM cap when loading ELF data");
+                tracing::error!("Internal error refetching SHM cap when loading ELF data");
                 ElfLoaderErr::UnsupportedSectionData
             })?
             .backing_mut()[offset..offset.checked_add(region.len()).expect("Internal error if this overflows")]

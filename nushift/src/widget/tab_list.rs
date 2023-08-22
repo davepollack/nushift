@@ -1,5 +1,5 @@
 use druid::widget::prelude::*;
-use druid::{widget::ListIter, WidgetPod, Widget, Point, Rect};
+use druid::{widget::ListIter, WidgetPod, Widget, Point};
 use reusable_id_pool::ArcId;
 use std::collections::{HashSet, HashMap};
 
@@ -124,8 +124,7 @@ impl Widget<RootAndVectorTabData> for TabList {
             let widget_child_size = widget_child.layout(ctx, &child_bc, root_and_tab_data, env);
             // Tabs should be rendered right-to-left
             let origin = Point::new(((number_of_tabs - 1 - i) as f64) * tab_width, 0.0);
-            let rect = Rect::from_origin_size(origin, widget_child_size);
-            widget_child.set_layout_rect(ctx, root_and_tab_data, env, rect);
+            widget_child.set_origin(ctx, origin);
             max_height_seen = max_height_seen.max(widget_child_size.height);
         });
 
@@ -160,7 +159,7 @@ mod tests {
         let mock_tab_data_3 = crate::model::tab_data::tests::mock();
         mock_root_and_vector_tab_data.1.push_back(mock_tab_data_2);
         mock_root_and_vector_tab_data.1.push_back(mock_tab_data_3);
-        let env = Env::default();
+        let env = Env::empty();
 
         // Call create_and_remove_widget_children.
         let mut tab_list = TabList::new();

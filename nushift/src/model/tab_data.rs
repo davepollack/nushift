@@ -1,9 +1,9 @@
-use druid::{ArcStr, Data};
+use druid::{Data, text::ArcStr};
 use reusable_id_pool::ArcId;
 
 #[derive(Clone, Data)]
 pub struct TabData {
-    #[data(same_fn="PartialEq::eq")]
+    #[data(eq)]
     pub id: ArcId,
     pub title: ArcStr,
 }

@@ -29,7 +29,7 @@ impl Hypervisor {
         let binary_blob_result = fs::read("../examples/hello-world/zig-out/bin/hello-world");
         match binary_blob_result {
             Ok(binary_blob) => new_tab.load_and_run(binary_blob),
-            Err(err) => log::error!("Hardcoded binary blob path error: {err:?}"),
+            Err(err) => tracing::error!("Hardcoded binary blob path error: {err:?}"),
         }
 
         self.tabs.push(new_tab);

@@ -21,12 +21,12 @@ impl DeferredSpaceSpecific for AccessibilityTreeSpaceSpecific {
         let accessibility_tree: AccessibilityTree = match ron::from_str(str) {
             Ok(accessibility_tree) => accessibility_tree,
             Err(spanned_error) => {
-                log::debug!("Deserialisation error: {spanned_error}");
+                tracing::debug!("Deserialisation error: {spanned_error}");
                 deferred_space::print_error(output_shm_cap, DeferredError::InvalidDataRon, &spanned_error);
                 return;
             },
         };
-        log::debug!("{accessibility_tree:?}");
+        tracing::debug!("{accessibility_tree:?}");
         self.app_accessibility_tree = Some(accessibility_tree);
     }
 }
