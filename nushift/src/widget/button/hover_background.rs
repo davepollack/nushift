@@ -119,7 +119,7 @@ impl<T: Data> HoverBackground<T> {
     fn advance_animation(&mut self, interval_nanoseconds: &u64) -> bool {
         let interval_seconds = *interval_nanoseconds as f64 / 1e9;
 
-        let (new_state, should_request_anim_frame) = match &self.transition_state {
+        let (new_state, should_request_anim_frame) = match self.transition_state {
             TransitionState::Transitioning(t, TransitionDirection::Forward) => {
                 let new_t = (1.0 as f64).min(t + (interval_seconds / self.params.duration));
                 if new_t >= 1.0 {
@@ -136,7 +136,7 @@ impl<T: Data> HoverBackground<T> {
                     (TransitionState::Transitioning(new_t, TransitionDirection::Backward), true)
                 }
             },
-            stopped_state => (stopped_state.clone(), false),
+            ref stopped_state => (stopped_state.clone(), false),
         };
 
         self.transition_state = new_state;

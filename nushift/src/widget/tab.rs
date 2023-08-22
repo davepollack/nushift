@@ -16,8 +16,8 @@ pub fn tab() -> Tab {
     let selected_or_non_selected_background = Painter::new(|ctx, data: &RootAndTabData, _| {
         let bounds = ctx.size().to_rect();
 
-        match &data.0.currently_selected_tab_id {
-            Some(id) if id == &data.1.id => {
+        match data.0.currently_selected_tab_id {
+            Some(ref id) if *id == data.1.id => {
                 ctx.fill(bounds, &TAB_SELECTED_BACKGROUND_COLOR);
             },
             _ => {

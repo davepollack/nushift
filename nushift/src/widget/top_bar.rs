@@ -8,8 +8,8 @@ use super::{value, tab_list, button};
 pub fn top_bar() -> impl Widget<RootData> {
 
     let main_title = Label::new(|root_data: &RootData, env: &Env| {
-        match &root_data.currently_selected_tab_id {
-            Some(id) => match root_data.tabs.iter().find(|tab_data| &tab_data.id == id) {
+        match root_data.currently_selected_tab_id {
+            Some(ref id) => match root_data.tabs.iter().find(|tab_data| tab_data.id == *id) {
                 Some(tab_data) => tab_data.title.to_string(),
                 None => String::new(),
             },
