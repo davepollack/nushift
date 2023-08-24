@@ -11,3 +11,6 @@ edition = "2021"
 druid = { git = "https://github.com/linebender/druid.git", rev = "af94bdd02798c84f7927e898b1ed28ebcec16b30", features = ["im"] }
 nushift-core = { path = "../nushift-core" }
 reusable-id-pool = { path = "../reusable-id-pool" }
+
+[build-dependencies]
+static_vcruntime = "2.0"
