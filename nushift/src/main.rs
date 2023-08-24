@@ -1,3 +1,6 @@
+// On Windows, don't show a console when opening the app.
+#![cfg_attr(not(test), windows_subsystem = "windows")]
+
 use druid::{AppLauncher, WindowDesc, LocalizedString};
 use druid::im::vector;
 use druid::{Color, widget::Flex};
