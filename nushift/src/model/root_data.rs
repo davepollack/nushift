@@ -72,7 +72,7 @@ impl RootData {
             _ => {},
         }
 
-        if let Some(id) = &id_to_remove {
+        if let Some(ref id) = id_to_remove {
             hypervisor.close_tab(id);
         }
     }

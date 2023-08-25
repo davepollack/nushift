@@ -8,6 +8,9 @@ use snafu_cli_debug::SnafuCliDebug;
 use super::shm_space::{CapType, OwnedShmIdAndCap, ShmCapId, ShmCap, ShmSpace, ShmSpaceError, ShmType};
 use super::usize_or_u64::UsizeOrU64;
 
+// This trait may not be necessary. I'm only implementing it for
+// DefaultDeferredSpace, and I'm currently composing DefaultDeferredSpace with
+// other things rather than using generics.
 pub trait DeferredSpace {
     type SpaceError;
     type Cap;
@@ -18,6 +21,7 @@ pub trait DeferredSpace {
     fn destroy_cap(&mut self, context: &str, cap_id: u64) -> Result<(), Self::SpaceError>;
 }
 
+// In contrast to the above trait, this one is used by multiple impls.
 pub trait DeferredSpaceSpecific {
     fn process_cap_str(&mut self, str: &str, output_shm_cap: &mut ShmCap);
 }

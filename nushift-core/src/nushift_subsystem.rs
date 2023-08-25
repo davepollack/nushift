@@ -62,20 +62,6 @@ pub enum SyscallError {
     ShmOverlapsExistingAcquisition = 10,
 }
 
-trait AsOption<T> {
-    fn as_option(self) -> Option<T>;
-}
-impl<T> AsOption<T> for T {
-    fn as_option(self) -> Option<T> {
-        Some(self)
-    }
-}
-impl<T> AsOption<T> for Option<T> {
-    fn as_option(self) -> Option<T> {
-        self
-    }
-}
-
 fn set_error<R: Register>(error: SyscallError) -> SyscallReturnAndTask<R> {
     SyscallReturnAndTask(SyscallReturn::new_return(R::from_u64(u64::MAX), R::from_u64(error.into())), None)
 }
@@ -87,9 +73,9 @@ fn set_success<R: Register>(return_value: u64) -> SyscallReturnAndTask<R> {
 fn set_success_with_task<R, O>(return_value: u64, task: O) -> SyscallReturnAndTask<R>
 where
     R: Register,
-    O: AsOption<Task>,
+    O: Into<Option<Task>>,
 {
-    SyscallReturnAndTask(SyscallReturn::new_return(R::from_u64(return_value), R::from_u64(u64::MAX)), task.as_option())
+    SyscallReturnAndTask(SyscallReturn::new_return(R::from_u64(return_value), R::from_u64(u64::MAX)), task.into())
 }
 
 fn user_exit<R>(exit_reason: u64) -> SyscallReturnAndTask<R> {
