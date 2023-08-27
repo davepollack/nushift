@@ -139,6 +139,12 @@ impl NushiftSubsystem {
         &mut self.shm_space
     }
 
+    /// We need to return a &Option\<T\> (as opposed to Option<&str>) because of
+    /// the MutexGuardRef usage
+    pub(crate) fn title(&self) -> &Option<String> {
+        self.title_space.title()
+    }
+
     pub fn ecall<R: Register>(&mut self, registers: SyscallEnter<R>) -> SyscallReturnAndTask<R> {
         // TODO: When 32-bit apps are supported, convert into u64 from multiple
         // registers, instead of `.to_u64()` which can only act on a single

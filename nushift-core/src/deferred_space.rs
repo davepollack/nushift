@@ -10,7 +10,7 @@ use super::usize_or_u64::UsizeOrU64;
 
 // This trait may not be necessary. I'm only implementing it for
 // DefaultDeferredSpace, and I'm currently composing DefaultDeferredSpace with
-// other things rather than using generics.
+// other things, rather than using generics.
 pub trait DeferredSpace {
     type SpaceError;
     type Cap;

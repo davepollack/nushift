@@ -1,9 +1,11 @@
-use std::fs;
+use std::{fs, collections::HashMap};
+
 use reusable_id_pool::{ReusableIdPool, ArcId};
+
 use super::tab::Tab;
 
 pub struct Hypervisor {
-    tabs: Vec<Tab>,
+    tabs: HashMap<ArcId, Tab>,
     tabs_reusable_id_pool: ReusableIdPool,
 }
 
@@ -11,20 +13,24 @@ impl Hypervisor {
     /// Create a hypervisor.
     pub fn new() -> Self {
         Hypervisor {
-            tabs: vec![],
+            tabs: HashMap::new(),
             tabs_reusable_id_pool: ReusableIdPool::new(),
         }
     }
 
-    /// Add a new tab, with the given title.
+    /// Add a new tab.
     ///
     /// Internally, this generates an ID for the new tab, based on an ID pool
     /// owned by the `Hypervisor`.
     ///
     /// The newly-created ID is returned.
-    pub fn add_new_tab<S: Into<String>>(&mut self, title: S) -> ArcId {
+    pub fn add_new_tab(&mut self) -> ArcId {
         let new_tab_id = self.tabs_reusable_id_pool.allocate();
-        let mut new_tab = Tab::new(new_tab_id, title);
+
+        let new_tab_id_cloned_for_tab = ArcId::clone(&new_tab_id);
+        let new_tab_id_cloned_for_key = ArcId::clone(&new_tab_id);
+
+        let mut new_tab = Tab::new(new_tab_id_cloned_for_tab);
 
         let binary_blob_result = fs::read("../examples/hello-world/zig-out/bin/hello-world");
         match binary_blob_result {
@@ -32,21 +38,21 @@ impl Hypervisor {
             Err(err) => tracing::error!("Hardcoded binary blob path error: {err:?}"),
         }
 
-        self.tabs.push(new_tab);
+        self.tabs.insert(new_tab_id_cloned_for_key, new_tab);
 
-        ArcId::clone(&self.tabs.last().unwrap().id())
+        new_tab_id
+    }
+
+    /// Get a tab.
+    pub fn get_tab(&self, tab_id: &ArcId) -> Option<&Tab> {
+        self.tabs.get(tab_id)
     }
 
     /// Close a tab.
     ///
     /// If the passed-in `tab_id` does not exist, this method does nothing.
     pub fn close_tab(&mut self, tab_id: &ArcId) {
-        match self.tabs.iter().enumerate().find(|(_index, tab)| tab.id() == tab_id) {
-            Some((index, _tab)) => {
-                self.tabs.remove(index);
-            },
-            None => {},
-        }
+        self.tabs.remove(tab_id);
     }
 }
 
@@ -68,15 +74,15 @@ mod tests {
     fn hypervisor_add_new_tab_adds_new_tab() {
         let mut hypervisor = Hypervisor::new();
 
-        hypervisor.add_new_tab("Tab title 1");
+        hypervisor.add_new_tab();
 
-        assert_eq!("Tab title 1", hypervisor.tabs[0].title());
+        assert_eq!(1, hypervisor.tabs.len());
     }
 
     #[test]
     fn hypervisor_close_tab_closes_existing_tab() {
         let mut hypervisor = Hypervisor::new();
-        let tab_id = hypervisor.add_new_tab("Tab title 1");
+        let tab_id = hypervisor.add_new_tab();
 
         hypervisor.close_tab(&tab_id);
 

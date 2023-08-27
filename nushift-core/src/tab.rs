@@ -1,8 +1,8 @@
 use core::ops::DerefMut;
-use std::sync::mpsc;
-use std::sync::{Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 
+use owning_ref::MutexGuardRef;
 use reusable_id_pool::ArcId;
 
 use super::nushift_subsystem::NushiftSubsystem;
@@ -11,14 +11,14 @@ use super::register_ipc::Task;
 
 pub struct Tab {
     id: ArcId,
-    title: String,
+    machine_nushift_subsystem: Arc<Mutex<NushiftSubsystem>>,
 }
 
 impl Tab {
-    pub fn new<S: Into<String>>(id: ArcId, title: S) -> Self {
+    pub fn new(id: ArcId) -> Self {
         Tab {
             id,
-            title: title.into(),
+            machine_nushift_subsystem: Arc::new(Mutex::new(NushiftSubsystem::new())),
         }
     }
 
@@ -26,17 +26,15 @@ impl Tab {
         &self.id
     }
 
-    // TODO remove the below suppression when `title()` is used
-    #[allow(dead_code)]
-    pub fn title(&self) -> &str {
-        &self.title
+    pub fn title<'a>(&'a self) -> MutexGuardRef<'a, NushiftSubsystem, Option<String>> {
+        MutexGuardRef::new(self.machine_nushift_subsystem.lock().unwrap())
+            .map(|subsystem| subsystem.title())
     }
 
     pub fn load_and_run(&mut self, image: Vec<u8>) {
         let (syscall_enter_send, syscall_enter_receive) = mpsc::channel();
         let (syscall_return_send, syscall_return_receive) = mpsc::channel();
-        let subsystem = Arc::new(Mutex::new(NushiftSubsystem::new()));
-        let subsystem_cloned_for_machine = Arc::clone(&subsystem);
+        let subsystem_cloned_for_machine = Arc::clone(&self.machine_nushift_subsystem);
         let mut machine = ProcessControlBlock::<u64>::new(syscall_enter_send, syscall_return_receive, subsystem_cloned_for_machine);
 
         let result = machine.load_machine(image);
@@ -66,7 +64,7 @@ impl Tab {
         // message.
         while let Ok(receive) = syscall_enter_receive.recv() {
             let syscall_return = {
-                let mut subsystem = subsystem.lock().unwrap();
+                let mut subsystem = self.machine_nushift_subsystem.lock().unwrap();
                 subsystem.ecall(receive)
             };
             syscall_return_send.send(syscall_return.0).expect("Since we just received, other thread should be waiting on our send");
@@ -76,7 +74,7 @@ impl Tab {
             // be non-blocking with the bits of the app that access memory.
             match syscall_return.1 {
                 Some(Task::AccessibilityTreePublish { accessibility_tree_cap_id }) => {
-                    let mut guard = subsystem.lock().unwrap();
+                    let mut guard = self.machine_nushift_subsystem.lock().unwrap();
                     let subsystem = guard.deref_mut();
                     match subsystem.accessibility_tree_space.publish_accessibility_tree_deferred(accessibility_tree_cap_id, &mut subsystem.shm_space) {
                         Ok(_) => {},
@@ -84,7 +82,7 @@ impl Tab {
                     }
                 },
                 Some(Task::TitlePublish { title_cap_id }) => {
-                    let mut guard = subsystem.lock().unwrap();
+                    let mut guard = self.machine_nushift_subsystem.lock().unwrap();
                     let subsystem = guard.deref_mut();
                     match subsystem.title_space.publish_title_deferred(title_cap_id, &mut subsystem.shm_space) {
                         Ok(_) => {},

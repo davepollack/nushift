@@ -33,6 +33,12 @@ impl TitleSpace {
         }
     }
 
+    /// We need to return a &Option\<T\> (as opposed to Option<&str>) because of
+    /// the MutexGuardRef usage
+    pub fn title(&self) -> &Option<String> {
+        &self.title_space_specific.title
+    }
+
     pub fn new_title_cap(&mut self) -> Result<TitleCapId, DeferredSpaceError> {
         self.deferred_space.new_cap(TITLE_CONTEXT)
     }

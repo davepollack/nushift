@@ -1,4 +1,5 @@
 use std::sync::{Mutex, Arc};
+
 use druid::{Data, Env, Lens, LocalizedString};
 use druid::im::Vector;
 use nushift_core::Hypervisor;
@@ -13,7 +14,7 @@ pub struct RootData {
     pub currently_selected_tab_id: Option<ArcId>,
 
     #[data(ignore)]
-    pub hypervisor: Arc<Mutex<Hypervisor>>
+    pub hypervisor: Arc<Mutex<Hypervisor>>,
 }
 
 impl RootData {
@@ -21,16 +22,38 @@ impl RootData {
         let mut hypervisor = self.hypervisor.lock().unwrap();
         let mut title = LocalizedString::new("nushift-new-tab");
         title.resolve(self, env);
-        let tab_id = hypervisor.add_new_tab(title.localized_str().to_string());
+        let tab_id = hypervisor.add_new_tab();
 
         self.currently_selected_tab_id = Some(ArcId::clone(&tab_id));
 
         self.tabs.push_back(TabData {
             id: ArcId::clone(&tab_id),
-            title: title.localized_str(),
         });
 
         ArcId::clone(&tab_id)
+    }
+
+    /// Returns an error if the tab was not found. Returns the default string if
+    /// the tab was found with no title set.
+    ///
+    /// TODO: Defer the copy to the caller of this function, important for
+    /// future bitmap data. Or never copy, but that likely will be required.
+    ///
+    /// TODO: The Druid event loop should be notified that the title is changed,
+    /// which it currently is not.
+    pub fn get_tab_title(&self, tab_id: &ArcId, env: &Env) -> Result<String, ()> {
+        Ok(
+            self.hypervisor.lock().unwrap()
+                .get_tab(tab_id)
+                .ok_or(())? // The tab should exist
+                .title()
+                .to_owned()
+                .unwrap_or_else(|| { // The tab title is not set, use the default one
+                    let mut title = LocalizedString::new("nushift-new-tab");
+                    title.resolve(self, env);
+                    title.localized_str().to_string()
+                })
+        )
     }
 
     pub fn select_tab(&mut self, tab_id: &ArcId) {

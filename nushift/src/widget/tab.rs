@@ -1,6 +1,6 @@
 use druid::{
     widget::{Container, ControllerHost, Painter, Flex, MainAxisAlignment, Label},
-    Color, RenderContext, WidgetExt, MouseButton,
+    Color, RenderContext, WidgetExt, MouseButton, Env,
 };
 
 use crate::model::RootAndTabData;
@@ -30,9 +30,15 @@ pub fn tab() -> Tab {
         }
     });
 
+    let label = Label::dynamic(|(root, tab_data): &RootAndTabData, env: &Env| {
+        root.get_tab_title(&tab_data.id, env)
+            .unwrap_or_else(|_| String::from("?")) // This ? should only happen if the tab doesn't exist at all which at this point it definitely should exist
+    })
+        .with_text_size(value::TAB_TEXT_SIZE);
+
     let tab = Flex::row()
         .main_axis_alignment(MainAxisAlignment::SpaceBetween)
-        .with_child(Label::new(|(_root, tab_data): &RootAndTabData, _env: &_| tab_data.title.to_string()).with_text_size(value::TAB_TEXT_SIZE))
+        .with_child(label)
         .with_child(button::close_button())
         .padding((value::TAB_HORIZONTAL_PADDING, 0.0))
         .background(selected_or_non_selected_background)

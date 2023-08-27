@@ -1,11 +1,10 @@
-use druid::{Data, text::ArcStr};
+use druid::Data;
 use reusable_id_pool::ArcId;
 
 #[derive(Clone, Data)]
 pub struct TabData {
     #[data(eq)]
     pub id: ArcId,
-    pub title: ArcStr,
 }
 
 #[cfg(test)]
@@ -17,7 +16,6 @@ pub mod tests {
         let reusable_id_pool = ReusableIdPool::new();
         TabData {
             id: reusable_id_pool.allocate(),
-            title: "Mock title".into()
         }
     }
 }
