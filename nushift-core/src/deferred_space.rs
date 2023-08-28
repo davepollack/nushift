@@ -134,7 +134,7 @@ impl DefaultDeferredSpace {
         enum PrologueReturn<'space> {
             ReturnOk,
             ReturnErr,
-            ContinueCaps(&'space mut ShmCap, &'space mut ShmCap),
+            ContinueCaps(&'space ShmCap, &'space mut ShmCap),
         }
 
         fn prologue(this: &mut DefaultDeferredSpace, cap_id: DefaultDeferredSpaceCapId) -> PrologueReturn<'_> {
@@ -148,7 +148,7 @@ impl DefaultDeferredSpace {
             // It should not be possible for in_progress_cap to be empty. This is an
             // internal error.
             match default_deferred_cap.in_progress_cap {
-                Some(InProgressCap { input: (_, ref mut input_shm_cap), output: (_, ref mut output_shm_cap) }) => PrologueReturn::ContinueCaps(input_shm_cap, output_shm_cap),
+                Some(InProgressCap { input: (_, ref input_shm_cap), output: (_, ref mut output_shm_cap) }) => PrologueReturn::ContinueCaps(input_shm_cap, output_shm_cap),
                 _ => PrologueReturn::ReturnErr,
             }
         }
@@ -176,13 +176,13 @@ impl DefaultDeferredSpace {
     }
 
     /// TODO: Change this weird format to something that's been implemented for us, like Postcard.
-    fn process_cap_content<S>(deferred_space_specific: &mut S, input_shm_cap: &mut ShmCap, output_shm_cap: &mut ShmCap)
+    fn process_cap_content<S>(deferred_space_specific: &mut S, input_shm_cap: &ShmCap, output_shm_cap: &mut ShmCap)
     where
         S: DeferredSpaceSpecific,
     {
         /// A lifetime annotation doesn't cause this to be monomorphised, so for
         /// our purposes it's still a non-generic inner function
-        fn inner<'input>(input_shm_cap: &'input mut ShmCap, output_shm_cap: &mut ShmCap) -> Result<&'input str, ()> {
+        fn inner<'input>(input_shm_cap: &'input ShmCap, output_shm_cap: &mut ShmCap) -> Result<&'input str, ()> {
             let untrusted_length = u64::from_le_bytes(input_shm_cap.backing()[0..8].try_into().unwrap());
             if untrusted_length == 0
                 || untrusted_length > input_shm_cap.shm_type().page_bytes() - 8
