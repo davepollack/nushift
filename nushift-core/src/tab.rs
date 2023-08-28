@@ -26,7 +26,7 @@ impl Tab {
         &self.id
     }
 
-    pub fn title<'a>(&'a self) -> MutexGuardRef<'a, NushiftSubsystem, Option<String>> {
+    pub fn title(&self) -> MutexGuardRef<'_, NushiftSubsystem, Option<String>> {
         MutexGuardRef::new(self.machine_nushift_subsystem.lock().unwrap())
             .map(|subsystem| subsystem.title())
     }
