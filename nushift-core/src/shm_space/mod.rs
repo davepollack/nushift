@@ -213,15 +213,15 @@ impl ShmSpace {
         self.space.insert(shm_cap_id, shm_cap);
     }
 
-    pub fn walk<'space>(&'space self, vaddr: u64) -> Result<WalkResult<'space>, PageTableError> {
+    pub fn walk(&self, vaddr: u64) -> Result<WalkResult<'_>, PageTableError> {
         self.acquisitions.walk(vaddr, &self.space)
     }
 
-    pub fn walk_mut<'space>(&'space mut self, vaddr: u64) -> Result<WalkResultMut<'space>, PageTableError> {
+    pub fn walk_mut(&mut self, vaddr: u64) -> Result<WalkResultMut<'_>, PageTableError> {
         self.acquisitions.walk_mut(vaddr, &mut self.space)
     }
 
-    pub fn walk_execute<'space>(&'space self, vaddr: u64) -> Result<WalkResult<'space>, PageTableError> {
+    pub fn walk_execute(&self, vaddr: u64) -> Result<WalkResult<'_>, PageTableError> {
         self.acquisitions.walk_execute(vaddr, &self.space)
     }
 

@@ -137,9 +137,7 @@ impl DefaultDeferredSpace {
             ContinueCaps(&'space mut ShmCap, &'space mut ShmCap),
         }
 
-        /// A lifetime annotation doesn't cause this to be monomorphised, so for
-        /// our purposes it's still a non-generic inner function
-        fn prologue<'space>(this: &'space mut DefaultDeferredSpace, cap_id: DefaultDeferredSpaceCapId) -> PrologueReturn<'space> {
+        fn prologue(this: &mut DefaultDeferredSpace, cap_id: DefaultDeferredSpaceCapId) -> PrologueReturn<'_> {
             // If cap has been deleted after progress is started, that is valid and
             // now do nothing here.
             let default_deferred_cap = match this.get_mut(cap_id) {

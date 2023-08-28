@@ -45,7 +45,7 @@ impl ProtectedMemory {
     pub fn load_multi_byte<T, W, const N: usize>(shm_space: &ShmSpace, addr: u64, walk: W) -> Result<T, ProtectedMemoryError>
     where
         T: Numeric<N>,
-        W: for<'space> Fn(&'space ShmSpace, u64) -> Result<WalkResult<'space>, PageTableError>,
+        W: Fn(&ShmSpace, u64) -> Result<WalkResult<'_>, PageTableError>,
     {
         Self::check_within_sv39(addr, N)?;
         let walked = walk(shm_space, addr).context(WalkSnafu)?;
