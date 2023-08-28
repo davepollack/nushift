@@ -2,7 +2,6 @@ use core::ops::DerefMut;
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 
-use owning_ref::MutexGuardRef;
 use reusable_id_pool::ArcId;
 
 use super::nushift_subsystem::NushiftSubsystem;
@@ -26,9 +25,10 @@ impl Tab {
         &self.id
     }
 
-    pub fn title(&self) -> MutexGuardRef<'_, NushiftSubsystem, Option<String>> {
-        MutexGuardRef::new(self.machine_nushift_subsystem.lock().unwrap())
-            .map(|subsystem| subsystem.title())
+    pub fn title_copy(&self) -> Option<String> {
+        self.machine_nushift_subsystem.lock().unwrap()
+            .title()
+            .map(ToOwned::to_owned)
     }
 
     pub fn load_and_run(&mut self, image: Vec<u8>) {

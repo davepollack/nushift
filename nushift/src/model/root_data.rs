@@ -36,9 +36,6 @@ impl RootData {
     /// Returns an error if the tab was not found. Returns the default string if
     /// the tab was found with no title set.
     ///
-    /// TODO: Defer the copy to the caller of this function, important for
-    /// future bitmap data. Or never copy, but that likely will be required.
-    ///
     /// TODO: The Druid event loop should be notified that the title is changed,
     /// which it currently is not.
     pub fn get_tab_title(&self, tab_id: &ArcId, env: &Env) -> Result<String, ()> {
@@ -46,8 +43,7 @@ impl RootData {
             self.hypervisor.lock().unwrap()
                 .get_tab(tab_id)
                 .ok_or(())? // The tab should exist
-                .title()
-                .to_owned()
+                .title_copy()
                 .unwrap_or_else(|| { // The tab title is not set, use the default one
                     let mut title = LocalizedString::new("nushift-new-tab");
                     title.resolve(self, env);

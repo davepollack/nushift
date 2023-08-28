@@ -139,9 +139,7 @@ impl NushiftSubsystem {
         &mut self.shm_space
     }
 
-    /// We need to return a &Option\<T\> (as opposed to Option<&str>) because of
-    /// the MutexGuardRef usage
-    pub(crate) fn title(&self) -> &Option<String> {
+    pub(crate) fn title(&self) -> Option<&str> {
         self.title_space.title()
     }
 
