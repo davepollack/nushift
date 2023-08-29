@@ -12,11 +12,9 @@ pub fn top_bar() -> impl Widget<RootData> {
     let main_title = Label::new(|root_data: &RootData, env: &Env| {
         match root_data.currently_selected_tab_id {
             Some(ref id) => {
-                ArcStr::clone(
-                    &root_data.tabs.iter().find(|tab_data| tab_data.id == *id)
-                        .map(|tab_data| ArcStr::clone(&tab_data.title))
-                        .unwrap_or_else(|| "".into())
-                )
+                root_data.tabs.iter().find(|tab_data| tab_data.id == *id)
+                    .map(|tab_data| ArcStr::clone(&tab_data.title))
+                    .unwrap_or_else(|| "".into())
             },
             None => {
                 let mut no_tabs = LocalizedString::new("nushift-no-tabs");
