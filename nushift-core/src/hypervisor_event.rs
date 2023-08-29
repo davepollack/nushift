@@ -6,6 +6,7 @@ use reusable_id_pool::ArcId;
 /// ExtEventSink::submit_command because it uses a lock. We can always expand to
 /// FnMut later.
 pub type HypervisorEventHandler = Arc<dyn Fn(HypervisorEvent) + Send + Sync + 'static>;
+pub(crate) type BoundHypervisorEventHandler = Arc<dyn Fn(UnboundHypervisorEvent) + Send + Sync + 'static>;
 
 pub enum HypervisorEvent {
     TitleChange(ArcId, String),

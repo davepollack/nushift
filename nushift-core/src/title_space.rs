@@ -1,9 +1,6 @@
-use std::sync::Arc;
-
 use super::deferred_space::{DeferredSpace, DefaultDeferredSpace, DeferredSpaceSpecific, DeferredSpaceError};
-use super::hypervisor_event::UnboundHypervisorEvent;
+use super::hypervisor_event::{BoundHypervisorEventHandler, UnboundHypervisorEvent};
 use super::shm_space::{ShmCapId, ShmCap, ShmSpace};
-use super::tab_context::TabContext;
 
 pub type TitleCapId = u64;
 const TITLE_CONTEXT: &str = "title";
@@ -14,26 +11,26 @@ pub struct TitleSpace {
 }
 
 struct TitleSpaceSpecific {
-    tab_context: Arc<dyn TabContext>,
+    bound_hypervisor_event_handler: BoundHypervisorEventHandler,
 }
 
 impl DeferredSpaceSpecific for TitleSpaceSpecific {
     fn process_cap_str(&mut self, str: &str, _output_shm_cap: &mut ShmCap) {
-        self.tab_context.send_hypervisor_event(UnboundHypervisorEvent::TitleChange(str.into()));
+        (self.bound_hypervisor_event_handler)(UnboundHypervisorEvent::TitleChange(str.into()));
     }
 }
 
 impl TitleSpaceSpecific {
-    fn new(tab_context: Arc<dyn TabContext>) -> Self {
-        Self { tab_context }
+    fn new(bound_hypervisor_event_handler: BoundHypervisorEventHandler) -> Self {
+        Self { bound_hypervisor_event_handler }
     }
 }
 
 impl TitleSpace {
-    pub(crate) fn new(tab_context: Arc<dyn TabContext>) -> Self {
+    pub(crate) fn new(bound_hypervisor_event_handler: BoundHypervisorEventHandler) -> Self {
         Self {
             deferred_space: DefaultDeferredSpace::new(),
-            title_space_specific: TitleSpaceSpecific::new(tab_context),
+            title_space_specific: TitleSpaceSpecific::new(bound_hypervisor_event_handler),
         }
     }
 

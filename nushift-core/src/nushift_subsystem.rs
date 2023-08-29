@@ -1,13 +1,11 @@
-use std::sync::Arc;
-
 use ckb_vm::Register;
 use num_enum::{TryFromPrimitive, IntoPrimitive};
 
 use super::accessibility_tree_space::AccessibilityTreeSpace;
 use super::deferred_space::DeferredSpaceError;
+use super::hypervisor_event::BoundHypervisorEventHandler;
 use super::register_ipc::{SyscallEnter, SyscallReturn, SyscallReturnAndTask, Task, SYSCALL_NUM_REGISTER_INDEX, FIRST_ARG_REGISTER_INDEX, SECOND_ARG_REGISTER_INDEX, THIRD_ARG_REGISTER_INDEX};
 use super::shm_space::{CapType, ShmType, ShmSpace, ShmSpaceError};
-use super::tab_context::TabContext;
 use super::title_space::TitleSpace;
 
 // Regarding the use of `u64`s in this file:
@@ -126,11 +124,11 @@ pub struct NushiftSubsystem {
 }
 
 impl NushiftSubsystem {
-    pub(crate) fn new(tab_context: Arc<dyn TabContext>) -> Self {
+    pub(crate) fn new(bound_hypervisor_event_handler: BoundHypervisorEventHandler) -> Self {
         NushiftSubsystem {
             shm_space: ShmSpace::new(),
             accessibility_tree_space: AccessibilityTreeSpace::new(),
-            title_space: TitleSpace::new(tab_context),
+            title_space: TitleSpace::new(bound_hypervisor_event_handler),
         }
     }
 

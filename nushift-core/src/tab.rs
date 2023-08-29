@@ -4,11 +4,10 @@ use std::thread;
 
 use reusable_id_pool::ArcId;
 
-use super::hypervisor_event::HypervisorEventHandler;
+use super::hypervisor_event::{HypervisorEvent, HypervisorEventHandler};
 use super::nushift_subsystem::NushiftSubsystem;
 use super::process_control_block::ProcessControlBlock;
 use super::register_ipc::Task;
-use super::tab_context::DefaultTabContext;
 
 pub struct Tab {
     id: ArcId,
@@ -18,11 +17,16 @@ pub struct Tab {
 impl Tab {
     pub fn new(id: ArcId, hypervisor_event_handler: HypervisorEventHandler) -> Self {
         // This isn't shared yet, but it will be when NushiftSubsystem hands it to multiple spaces
-        let tab_context = Arc::new(DefaultTabContext::new(ArcId::clone(&id), hypervisor_event_handler));
+        let bound_hypervisor_event_handler = Arc::new({
+            let cloned_id = ArcId::clone(&id);
+            move |unbound_hyp_event| {
+                hypervisor_event_handler(HypervisorEvent::from(ArcId::clone(&cloned_id), unbound_hyp_event));
+            }
+        });
 
         Tab {
             id,
-            machine_nushift_subsystem: Arc::new(Mutex::new(NushiftSubsystem::new(tab_context))),
+            machine_nushift_subsystem: Arc::new(Mutex::new(NushiftSubsystem::new(bound_hypervisor_event_handler))),
         }
     }
 
