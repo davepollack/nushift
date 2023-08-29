@@ -1,20 +1,27 @@
+use std::sync::Arc;
 use std::{fs, collections::HashMap};
 
 use reusable_id_pool::{ReusableIdPool, ArcId};
 
+use super::hypervisor_event::{HypervisorEvent, HypervisorEventHandler};
 use super::tab::Tab;
 
 pub struct Hypervisor {
     tabs: HashMap<ArcId, Tab>,
     tabs_reusable_id_pool: ReusableIdPool,
+    hypervisor_event_handler: HypervisorEventHandler,
 }
 
 impl Hypervisor {
     /// Create a hypervisor.
-    pub fn new() -> Self {
+    pub fn new<H>(hypervisor_event_handler: H) -> Self
+    where
+        H: Fn(HypervisorEvent) + Send + Sync + 'static,
+    {
         Hypervisor {
             tabs: HashMap::new(),
             tabs_reusable_id_pool: ReusableIdPool::new(),
+            hypervisor_event_handler: Arc::new(hypervisor_event_handler),
         }
     }
 
@@ -30,7 +37,7 @@ impl Hypervisor {
         let new_tab_id_cloned_for_tab = ArcId::clone(&new_tab_id);
         let new_tab_id_cloned_for_key = ArcId::clone(&new_tab_id);
 
-        let mut new_tab = Tab::new(new_tab_id_cloned_for_tab);
+        let mut new_tab = Tab::new(new_tab_id_cloned_for_tab, Arc::clone(&self.hypervisor_event_handler));
 
         let binary_blob_result = fs::read("../examples/hello-world/zig-out/bin/hello-world");
         match binary_blob_result {
@@ -62,7 +69,7 @@ mod tests {
 
     #[test]
     fn hypervisor_new_creates_new() {
-        let hypervisor = Hypervisor::new();
+        let hypervisor = Hypervisor::new(|_| {});
 
         assert_eq!(0, hypervisor.tabs.len());
     }
@@ -72,7 +79,7 @@ mod tests {
     // Consumer crate (nushift)'s tests also call it though...
     #[test]
     fn hypervisor_add_new_tab_adds_new_tab() {
-        let mut hypervisor = Hypervisor::new();
+        let mut hypervisor = Hypervisor::new(|_| {});
 
         hypervisor.add_new_tab();
 
@@ -81,7 +88,7 @@ mod tests {
 
     #[test]
     fn hypervisor_close_tab_closes_existing_tab() {
-        let mut hypervisor = Hypervisor::new();
+        let mut hypervisor = Hypervisor::new(|_| {});
         let tab_id = hypervisor.add_new_tab();
 
         hypervisor.close_tab(&tab_id);
@@ -91,7 +98,7 @@ mod tests {
 
     #[test]
     fn hypervisor_close_tab_does_nothing_if_tab_does_not_exist() {
-        let mut hypervisor = Hypervisor::new();
+        let mut hypervisor = Hypervisor::new(|_| {});
         let tab_id = ReusableIdPool::new().allocate();
 
         hypervisor.close_tab(&tab_id);

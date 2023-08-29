@@ -248,6 +248,7 @@ pub enum DeferredSpaceError {
     PublishInternalError, // Should never occur, indicates a bug in Nushift's code
 }
 
+// TODO: Have I been using non_exhaustive incorrectly?
 #[derive(IntoPrimitive, Debug)]
 #[repr(u64)]
 #[non_exhaustive]

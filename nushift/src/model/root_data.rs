@@ -28,28 +28,10 @@ impl RootData {
 
         self.tabs.push_back(TabData {
             id: ArcId::clone(&tab_id),
+            title: title.localized_str(),
         });
 
         ArcId::clone(&tab_id)
-    }
-
-    /// Returns an error if the tab was not found. Returns the default string if
-    /// the tab was found with no title set.
-    ///
-    /// TODO: The Druid event loop should be notified that the title is changed,
-    /// which it currently is not.
-    pub fn get_tab_title(&self, tab_id: &ArcId, env: &Env) -> Result<String, ()> {
-        Ok(
-            self.hypervisor.lock().unwrap()
-                .get_tab(tab_id)
-                .ok_or(())? // The tab should exist
-                .title_copy()
-                .unwrap_or_else(|| { // The tab title is not set, use the default one
-                    let mut title = LocalizedString::new("nushift-new-tab");
-                    title.resolve(self, env);
-                    title.localized_str().to_string()
-                })
-        )
     }
 
     pub fn select_tab(&mut self, tab_id: &ArcId) {
@@ -104,7 +86,7 @@ pub mod tests {
     use reusable_id_pool::ReusableIdPool;
 
     pub fn mock() -> RootData {
-        let hypervisor = Arc::new(Mutex::new(Hypervisor::new()));
+        let hypervisor = Arc::new(Mutex::new(Hypervisor::new(|_| {})));
         RootData {
             tabs: vector![],
             currently_selected_tab_id: None,

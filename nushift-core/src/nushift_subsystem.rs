@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use ckb_vm::Register;
 use num_enum::{TryFromPrimitive, IntoPrimitive};
 
@@ -5,6 +7,7 @@ use super::accessibility_tree_space::AccessibilityTreeSpace;
 use super::deferred_space::DeferredSpaceError;
 use super::register_ipc::{SyscallEnter, SyscallReturn, SyscallReturnAndTask, Task, SYSCALL_NUM_REGISTER_INDEX, FIRST_ARG_REGISTER_INDEX, SECOND_ARG_REGISTER_INDEX, THIRD_ARG_REGISTER_INDEX};
 use super::shm_space::{CapType, ShmType, ShmSpace, ShmSpaceError};
+use super::tab_context::TabContext;
 use super::title_space::TitleSpace;
 
 // Regarding the use of `u64`s in this file:
@@ -123,11 +126,11 @@ pub struct NushiftSubsystem {
 }
 
 impl NushiftSubsystem {
-    pub fn new() -> Self {
+    pub(crate) fn new(tab_context: Arc<dyn TabContext>) -> Self {
         NushiftSubsystem {
             shm_space: ShmSpace::new(),
             accessibility_tree_space: AccessibilityTreeSpace::new(),
-            title_space: TitleSpace::new(),
+            title_space: TitleSpace::new(tab_context),
         }
     }
 
@@ -137,10 +140,6 @@ impl NushiftSubsystem {
 
     pub(crate) fn shm_space_mut(&mut self) -> &mut ShmSpace {
         &mut self.shm_space
-    }
-
-    pub(crate) fn title(&self) -> Option<&str> {
-        self.title_space.title()
     }
 
     pub fn ecall<R: Register>(&mut self, registers: SyscallEnter<R>) -> SyscallReturnAndTask<R> {

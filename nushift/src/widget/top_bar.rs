@@ -1,5 +1,8 @@
-use druid::{Widget, WidgetExt};
-use druid::{lens, Env, LensExt, LocalizedString, widget::{Flex, Label, CrossAxisAlignment, FlexParams}};
+use druid::{
+    lens, Env, LensExt, LocalizedString, Widget, WidgetExt,
+    text::ArcStr,
+    widget::{Flex, Label, CrossAxisAlignment, FlexParams}
+};
 
 use crate::theme::{TEXT_COLOR, THIN_STROKE_ICON_COLOR_KEY, THIN_STROKE_ICON_COLOR, THICK_STROKE_ICON_COLOR_KEY, THICK_STROKE_ICON_COLOR};
 use crate::model::{RootAndVectorTabData, RootData};
@@ -9,13 +12,16 @@ pub fn top_bar() -> impl Widget<RootData> {
     let main_title = Label::new(|root_data: &RootData, env: &Env| {
         match root_data.currently_selected_tab_id {
             Some(ref id) => {
-                // This ? should only happen if the tab doesn't exist at all which at this point it should
-                root_data.get_tab_title(id, env).unwrap_or_else(|_| String::from("?"))
+                ArcStr::clone(
+                    &root_data.tabs.iter().find(|tab_data| tab_data.id == *id)
+                        .map(|tab_data| ArcStr::clone(&tab_data.title))
+                        .unwrap_or_else(|| "".into())
+                )
             },
             None => {
                 let mut no_tabs = LocalizedString::new("nushift-no-tabs");
                 no_tabs.resolve(root_data, env);
-                no_tabs.localized_str().to_string()
+                no_tabs.localized_str()
             },
         }
     })
