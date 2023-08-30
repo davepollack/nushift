@@ -8,6 +8,7 @@ use reusable_id_pool::ArcId;
 pub type HypervisorEventHandler = Arc<dyn Fn(HypervisorEvent) + Send + Sync + 'static>;
 pub(crate) type BoundHypervisorEventHandler = Arc<dyn Fn(UnboundHypervisorEvent) + Send + Sync + 'static>;
 
+#[non_exhaustive] // TODO: Probably remove this non_exhaustive when we add a second (and any more) variants
 pub enum HypervisorEvent {
     TitleChange(ArcId, String),
 }

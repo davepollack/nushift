@@ -8,11 +8,9 @@ pub struct ClickInverse<T> {
     action: Box<dyn Fn(&mut EventCtx, &MouseEvent, &mut T, &Env)>,
 }
 
-impl<T: Data> ClickInverse<T> {
+impl<T> ClickInverse<T> {
     pub fn new(action: impl Fn(&mut EventCtx, &MouseEvent, &mut T, &Env) + 'static) -> Self {
-        ClickInverse {
-            action: Box::new(action),
-        }
+        Self { action: Box::new(action) }
     }
 }
 

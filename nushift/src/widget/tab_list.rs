@@ -15,7 +15,7 @@ pub fn tab_list() -> TabList {
 /// Based on druid::widget::List, but has more child tracking, and custom
 /// `layout()` method
 pub struct TabList {
-    widget_children: HashMap<ArcId, WidgetPod<RootAndTabData, tab::Tab>>,
+    widget_children: HashMap<ArcId, WidgetPod<RootAndTabData, Box<dyn Widget<RootAndTabData>>>>,
 }
 
 impl TabList {
@@ -31,9 +31,9 @@ impl TabList {
         let mut is_changed = false;
         let original_widget_children_len = self.widget_children.len();
 
-        let mut data_ids_set = HashSet::with_capacity(root_and_vector_tab_data.data_len());
-        root_and_vector_tab_data.for_each(|root_and_tab_data, _| {
-            data_ids_set.insert(ArcId::clone(&root_and_tab_data.1.id));
+        let mut data_ids_set = HashSet::with_capacity(root_and_vector_tab_data.1.len());
+        root_and_vector_tab_data.for_each(|root_and_tab_data: &RootAndTabData, _| {
+            data_ids_set.insert(ArcId::clone(&root_and_tab_data.tab_data().id));
         });
 
         // Wipe all widget children that are no longer in the data
@@ -46,7 +46,7 @@ impl TabList {
         // Add new widget children corresponding to new IDs
         for tab_key in data_ids_set {
             if !self.widget_children.contains_key(&tab_key) {
-                self.widget_children.insert(tab_key, WidgetPod::new(tab::tab()));
+                self.widget_children.insert(tab_key, WidgetPod::new(Box::new(tab::tab())));
                 is_changed = true;
             }
         }
@@ -58,7 +58,7 @@ impl TabList {
 impl Widget<RootAndVectorTabData> for TabList {
     fn event(&mut self, ctx: &mut EventCtx, event: &Event, root_and_vector_tab_data: &mut RootAndVectorTabData, env: &Env) {
         root_and_vector_tab_data.for_each_mut(|root_and_tab_data: &mut RootAndTabData, _| {
-            if let Some(widget_child) = self.widget_children.get_mut(&root_and_tab_data.1.id) {
+            if let Some(widget_child) = self.widget_children.get_mut(&root_and_tab_data.tab_data().id) {
                 widget_child.event(ctx, event, root_and_tab_data, env);
             }
         });
@@ -72,8 +72,8 @@ impl Widget<RootAndVectorTabData> for TabList {
             }
         }
 
-        root_and_vector_tab_data.for_each(|root_and_tab_data, _| {
-            if let Some(widget_child) = self.widget_children.get_mut(&root_and_tab_data.1.id) {
+        root_and_vector_tab_data.for_each(|root_and_tab_data: &RootAndTabData, _| {
+            if let Some(widget_child) = self.widget_children.get_mut(&root_and_tab_data.tab_data().id) {
                 widget_child.lifecycle(ctx, event, root_and_tab_data, env);
             }
         });
@@ -83,8 +83,8 @@ impl Widget<RootAndVectorTabData> for TabList {
         // we send update to children first, before adding or removing children;
         // this way we avoid sending update to newly added children, at the cost
         // of potentially updating children that are going to be removed.
-        root_and_vector_tab_data.for_each(|root_and_tab_data, _| {
-            if let Some(widget_child) = self.widget_children.get_mut(&root_and_tab_data.1.id) {
+        root_and_vector_tab_data.for_each(|root_and_tab_data: &RootAndTabData, _| {
+            if let Some(widget_child) = self.widget_children.get_mut(&root_and_tab_data.tab_data().id) {
                 widget_child.update(ctx, root_and_tab_data, env);
             }
         });
@@ -96,7 +96,7 @@ impl Widget<RootAndVectorTabData> for TabList {
     }
 
     fn layout(&mut self, ctx: &mut LayoutCtx, bc: &BoxConstraints, root_and_vector_tab_data: &RootAndVectorTabData, env: &Env) -> Size {
-        let number_of_tabs = root_and_vector_tab_data.data_len();
+        let number_of_tabs = root_and_vector_tab_data.1.len();
 
         let tab_width = if number_of_tabs == 0 {
             0.0
@@ -108,8 +108,8 @@ impl Widget<RootAndVectorTabData> for TabList {
         let tab_height = value::TAB_HEIGHT.min(bc.max().height);
 
         let mut max_height_seen = bc.min().height;
-        root_and_vector_tab_data.for_each(|root_and_tab_data, i| {
-            let widget_child = match self.widget_children.get_mut(&root_and_tab_data.1.id) {
+        root_and_vector_tab_data.for_each(|root_and_tab_data: &RootAndTabData, i| {
+            let widget_child = match self.widget_children.get_mut(&root_and_tab_data.tab_data().id) {
                 Some(widget_child) => widget_child,
                 None => {
                     return;
@@ -128,13 +128,13 @@ impl Widget<RootAndVectorTabData> for TabList {
             max_height_seen = max_height_seen.max(widget_child_size.height);
         });
 
-        let my_size = Size::new((root_and_vector_tab_data.data_len() as f64) * tab_width, max_height_seen);
+        let my_size = Size::new((root_and_vector_tab_data.1.len() as f64) * tab_width, max_height_seen);
         my_size
     }
 
     fn paint(&mut self, ctx: &mut PaintCtx, root_and_vector_tab_data: &RootAndVectorTabData, env: &Env) {
-        root_and_vector_tab_data.for_each(|root_and_tab_data, _| {
-            if let Some(widget_child) = self.widget_children.get_mut(&root_and_tab_data.1.id) {
+        root_and_vector_tab_data.for_each(|root_and_tab_data: &RootAndTabData, _| {
+            if let Some(widget_child) = self.widget_children.get_mut(&root_and_tab_data.tab_data().id) {
                 widget_child.paint(ctx, root_and_tab_data, env);
             }
         });

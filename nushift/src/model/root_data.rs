@@ -1,3 +1,4 @@
+use std::fmt::Debug;
 use std::sync::{Mutex, Arc};
 
 use druid::{Data, Env, Lens, LocalizedString};
@@ -15,6 +16,15 @@ pub struct RootData {
 
     #[data(ignore)]
     pub hypervisor: Arc<Mutex<Hypervisor>>,
+}
+
+impl Debug for RootData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RootData")
+            .field("tabs", &self.tabs)
+            .field("currently_selected_tab_id", &self.currently_selected_tab_id)
+            .finish_non_exhaustive()
+    }
 }
 
 impl RootData {

@@ -24,7 +24,8 @@ pub fn close_button() -> impl Widget<RootAndTabData> {
             .height(17.0),
         HoverParams::default()
     )
-        .controller(ClickInverse::new(|_, _, (root_data, tab_data): &mut RootAndTabData, _| {
-            root_data.close_tab(&tab_data.id);
+        .controller(ClickInverse::new(|_, _, root_and_tab_data: &mut RootAndTabData, _| {
+            let tab_data = root_and_tab_data.tab_data_cloned();
+            root_and_tab_data.root_data_mut().close_tab(&tab_data.id);
         }))
 }

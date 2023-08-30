@@ -10,7 +10,8 @@
             "stopAtEntry": false,
             "cwd": "${workspaceRoot}/nushift",
             "environment": [],
-            "console": "integratedTerminal"
+            "console": "integratedTerminal",
+            "preLaunchTask": "rust: cargo build"
         }
     ]
 }

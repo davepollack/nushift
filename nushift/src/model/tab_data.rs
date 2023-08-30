@@ -1,7 +1,7 @@
 use druid::{Data, text::ArcStr};
 use reusable_id_pool::ArcId;
 
-#[derive(Clone, Data)]
+#[derive(Debug, Clone, Data)]
 pub struct TabData {
     #[data(eq)]
     pub id: ArcId,
