@@ -57,12 +57,12 @@ impl RootData {
 
     /// Close tabs that were requested to be closed
     pub fn process_close_requests(&mut self) {
-        for tab_id in &self.close_tab_requests {
+        for tab_id in self.close_tab_requests.split_off(0) {
             let mut hypervisor = self.hypervisor.lock().unwrap();
 
             let mut id_to_remove = None;
             let mut index_to_remove = None;
-            match self.tabs.iter().enumerate().find(|(_index, tab)| &tab.id == tab_id) {
+            match self.tabs.iter().enumerate().find(|(_index, tab)| tab.id == tab_id) {
                 Some((index, tab)) => {
                     id_to_remove = Some(ArcId::clone(&tab.id));
                     index_to_remove = Some(index);
@@ -96,8 +96,6 @@ impl RootData {
                 hypervisor.close_tab(id);
             }
         }
-
-        self.close_tab_requests.clear();
     }
 }
 
