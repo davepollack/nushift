@@ -13,6 +13,9 @@ pub struct RootData {
     pub tabs: Vector<TabData>,
     #[data(eq)]
     pub currently_selected_tab_id: Option<ArcId>,
+    /// Currently, it should only be possible to submit one of these at a time, i.e. this should always have a length of 1
+    #[data(eq)]
+    pub close_tab_requests: Vector<ArcId>,
 
     #[data(ignore)]
     pub hypervisor: Arc<Mutex<Hypervisor>>,
@@ -45,47 +48,56 @@ impl RootData {
     }
 
     pub fn select_tab(&mut self, tab_id: &ArcId) {
-        self.currently_selected_tab_id = Some(ArcId::clone(&tab_id));
+        self.currently_selected_tab_id = Some(ArcId::clone(tab_id));
     }
 
-    pub fn close_tab(&mut self, tab_id: &ArcId) {
-        let mut hypervisor = self.hypervisor.lock().unwrap();
+    pub fn request_close_tab(&mut self, tab_id: &ArcId) {
+        self.close_tab_requests.push_back(ArcId::clone(tab_id));
+    }
 
-        let mut id_to_remove = None;
-        let mut index_to_remove = None;
-        match self.tabs.iter().enumerate().find(|(_index, tab)| &tab.id == tab_id) {
-            Some((index, tab)) => {
-                id_to_remove = Some(ArcId::clone(&tab.id));
-                index_to_remove = Some(index);
+    /// Close tabs that were requested to be closed
+    pub fn process_close_requests(&mut self) {
+        for tab_id in &self.close_tab_requests {
+            let mut hypervisor = self.hypervisor.lock().unwrap();
+
+            let mut id_to_remove = None;
+            let mut index_to_remove = None;
+            match self.tabs.iter().enumerate().find(|(_index, tab)| &tab.id == tab_id) {
+                Some((index, tab)) => {
+                    id_to_remove = Some(ArcId::clone(&tab.id));
+                    index_to_remove = Some(index);
+                }
+                None => {},
             }
-            None => {},
-        }
-        if let Some(index) = index_to_remove {
-            self.tabs.remove(index);
-        }
-
-        match (&id_to_remove, &self.currently_selected_tab_id, index_to_remove) {
-            // First tab was closed, is currently selected, and there are no tabs left
-            (Some(id_to_remove), Some(currently_selected_tab_id), Some(0)) if id_to_remove == currently_selected_tab_id && self.tabs.is_empty() => {
-                self.currently_selected_tab_id = None;
+            if let Some(index) = index_to_remove {
+                self.tabs.remove(index);
             }
-            // First tab was closed, is currently selected, and there are still some tabs left
-            (Some(id_to_remove), Some(currently_selected_tab_id), Some(0)) if id_to_remove == currently_selected_tab_id => {
-                let first_tab_id = ArcId::clone(&self.tabs[0].id);
-                self.currently_selected_tab_id = Some(first_tab_id);
-            },
-            // Other tab was closed, is currently selected
-            (Some(id_to_remove), Some(currently_selected_tab_id), Some(index)) if id_to_remove == currently_selected_tab_id => {
-                let previous_tab_id = ArcId::clone(&self.tabs[index - 1].id);
-                self.currently_selected_tab_id = Some(previous_tab_id);
-            },
-            // Closed tab is not the currently selected one, or nothing was closed
-            _ => {},
+
+            match (&id_to_remove, &self.currently_selected_tab_id, index_to_remove) {
+                // First tab was closed, is currently selected, and there are no tabs left
+                (Some(id_to_remove), Some(currently_selected_tab_id), Some(0)) if id_to_remove == currently_selected_tab_id && self.tabs.is_empty() => {
+                    self.currently_selected_tab_id = None;
+                },
+                // First tab was closed, is currently selected, and there are still some tabs left
+                (Some(id_to_remove), Some(currently_selected_tab_id), Some(0)) if id_to_remove == currently_selected_tab_id => {
+                    let first_tab_id = ArcId::clone(&self.tabs[0].id);
+                    self.currently_selected_tab_id = Some(first_tab_id);
+                },
+                // Other tab was closed, is currently selected
+                (Some(id_to_remove), Some(currently_selected_tab_id), Some(index)) if id_to_remove == currently_selected_tab_id => {
+                    let previous_tab_id = ArcId::clone(&self.tabs[index - 1].id);
+                    self.currently_selected_tab_id = Some(previous_tab_id);
+                },
+                // Closed tab is not the currently selected one, or nothing was closed
+                _ => {},
+            }
+
+            if let Some(ref id) = id_to_remove {
+                hypervisor.close_tab(id);
+            }
         }
 
-        if let Some(ref id) = id_to_remove {
-            hypervisor.close_tab(id);
-        }
+        self.close_tab_requests.clear();
     }
 }
 
@@ -100,6 +112,7 @@ pub mod tests {
         RootData {
             tabs: vector![],
             currently_selected_tab_id: None,
+            close_tab_requests: vector![],
             hypervisor,
         }
     }
@@ -135,7 +148,8 @@ pub mod tests {
         let mut root_data = mock();
         let tab1 = root_data.add_new_tab(&Env::empty());
 
-        root_data.close_tab(&tab1);
+        root_data.request_close_tab(&tab1);
+        root_data.process_close_requests();
 
         assert!(root_data.tabs.is_empty());
     }
@@ -145,7 +159,8 @@ pub mod tests {
         let mut root_data = mock();
         let tab1 = root_data.add_new_tab(&Env::empty());
 
-        root_data.close_tab(&tab1);
+        root_data.request_close_tab(&tab1);
+        root_data.process_close_requests();
 
         assert!(root_data.currently_selected_tab_id.is_none());
     }
@@ -157,7 +172,8 @@ pub mod tests {
         let tab2 = root_data.add_new_tab(&Env::empty());
         root_data.select_tab(&tab1);
 
-        root_data.close_tab(&tab1);
+        root_data.request_close_tab(&tab1);
+        root_data.process_close_requests();
 
         assert!(root_data.currently_selected_tab_id.as_ref().unwrap() == &tab2);
     }
@@ -168,7 +184,8 @@ pub mod tests {
         let tab1 = root_data.add_new_tab(&Env::empty());
         let tab2 = root_data.add_new_tab(&Env::empty());
 
-        root_data.close_tab(&tab2);
+        root_data.request_close_tab(&tab2);
+        root_data.process_close_requests();
 
         assert!(root_data.currently_selected_tab_id.as_ref().unwrap() == &tab1);
     }
@@ -179,7 +196,8 @@ pub mod tests {
         let tab1 = root_data.add_new_tab(&Env::empty());
         let tab2 = root_data.add_new_tab(&Env::empty());
 
-        root_data.close_tab(&tab1);
+        root_data.request_close_tab(&tab1);
+        root_data.process_close_requests();
 
         assert!(root_data.currently_selected_tab_id.as_ref().unwrap() == &tab2);
     }
@@ -192,7 +210,8 @@ pub mod tests {
         let reusable_id_pool = ReusableIdPool::new();
         let other_id = reusable_id_pool.allocate();
 
-        root_data.close_tab(&other_id);
+        root_data.request_close_tab(&other_id);
+        root_data.process_close_requests();
 
         assert_eq!(2, root_data.tabs.len());
         assert!(root_data.currently_selected_tab_id.is_some());

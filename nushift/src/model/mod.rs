@@ -4,4 +4,4 @@ pub(crate) mod combined;
 
 pub use root_data::RootData;
 pub use tab_data::TabData;
-pub use combined::{RootAndTabData, RootAndVectorTabData};
+pub use combined::RootAndTabData;

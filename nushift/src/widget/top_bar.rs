@@ -1,11 +1,11 @@
 use druid::{
-    lens, Env, LensExt, LocalizedString, Widget, WidgetExt,
+    Env, LocalizedString, Widget, WidgetExt,
     text::ArcStr,
     widget::{Flex, Label, CrossAxisAlignment, FlexParams}
 };
 
 use crate::theme::{TEXT_COLOR, THIN_STROKE_ICON_COLOR_KEY, THIN_STROKE_ICON_COLOR, THICK_STROKE_ICON_COLOR_KEY, THICK_STROKE_ICON_COLOR};
-use crate::model::{RootAndVectorTabData, RootData};
+use crate::model::RootData;
 use super::{value, tab_list, button};
 
 pub fn top_bar() -> impl Widget<RootData> {
@@ -28,22 +28,12 @@ pub fn top_bar() -> impl Widget<RootData> {
 
     let new_tab_button = button::new_tab_button();
 
-    let tab_list = tab_list::tab_list()
-        .lens(lens::Identity.map(
-            // Add root data as shared data, so tabs can call `close_tab()` on the root data
-            |root_data: &RootData| (root_data.clone(), root_data.tabs.clone()),
-            |root_data: &mut RootData, new_data: RootAndVectorTabData| {
-                *root_data = new_data.0;
-            }
-        ))
-        .expand_width();
-
     Flex::row()
         .cross_axis_alignment(CrossAxisAlignment::End)
         .with_flex_child(main_title, FlexParams::new(2.0, CrossAxisAlignment::Center))
         .with_child(new_tab_button)
         .with_spacer(2.5)
-        .with_flex_child(tab_list, 3.0)
+        .with_flex_child(tab_list::tab_list(), 3.0)
         .fix_height(value::TOP_BAR_HEIGHT)
         .padding((value::TOP_BAR_HORIZONTAL_PADDING, 0.))
         .background(value::TOP_BAR_BACKGROUND_COLOR)

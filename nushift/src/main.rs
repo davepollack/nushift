@@ -38,6 +38,7 @@ fn main() {
     let root_data = RootData {
         tabs: vector![],
         currently_selected_tab_id: None,
+        close_tab_requests: vector![],
         hypervisor,
     };
 

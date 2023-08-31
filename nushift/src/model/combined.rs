@@ -1,7 +1,5 @@
-use druid::{im::Vector, widget::ListIter, Data};
+use druid::{widget::ListIter, Data};
 use super::{RootData, TabData};
-
-pub type RootAndVectorTabData = (RootData, Vector<TabData>);
 
 /// A struct of root and a tab data for a particular tab widget.
 ///
@@ -45,44 +43,26 @@ impl RootAndTabData {
     }
 }
 
-impl ListIter<RootAndTabData> for RootAndVectorTabData {
+impl ListIter<RootAndTabData> for RootData {
     fn for_each(&self, mut cb: impl FnMut(&RootAndTabData, usize)) {
-        for (i, _) in self.1.iter().enumerate() {
-            let data = RootAndTabData::new(self.0.clone(), i);
+        for i in 0..self.tabs.len() {
+            let data = RootAndTabData::new(self.clone(), i);
             cb(&data, i);
         }
     }
 
     fn for_each_mut(&mut self, mut cb: impl FnMut(&mut RootAndTabData, usize)) {
-        for (i, _) in self.1.clone().iter().enumerate() {
-            let mut data = RootAndTabData::new(self.0.clone(), i);
+        for i in 0..self.tabs.len() {
+            let mut data = RootAndTabData::new(self.clone(), i);
             cb(&mut data, i);
 
-            if !self.0.same(data.root_data()) {
-                self.0 = data.consume();
+            if !self.same(data.root_data()) {
+                *self = data.consume();
             }
         }
     }
 
     fn data_len(&self) -> usize {
-        self.1.len()
-    }
-}
-
-#[cfg(test)]
-pub mod tests {
-    use super::*;
-    use druid::im::vector;
-    use reusable_id_pool::ArcId;
-
-    pub fn mock_root_and_vector_tab_data() -> RootAndVectorTabData {
-        let mut mock_root_data = super::super::root_data::tests::mock();
-        let mock_tab_data = super::super::tab_data::tests::mock();
-        // Set up mock_root_data
-        let tab_id = ArcId::clone(&mock_tab_data.id);
-        mock_root_data.tabs.push_back(mock_tab_data.clone());
-        mock_root_data.currently_selected_tab_id = Some(tab_id);
-
-        (mock_root_data, vector![mock_tab_data])
+        self.tabs.len()
     }
 }
