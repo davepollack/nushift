@@ -7,13 +7,14 @@ use druid::{Color, widget::Flex};
 use std::sync::{Mutex, Arc};
 use nushift_core::Hypervisor;
 
-mod theme;
-mod widget;
 mod model;
-mod selectors;
+mod widget;
+mod controller;
+mod theme;
+mod selector;
 
 use self::model::RootData;
-use self::selectors::HYPERVISOR_EVENT;
+use self::selector::HYPERVISOR_EVENT;
 
 fn main() {
     let main_window = WindowDesc::new(build_root_widget())

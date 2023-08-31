@@ -6,9 +6,9 @@ use druid::{
 use nushift_core::HypervisorEvent;
 
 use crate::model::RootAndTabData;
+use crate::controller::ClickInverse;
+use crate::controller::HypervisorCommandHandler;
 use super::{button, value};
-use super::click_inverse::ClickInverse;
-use super::hypervisor_command_handler::HypervisorCommandHandler;
 
 const TAB_BACKGROUND_COLOR: Color = Color::rgb8(0xa1, 0xf0, 0xf0);
 const TAB_HOVER_BACKGROUND_COLOR: Color = Color::rgb8(0xbd, 0xf5, 0xf5);

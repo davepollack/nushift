@@ -1,7 +1,7 @@
 use druid::{Env, EventCtx, Data, Widget, widget::Controller, Event};
 use nushift_core::HypervisorEvent;
 
-use crate::selectors::HYPERVISOR_EVENT;
+use crate::selector::HYPERVISOR_EVENT;
 
 pub struct HypervisorCommandHandler<T> {
     action: Box<dyn Fn(&HypervisorEvent, &mut T)>,

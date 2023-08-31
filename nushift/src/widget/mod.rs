@@ -6,8 +6,6 @@ mod button {
     pub use new_tab_button::new_tab_button;
     pub use close_button::close_button;
 }
-mod click_inverse;
-mod hypervisor_command_handler;
 mod tab;
 mod tab_list;
 mod top_bar;
