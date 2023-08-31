@@ -46,7 +46,7 @@ pub fn tab() -> impl Widget<RootAndTabData> {
                 },
                 MouseButton::Middle => {
                     let tab_data = root_and_tab_data.tab_data_cloned();
-                    root_and_tab_data.root_data_mut().request_close_tab(&tab_data.id);
+                    root_and_tab_data.root_data_mut().request_close_tab_from_tab_iter(&tab_data.id);
                 },
                 _ => {},
             };

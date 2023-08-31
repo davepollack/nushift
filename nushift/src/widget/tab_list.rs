@@ -62,7 +62,7 @@ impl Widget<RootData> for TabList {
                 widget_child.event(ctx, event, root_and_tab_data, env);
             }
         });
-        root_data.process_close_requests();
+        root_data.process_tab_iter_close_requests();
     }
 
     fn lifecycle(&mut self, ctx: &mut LifeCycleCtx, event: &LifeCycle, root_data: &RootData, env: &Env) {

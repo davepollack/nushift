@@ -26,6 +26,6 @@ pub fn close_button() -> impl Widget<RootAndTabData> {
     )
         .controller(ClickInverse::new(|_, _, root_and_tab_data: &mut RootAndTabData, _| {
             let tab_data = root_and_tab_data.tab_data_cloned();
-            root_and_tab_data.root_data_mut().request_close_tab(&tab_data.id);
+            root_and_tab_data.root_data_mut().request_close_tab_from_tab_iter(&tab_data.id);
         }))
 }

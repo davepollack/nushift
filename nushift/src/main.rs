@@ -12,15 +12,18 @@ mod widget;
 mod controller;
 mod theme;
 mod selector;
+mod global_key_command_handler;
 
 use self::model::RootData;
 use self::selector::HYPERVISOR_EVENT;
+use self::global_key_command_handler::GlobalKeyCommandHandler;
 
 fn main() {
     let main_window = WindowDesc::new(build_root_widget())
         .title(LocalizedString::new("nushift"));
 
     let launcher = AppLauncher::with_window(main_window)
+        .delegate(GlobalKeyCommandHandler::new())
         .log_to_console()
         .configure_env(|env, _| {
             env.set(druid::theme::WINDOW_BACKGROUND_COLOR, Color::grey(0.95));
