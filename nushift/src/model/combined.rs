@@ -27,15 +27,15 @@ impl RootAndTabData {
     }
 
     pub fn tab_data(&self) -> &TabData {
-        &self.root_data.tabs[self.tab_data_index] // I think panicking here for out of bounds is okay
+        self.root_data.tabs.get(self.tab_data_index).expect_tab()
     }
 
     pub fn tab_data_mut(&mut self) -> &mut TabData {
-        &mut self.root_data.tabs[self.tab_data_index] // I think panicking here for out of bounds is okay
+        self.root_data.tabs.get_mut(self.tab_data_index).expect_tab()
     }
 
     pub fn tab_data_cloned(&self) -> TabData {
-        self.root_data.tabs[self.tab_data_index].clone() // I think panicking here for out of bounds is okay
+        self.tab_data().clone()
     }
 
     fn consume(self) -> RootData {
@@ -64,5 +64,19 @@ impl ListIter<RootAndTabData> for RootData {
 
     fn data_len(&self) -> usize {
         self.tabs.len()
+    }
+}
+
+trait ExpectTab {
+    type Output;
+
+    fn expect_tab(self) -> Self::Output;
+}
+
+impl<T> ExpectTab for Option<T> {
+    type Output = T;
+
+    fn expect_tab(self) -> Self::Output {
+        self.expect("Tab not found in an internal data structure. This should not occur and indicates a bug in Nushift's code.")
     }
 }
