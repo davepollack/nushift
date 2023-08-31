@@ -51,14 +51,10 @@ impl AccessibilityTreeSpace {
         self.deferred_space.new_cap(A11Y_CONTEXT)
     }
 
-    /// Releases SHM cap, but does not do further processing yet.
     pub fn publish_accessibility_tree_blocking(&mut self, accessibility_tree_cap_id: AccessibilityTreeCapId, input_shm_cap_id: ShmCapId, shm_space: &mut ShmSpace) -> Result<(), DeferredSpaceError> {
         self.deferred_space.publish_blocking(A11Y_CONTEXT, accessibility_tree_cap_id, input_shm_cap_id, shm_space)
     }
 
-    /// The Err(()) variant is only used for an internal error where the output
-    /// cap is not available. All other errors should be reported through the
-    /// output cap.
     pub fn publish_accessibility_tree_deferred(&mut self, accessibility_tree_cap_id: AccessibilityTreeCapId, shm_space: &mut ShmSpace) -> Result<(), ()> {
         self.deferred_space.publish_deferred(&mut self.accessibility_tree_space_specific, accessibility_tree_cap_id, shm_space)
     }

@@ -138,8 +138,15 @@ impl DefaultDeferredSpace {
         }
 
         fn prologue(this: &mut DefaultDeferredSpace, cap_id: DefaultDeferredSpaceCapId) -> PrologueReturn<'_> {
-            // If cap has been deleted after progress is started, that is valid and
-            // now do nothing here.
+            // If cap has been deleted after progress is started, that is valid
+            // and now do nothing here.
+            //
+            // TODO: This comment contradicts the comment in destroy_cap, and
+            // it's only valid if destroy_cap moved the in-progress caps back
+            // into the SHM space (so the stats are not corrupted), which it
+            // currently does not! And probably other things I'm forgetting. So
+            // consider going with the comment in destroy_cap and say it's
+            // actually not valid.
             let default_deferred_cap = match this.get_mut(cap_id) {
                 Some(default_deferred_cap) => default_deferred_cap,
                 None => return PrologueReturn::ReturnOk,
