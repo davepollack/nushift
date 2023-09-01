@@ -48,7 +48,7 @@ Arguments: type (`ShmType`), length (`u64`).\
 Returns: shm_cap_id (`u64`).\
 Errors: `InternalError`, `Exhausted`, `ShmUnknownShmType`, `ShmInvalidLength`, `ShmCapacityNotAvailable`
 
-Creates a new SHM cap. The size (in bytes) of the backing memory of the cap is the page size (in bytes) represented by the `ShmType` provided multiplied by the `length` provided.
+Creates a new SHM cap. The size (in bytes) of the backing memory of the cap is the page size (in bytes) represented by the `ShmType` provided multiplied by the `length` provided. For example, `ShmType::FourKiB` and a `length` of `1` produces a cap that logically holds one 4 KiB page, and has a total backing memory size of 4096 bytes.
 
 `length` must be greater than 0.
 
