@@ -1,12 +1,17 @@
 use std::sync::Arc;
 
 use reusable_id_pool::ArcId;
+use snafu::prelude::*;
+use snafu_cli_debug::SnafuCliDebug;
 
 /// For now, do Fn not FnMut, because we actually don't need mutability for
 /// ExtEventSink::submit_command because it uses a lock. We can always expand to
 /// FnMut later.
-pub type HypervisorEventHandler = Arc<dyn Fn(HypervisorEvent) + Send + Sync + 'static>;
-pub(crate) type BoundHypervisorEventHandler = Arc<dyn Fn(UnboundHypervisorEvent) + Send + Sync + 'static>;
+pub trait HypervisorEventHandlerFn: Fn(HypervisorEvent) -> Result<(), HypervisorEventError> + Send + Sync + 'static {}
+impl<F> HypervisorEventHandlerFn for F where F: Fn(HypervisorEvent) -> Result<(), HypervisorEventError> + Send + Sync + 'static {}
+pub type HypervisorEventHandler = Arc<dyn HypervisorEventHandlerFn>;
+
+pub(crate) type BoundHypervisorEventHandler = Arc<dyn Fn(UnboundHypervisorEvent) -> Result<(), HypervisorEventError> + Send + Sync + 'static>;
 
 #[non_exhaustive] // TODO: Probably remove this non_exhaustive when we add a second (and any more) variants
 pub enum HypervisorEvent {
@@ -23,4 +28,10 @@ impl HypervisorEvent {
             UnboundHypervisorEvent::TitleChange(new_title) => HypervisorEvent::TitleChange(tab_id, new_title),
         }
     }
+}
+
+#[derive(Snafu, SnafuCliDebug)]
+pub enum HypervisorEventError {
+    #[snafu(display("Submitting command to the Nushift shell failed. This probably means that the Nushift shell has gone away."))]
+    SubmitCommandError,
 }

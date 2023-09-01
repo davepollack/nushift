@@ -13,4 +13,4 @@ mod deferred_space;
 mod title_space;
 
 pub use crate::hypervisor::Hypervisor;
-pub use crate::hypervisor_event::HypervisorEvent;
+pub use crate::hypervisor_event::{HypervisorEvent, HypervisorEventError};

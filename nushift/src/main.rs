@@ -5,7 +5,7 @@ use druid::{AppLauncher, WindowDesc, LocalizedString, Widget, Target};
 use druid::im::vector;
 use druid::{Color, widget::Flex};
 use std::sync::{Mutex, Arc};
-use nushift_core::Hypervisor;
+use nushift_core::{Hypervisor, HypervisorEventError};
 
 mod model;
 mod widget;
@@ -32,8 +32,8 @@ fn main() {
     let hypervisor_event_handler = {
         let event_sink = launcher.get_external_handle();
         move |hypervisor_event| {
-            // TODO: Use error
-            event_sink.submit_command(HYPERVISOR_EVENT, hypervisor_event, Target::Auto);
+            event_sink.submit_command(HYPERVISOR_EVENT, hypervisor_event, Target::Auto)
+                .map_err(|_| HypervisorEventError::SubmitCommandError)
         }
     };
 

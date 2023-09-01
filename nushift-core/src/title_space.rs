@@ -1,5 +1,5 @@
-use super::deferred_space::{DeferredSpace, DefaultDeferredSpace, DeferredSpaceSpecific, DeferredSpaceError};
-use super::hypervisor_event::{BoundHypervisorEventHandler, UnboundHypervisorEvent};
+use super::deferred_space::{self, DeferredSpace, DefaultDeferredSpace, DeferredSpaceSpecific, DeferredError, DeferredSpaceError};
+use super::hypervisor_event::{BoundHypervisorEventHandler, UnboundHypervisorEvent, HypervisorEventError};
 use super::shm_space::{ShmCapId, ShmCap, ShmSpace};
 
 pub type TitleCapId = u64;
@@ -15,8 +15,14 @@ struct TitleSpaceSpecific {
 }
 
 impl DeferredSpaceSpecific for TitleSpaceSpecific {
-    fn process_cap_str(&mut self, str: &str, _output_shm_cap: &mut ShmCap) {
-        (self.bound_hypervisor_event_handler)(UnboundHypervisorEvent::TitleChange(str.into()));
+    fn process_cap_str(&mut self, str: &str, output_shm_cap: &mut ShmCap) {
+        (self.bound_hypervisor_event_handler)(UnboundHypervisorEvent::TitleChange(str.into()))
+            .unwrap_or_else(|hypervisor_event_error| match hypervisor_event_error {
+                HypervisorEventError::SubmitCommandError => {
+                    tracing::debug!("Submit failed: {hypervisor_event_error}");
+                    deferred_space::print_error(output_shm_cap, DeferredError::SubmitFailed, &hypervisor_event_error);
+                }
+            });
     }
 }
 

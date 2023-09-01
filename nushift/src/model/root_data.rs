@@ -116,7 +116,7 @@ pub mod tests {
     use reusable_id_pool::ReusableIdPool;
 
     pub fn mock() -> RootData {
-        let hypervisor = Arc::new(Mutex::new(Hypervisor::new(|_| {})));
+        let hypervisor = Arc::new(Mutex::new(Hypervisor::new(|_| Ok(()))));
         RootData {
             tabs: vector![],
             currently_selected_tab_id: None,

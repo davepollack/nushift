@@ -20,7 +20,7 @@ impl Tab {
         let bound_hypervisor_event_handler = Arc::new({
             let cloned_id = ArcId::clone(&id);
             move |unbound_hyp_event| {
-                hypervisor_event_handler(HypervisorEvent::from(ArcId::clone(&cloned_id), unbound_hyp_event));
+                hypervisor_event_handler(HypervisorEvent::from(ArcId::clone(&cloned_id), unbound_hyp_event))
             }
         });
 
