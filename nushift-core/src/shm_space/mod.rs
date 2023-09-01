@@ -14,7 +14,6 @@ pub const SV39_BITS: u8 = 39;
 
 #[derive(TryFromPrimitive, Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u64)]
-#[non_exhaustive] // Remove this if all of Sv32, Sv48 and Sv57 have been supported. Possibly.
 pub enum ShmType {
     // Support page sizes available in the Sv39 scheme.
     FourKiB = 0,

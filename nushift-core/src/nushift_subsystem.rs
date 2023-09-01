@@ -22,7 +22,6 @@ use super::title_space::TitleSpace;
 
 #[derive(TryFromPrimitive)]
 #[repr(u64)]
-#[non_exhaustive]
 enum Syscall {
     Exit = 0,
 
@@ -44,7 +43,6 @@ enum Syscall {
 
 #[derive(IntoPrimitive)]
 #[repr(u64)]
-#[non_exhaustive]
 pub enum SyscallError {
     UnknownSyscall = 0,
 
