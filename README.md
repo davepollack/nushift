@@ -18,7 +18,7 @@ A region of memory is a cap (capability), and this is distinguished from the add
 
 ## 64-bit versus 32-bit
 
-Currently, riscv64 is supported. The hypervisor API expects 64-bit values, and this is likely to remain the case when 32-bit apps are supported. 64-bit values, for the purposes of the hypervisor API, should be encoded into one or multiple 32-bit registers by 32-bit apps.
+Currently, RV64IMC is supported. Support for more extensions will almost certainly be added. The hypervisor API expects 64-bit values, and this is likely to remain the case when 32-bit apps are supported. 64-bit values, for the purposes of the hypervisor API, should be encoded into one or multiple 32-bit registers by 32-bit apps.
 
 ## Hypervisor ABI
 
