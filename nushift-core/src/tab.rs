@@ -30,10 +30,6 @@ impl Tab {
         }
     }
 
-    pub fn id(&self) -> &ArcId {
-        &self.id
-    }
-
     pub fn load_and_run(&mut self, image: Vec<u8>) {
         let (syscall_enter_send, syscall_enter_receive) = mpsc::channel();
         let (syscall_return_send, syscall_return_receive) = mpsc::channel();

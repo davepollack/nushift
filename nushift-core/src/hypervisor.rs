@@ -47,11 +47,6 @@ impl Hypervisor {
         new_tab_id
     }
 
-    /// Get a tab.
-    pub fn get_tab(&self, tab_id: &ArcId) -> Option<&Tab> {
-        self.tabs.get(tab_id)
-    }
-
     /// Close a tab.
     ///
     /// If the passed-in `tab_id` does not exist, this method does nothing.
