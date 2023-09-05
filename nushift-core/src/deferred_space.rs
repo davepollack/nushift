@@ -1,5 +1,7 @@
 use std::collections::{HashMap, hash_map::Entry};
+use std::ops::{Deref, DerefMut};
 
+use memmap2::MmapMut;
 use num_enum::IntoPrimitive;
 use reusable_id_pool::{ReusableIdPoolManual, ReusableIdPoolError};
 use snafu::prelude::*;
@@ -22,8 +24,8 @@ pub trait DeferredSpace {
 }
 
 // In contrast to the above trait, this one is used by multiple impls.
-pub trait DeferredSpaceSpecific {
-    fn process_cap_str(&mut self, str: &str, output_shm_cap: &mut ShmCap);
+pub trait DeferredSpaceSpecific<BOutput = MmapMut> {
+    fn process_cap_str(&mut self, str: &str, output_shm_cap: &mut ShmCap<BOutput>);
 }
 
 pub type DefaultDeferredSpaceCapId = u64;
@@ -183,15 +185,21 @@ impl DefaultDeferredSpace {
     }
 
     /// TODO: Change this weird format to something that's been implemented for us, like Postcard.
-    fn process_cap_content<S>(deferred_space_specific: &mut S, input_shm_cap: &ShmCap, output_shm_cap: &mut ShmCap)
+    fn process_cap_content<S, BInput, BOutput>(deferred_space_specific: &mut S, input_shm_cap: &ShmCap<BInput>, output_shm_cap: &mut ShmCap<BOutput>)
     where
-        S: DeferredSpaceSpecific,
+        S: DeferredSpaceSpecific<BOutput>,
+        BInput: Deref<Target = [u8]>,
+        BOutput: DerefMut<Target = [u8]>,
     {
-        /// A lifetime annotation doesn't cause this to be monomorphised, so for
-        /// our purposes it's still a non-generic inner function
-        fn inner<'input>(input_shm_cap: &'input ShmCap, output_shm_cap: &mut ShmCap) -> Result<&'input str, ()> {
+        /// BInput and BOutput are only used in tests, so this is still a
+        /// non-generic-enough inner function
+        fn inner<'input, BInput, BOutput>(input_shm_cap: &'input ShmCap<BInput>, output_shm_cap: &mut ShmCap<BOutput>) -> Result<&'input str, ()>
+        where
+            BInput: Deref<Target = [u8]>,
+            BOutput: DerefMut<Target = [u8]>,
+        {
             let untrusted_length = u64::from_le_bytes(input_shm_cap.backing()[0..8].try_into().unwrap());
-            fn untrusted_length_within_total_bytes(untrusted_length: u64, input_shm_cap: &ShmCap) -> bool {
+            fn untrusted_length_within_total_bytes<B>(untrusted_length: u64, input_shm_cap: &ShmCap<B>) -> bool {
                 let Some(total_bytes) = input_shm_cap.shm_type().page_bytes()
                     .checked_mul(input_shm_cap.length_u64()) else { return false; };
                 let Some(remaining_bytes) = total_bytes.checked_sub(8) else { return false; };
@@ -226,7 +234,10 @@ impl DefaultDeferredSpace {
     }
 }
 
-pub fn print_error(output_shm_cap: &mut ShmCap, deferred_error: DeferredError, error: &dyn core::fmt::Display) {
+pub fn print_error<BOutput>(output_shm_cap: &mut ShmCap<BOutput>, deferred_error: DeferredError, error: &dyn core::fmt::Display)
+where
+    BOutput: DerefMut<Target = [u8]>,
+{
     let error_message = format!("{deferred_error:?}: {error}");
 
     // Write error code
@@ -274,8 +285,6 @@ pub enum DeferredError {
 mod tests {
     use std::num::NonZeroU64;
 
-    use memmap2::MmapMut;
-
     use super::*;
 
     #[derive(Default)]
@@ -283,8 +292,8 @@ mod tests {
         called: bool,
     }
 
-    impl DeferredSpaceSpecific for MockDeferredSpaceSpecific {
-        fn process_cap_str(&mut self, _str: &str, _output_shm_cap: &mut ShmCap) {
+    impl DeferredSpaceSpecific<Box<[u8]>> for MockDeferredSpaceSpecific {
+        fn process_cap_str(&mut self, _str: &str, _output_shm_cap: &mut ShmCap<Box<[u8]>>) {
             self.called = true;
         }
     }
@@ -296,8 +305,8 @@ mod tests {
     #[test]
     fn process_cap_content_corrupt_input_shm_cap_error() {
         let mut deferred_space_specific: MockDeferredSpaceSpecific = Default::default();
-        let corrupt_input_shm_cap = ShmCap::new(ShmType::FourKiB, non_zero(u64::MAX), MmapMut::map_anon(8).expect("Should succeed"), CapType::UserCap);
-        let mut output_shm_cap = ShmCap::new(ShmType::FourKiB, non_zero(1), MmapMut::map_anon(4096).expect("Should succeed"), CapType::UserCap);
+        let corrupt_input_shm_cap = ShmCap::new(ShmType::FourKiB, non_zero(u64::MAX), Box::new([0u8; 8]) as Box<[u8]>, CapType::UserCap);
+        let mut output_shm_cap = ShmCap::new(ShmType::FourKiB, non_zero(1), Box::new([0u8; 4096]) as Box<[u8]>, CapType::UserCap);
 
         DefaultDeferredSpace::process_cap_content(&mut deferred_space_specific, &corrupt_input_shm_cap, &mut output_shm_cap);
 
@@ -308,11 +317,11 @@ mod tests {
     #[test]
     fn process_cap_content_multi_page_input_shm_cap_allowed() {
         let mut deferred_space_specific: MockDeferredSpaceSpecific = Default::default();
-        let mut multi_page_input_shm_cap_backing = MmapMut::map_anon(8192).expect("Should succeed");
+        let mut multi_page_input_shm_cap_backing: Box<[u8]> = Box::new([0u8; 8192]);
         // untrusted_length is 8184
         multi_page_input_shm_cap_backing[0..8].copy_from_slice(&8184u64.to_le_bytes());
         let multi_page_input_shm_cap = ShmCap::new(ShmType::FourKiB, non_zero(2), multi_page_input_shm_cap_backing, CapType::UserCap);
-        let mut output_shm_cap = ShmCap::new(ShmType::FourKiB, non_zero(1), MmapMut::map_anon(4096).expect("Should succeed"), CapType::UserCap);
+        let mut output_shm_cap = ShmCap::new(ShmType::FourKiB, non_zero(1), Box::new([0u8; 4096]) as Box<[u8]>, CapType::UserCap);
 
         DefaultDeferredSpace::process_cap_content(&mut deferred_space_specific, &multi_page_input_shm_cap, &mut output_shm_cap);
 
