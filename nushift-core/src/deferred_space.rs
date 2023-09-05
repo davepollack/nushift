@@ -191,11 +191,17 @@ impl DefaultDeferredSpace {
         /// our purposes it's still a non-generic inner function
         fn inner<'input>(input_shm_cap: &'input ShmCap, output_shm_cap: &mut ShmCap) -> Result<&'input str, ()> {
             let untrusted_length = u64::from_le_bytes(input_shm_cap.backing()[0..8].try_into().unwrap());
+            fn untrusted_length_within_total_bytes(untrusted_length: u64, input_shm_cap: &ShmCap) -> bool {
+                let Some(total_bytes) = input_shm_cap.shm_type().page_bytes()
+                    .checked_mul(input_shm_cap.length_u64()) else { return false; };
+                let Some(remaining_bytes) = total_bytes.checked_sub(8) else { return false; };
+                untrusted_length <= remaining_bytes
+            }
             if untrusted_length == 0
-                || untrusted_length > input_shm_cap.shm_type().page_bytes() - 8
+                || !untrusted_length_within_total_bytes(untrusted_length, input_shm_cap)
                 || UsizeOrU64::u64(untrusted_length) > UsizeOrU64::usize(usize::MAX - 8)
             {
-                tracing::debug!("Invalid length: {untrusted_length}");
+                tracing::debug!("Invalid length: {untrusted_length} (or size of input SHM cap is corrupt)");
                 output_shm_cap.backing_mut()[0..8].copy_from_slice(&u64::from(DeferredError::InvalidLength).to_le_bytes());
                 return Err(());
             }
@@ -262,4 +268,54 @@ pub enum DeferredError {
     InvalidDataUtf8 = 1,
     InvalidDataRon = 2,
     SubmitFailed = 3,
+}
+
+#[cfg(test)]
+mod tests {
+    use std::num::NonZeroU64;
+
+    use memmap2::MmapMut;
+
+    use super::*;
+
+    #[derive(Default)]
+    struct MockDeferredSpaceSpecific {
+        called: bool,
+    }
+
+    impl DeferredSpaceSpecific for MockDeferredSpaceSpecific {
+        fn process_cap_str(&mut self, _str: &str, _output_shm_cap: &mut ShmCap) {
+            self.called = true;
+        }
+    }
+
+    fn non_zero(value: u64) -> NonZeroU64 {
+        NonZeroU64::new(value).expect("not zero")
+    }
+
+    #[test]
+    fn process_cap_content_corrupt_input_shm_cap_error() {
+        let mut deferred_space_specific: MockDeferredSpaceSpecific = Default::default();
+        let corrupt_input_shm_cap = ShmCap::new(ShmType::FourKiB, non_zero(u64::MAX), MmapMut::map_anon(8).expect("Should succeed"), CapType::UserCap);
+        let mut output_shm_cap = ShmCap::new(ShmType::FourKiB, non_zero(1), MmapMut::map_anon(4096).expect("Should succeed"), CapType::UserCap);
+
+        DefaultDeferredSpace::process_cap_content(&mut deferred_space_specific, &corrupt_input_shm_cap, &mut output_shm_cap);
+
+        assert!(!deferred_space_specific.called);
+        assert_eq!(output_shm_cap.backing()[0..8], u64::from(DeferredError::InvalidLength).to_le_bytes());
+    }
+
+    #[test]
+    fn process_cap_content_multi_page_input_shm_cap_allowed() {
+        let mut deferred_space_specific: MockDeferredSpaceSpecific = Default::default();
+        let mut multi_page_input_shm_cap_backing = MmapMut::map_anon(8192).expect("Should succeed");
+        // untrusted_length is 8184
+        multi_page_input_shm_cap_backing[0..8].copy_from_slice(&8184u64.to_le_bytes());
+        let multi_page_input_shm_cap = ShmCap::new(ShmType::FourKiB, non_zero(2), multi_page_input_shm_cap_backing, CapType::UserCap);
+        let mut output_shm_cap = ShmCap::new(ShmType::FourKiB, non_zero(1), MmapMut::map_anon(4096).expect("Should succeed"), CapType::UserCap);
+
+        DefaultDeferredSpace::process_cap_content(&mut deferred_space_specific, &multi_page_input_shm_cap, &mut output_shm_cap);
+
+        assert!(deferred_space_specific.called);
+    }
 }
