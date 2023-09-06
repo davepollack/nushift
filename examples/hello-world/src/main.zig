@@ -19,7 +19,7 @@ pub fn main() usize {
         .fail => |err_enum| return @intFromEnum(err_enum),
     };
 
-    write_to_input_cap(TITLE_INPUT_ACQUIRE_ADDRESS, title);
+    write_to_input_cap(@as([*]u8, @ptrFromInt(TITLE_INPUT_ACQUIRE_ADDRESS))[0..4096], title) catch return 1;
 
     const title_publish_result = OsNushift.syscall(.title_publish, .{ .title_cap_id = title_cap_id, .input_shm_cap_id = title_input_shm_cap_id });
     switch (title_publish_result) {
@@ -40,7 +40,7 @@ pub fn main() usize {
         .fail => |err_enum| return @intFromEnum(err_enum),
     };
 
-    write_to_input_cap(A11Y_INPUT_ACQUIRE_ADDRESS, ron);
+    write_to_input_cap(@as([*]u8, @ptrFromInt(A11Y_INPUT_ACQUIRE_ADDRESS))[0..40960], ron) catch return 1;
 
     const a11y_publish_result = OsNushift.syscall(.accessibility_tree_publish, .{ .accessibility_tree_cap_id = a11y_tree_cap_id, .input_shm_cap_id = a11y_input_shm_cap_id });
     switch (a11y_publish_result) {
@@ -59,9 +59,10 @@ pub fn main() usize {
     return a11y_tree_cap_id + 1000;
 }
 
-fn write_to_input_cap(comptime address: usize, comptime str: []const u8) void {
-    const str_length_dest: *[@sizeOf(usize)]u8 = @ptrFromInt(address);
-    const data_dest: *[str.len]u8 = @ptrFromInt(address + @sizeOf(usize));
-    std.mem.writeIntLittle(usize, str_length_dest, str.len);
-    @memcpy(data_dest, str);
+fn write_to_input_cap(comptime buffer: []u8, comptime str: []const u8) std.io.FixedBufferStream([]u8).WriteError!void {
+    var stream = std.io.fixedBufferStream(buffer);
+    const writer = stream.writer();
+
+    try std.leb.writeULEB128(writer, str.len);
+    _ = try writer.write(str);
 }
