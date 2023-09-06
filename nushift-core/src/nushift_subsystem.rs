@@ -3,7 +3,7 @@ use num_enum::{TryFromPrimitive, IntoPrimitive};
 
 use super::accessibility_tree_space::AccessibilityTreeSpace;
 use super::deferred_space::DeferredSpaceError;
-use super::hypervisor_event::BoundHypervisorEventHandler;
+use super::hypervisor::hypervisor_event::BoundHypervisorEventHandler;
 use super::register_ipc::{SyscallEnter, SyscallReturn, SyscallReturnAndTask, Task, SYSCALL_NUM_REGISTER_INDEX, FIRST_ARG_REGISTER_INDEX, SECOND_ARG_REGISTER_INDEX, THIRD_ARG_REGISTER_INDEX};
 use super::shm_space::{CapType, ShmType, ShmSpace, ShmSpaceError};
 use super::title_space::TitleSpace;

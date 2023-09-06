@@ -3,8 +3,11 @@ use std::{fs, collections::HashMap};
 
 use reusable_id_pool::{ReusableIdPool, ArcId};
 
-use super::hypervisor_event::{HypervisorEventHandler, HypervisorEventHandlerFn};
-use super::tab::Tab;
+pub(super) mod hypervisor_event;
+mod tab;
+
+use self::hypervisor_event::{HypervisorEventHandler, HypervisorEventHandlerFn};
+use self::tab::Tab;
 
 pub struct Hypervisor {
     tabs: HashMap<ArcId, Tab>,

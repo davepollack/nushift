@@ -5,9 +5,9 @@ use std::thread;
 use reusable_id_pool::ArcId;
 
 use super::hypervisor_event::{HypervisorEvent, HypervisorEventHandler};
-use super::nushift_subsystem::NushiftSubsystem;
-use super::process_control_block::ProcessControlBlock;
-use super::register_ipc::Task;
+use crate::nushift_subsystem::NushiftSubsystem;
+use crate::process_control_block::ProcessControlBlock;
+use crate::register_ipc::Task;
 
 pub struct Tab {
     id: ArcId,

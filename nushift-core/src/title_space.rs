@@ -1,7 +1,7 @@
 use serde::Deserialize;
 
 use super::deferred_space::{self, DeferredSpace, DefaultDeferredSpace, DeferredSpaceSpecific, DeferredError, DeferredSpaceError};
-use super::hypervisor_event::{BoundHypervisorEventHandler, UnboundHypervisorEvent, HypervisorEventError};
+use super::hypervisor::hypervisor_event::{BoundHypervisorEventHandler, UnboundHypervisorEvent, HypervisorEventError};
 use super::shm_space::{ShmCapId, ShmCap, ShmSpace};
 
 pub type TitleCapId = u64;

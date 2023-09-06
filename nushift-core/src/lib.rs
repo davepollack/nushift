@@ -1,6 +1,4 @@
 mod hypervisor;
-mod hypervisor_event;
-mod tab;
 mod process_control_block;
 mod nushift_subsystem;
 mod protected_memory;
@@ -12,4 +10,4 @@ mod deferred_space;
 mod title_space;
 
 pub use crate::hypervisor::Hypervisor;
-pub use crate::hypervisor_event::{HypervisorEvent, HypervisorEventError};
+pub use crate::hypervisor::hypervisor_event::{HypervisorEvent, HypervisorEventError};
