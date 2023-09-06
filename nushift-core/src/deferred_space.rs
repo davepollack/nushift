@@ -1,9 +1,8 @@
 use std::collections::{HashMap, hash_map::Entry};
-use std::ops::{Deref, DerefMut};
 
-use memmap2::MmapMut;
 use num_enum::IntoPrimitive;
 use reusable_id_pool::{ReusableIdPoolManual, ReusableIdPoolError};
+use serde::Deserialize;
 use snafu::prelude::*;
 use snafu_cli_debug::SnafuCliDebug;
 
@@ -24,8 +23,8 @@ pub trait DeferredSpace {
 }
 
 // In contrast to the above trait, this one is used by multiple impls.
-pub trait DeferredSpaceSpecific<BOutput = MmapMut> {
-    fn process_cap_str(&mut self, str: &str, output_shm_cap: &mut ShmCap<BOutput>);
+pub trait DeferredSpaceSpecific {
+    fn process_cap_payload(&mut self, input: &[u8], output_shm_cap: &mut ShmCap);
 }
 
 pub type DefaultDeferredSpaceCapId = u64;
@@ -133,10 +132,10 @@ impl DefaultDeferredSpace {
     where
         S: DeferredSpaceSpecific,
     {
-        enum PrologueReturn<'space> {
+        enum PrologueReturn<'deferred_space> {
             ReturnOk,
             ReturnErr,
-            ContinueCaps(&'space ShmCap, &'space mut ShmCap),
+            ContinueCaps(&'deferred_space ShmCap, &'deferred_space mut ShmCap),
         }
 
         fn prologue(this: &mut DefaultDeferredSpace, cap_id: DefaultDeferredSpaceCapId) -> PrologueReturn<'_> {
@@ -168,7 +167,7 @@ impl DefaultDeferredSpace {
             PrologueReturn::ContinueCaps(input_shm_cap, output_shm_cap) => (input_shm_cap, output_shm_cap),
         };
 
-        Self::process_cap_content(deferred_space_specific, input_shm_cap, output_shm_cap);
+        deferred_space_specific.process_cap_payload(input_shm_cap.backing(), output_shm_cap);
 
         fn epilogue(this: &mut DefaultDeferredSpace, cap_id: DefaultDeferredSpaceCapId, shm_space: &mut ShmSpace) -> Result<(), ()> {
             // It should still not be possible for in_progress_cap to be empty. This
@@ -183,61 +182,9 @@ impl DefaultDeferredSpace {
 
         epilogue(self, cap_id, shm_space)
     }
-
-    /// TODO: Change this weird format to something that's been implemented for us, like Postcard.
-    fn process_cap_content<S, BInput, BOutput>(deferred_space_specific: &mut S, input_shm_cap: &ShmCap<BInput>, output_shm_cap: &mut ShmCap<BOutput>)
-    where
-        S: DeferredSpaceSpecific<BOutput>,
-        BInput: Deref<Target = [u8]>,
-        BOutput: DerefMut<Target = [u8]>,
-    {
-        /// BInput and BOutput are only used in tests, so this is still a
-        /// non-generic-enough inner function
-        fn inner<'input, BInput, BOutput>(input_shm_cap: &'input ShmCap<BInput>, output_shm_cap: &mut ShmCap<BOutput>) -> Result<&'input str, ()>
-        where
-            BInput: Deref<Target = [u8]>,
-            BOutput: DerefMut<Target = [u8]>,
-        {
-            let untrusted_length = u64::from_le_bytes(input_shm_cap.backing()[0..8].try_into().unwrap());
-            fn untrusted_length_within_total_bytes<B>(untrusted_length: u64, input_shm_cap: &ShmCap<B>) -> bool {
-                let Some(total_bytes) = input_shm_cap.shm_type().page_bytes()
-                    .checked_mul(input_shm_cap.length_u64()) else { return false; };
-                let Some(remaining_bytes) = total_bytes.checked_sub(8) else { return false; };
-                untrusted_length <= remaining_bytes
-            }
-            if untrusted_length == 0
-                || !untrusted_length_within_total_bytes(untrusted_length, input_shm_cap)
-                || UsizeOrU64::u64(untrusted_length) > UsizeOrU64::usize(usize::MAX - 8)
-            {
-                tracing::debug!("Invalid length: {untrusted_length} (or size of input SHM cap is corrupt)");
-                output_shm_cap.backing_mut()[0..8].copy_from_slice(&u64::from(DeferredError::InvalidLength).to_le_bytes());
-                return Err(());
-            }
-
-            // The length can still be garbage/not represent the length of the data
-            // that follows it.
-            //
-            // The length is required as a hint for correct parsing, but all other
-            // cases should be robustly handled.
-
-            core::str::from_utf8(&input_shm_cap.backing()[8..8+(untrusted_length as usize)])
-                .map_err(|utf8_error| {
-                    tracing::debug!("from_utf8 error: {utf8_error}");
-                    print_error(output_shm_cap, DeferredError::InvalidDataUtf8, &utf8_error);
-                    ()
-                })
-        }
-
-        let Ok(str) = inner(input_shm_cap, output_shm_cap) else { return; };
-
-        deferred_space_specific.process_cap_str(str, output_shm_cap);
-    }
 }
 
-pub fn print_error<BOutput>(output_shm_cap: &mut ShmCap<BOutput>, deferred_error: DeferredError, error: &dyn core::fmt::Display)
-where
-    BOutput: DerefMut<Target = [u8]>,
-{
+pub fn print_error(output_shm_cap: &mut ShmCap, deferred_error: DeferredError, error: &dyn core::fmt::Display) {
     let error_message = format!("{deferred_error:?}: {error}");
 
     // Write error code
@@ -250,6 +197,23 @@ where
         output_shm_cap.backing_mut()[8..16].copy_from_slice(&error_message_len.to_le_bytes());
         output_shm_cap.backing_mut()[16..(16+error_message.len())].copy_from_slice(error_message.as_bytes());
     }
+}
+
+/// I have this function to be called by trait methods, instead of calling it in
+/// publish_deferred and passing Deserialize<'de> to the trait method, the
+/// Deserialize<'de> being an associated type of the trait. Couldn't get the
+/// lifetimes of the latter to work, while also doing mutation in the epilogue
+/// of publish_deferred. I don't know why.
+pub fn deserialize_general<'de, D>(input: &'de [u8]) -> Result<D, ()>
+where
+    D: Deserialize<'de>,
+{
+    postcard::from_bytes(input)
+        .map_err(|postcard_error| {
+            tracing::debug!("Postcard deserialise error: {postcard_error}");
+            // TODO: Print error to output cap... in postcard format.
+            ()
+        })
 }
 
 #[derive(Snafu, SnafuCliDebug)]
@@ -279,52 +243,4 @@ pub enum DeferredError {
     InvalidDataUtf8 = 1,
     InvalidDataRon = 2,
     SubmitFailed = 3,
-}
-
-#[cfg(test)]
-mod tests {
-    use std::num::NonZeroU64;
-
-    use super::*;
-
-    #[derive(Default)]
-    struct MockDeferredSpaceSpecific {
-        called: bool,
-    }
-
-    impl DeferredSpaceSpecific<Box<[u8]>> for MockDeferredSpaceSpecific {
-        fn process_cap_str(&mut self, _str: &str, _output_shm_cap: &mut ShmCap<Box<[u8]>>) {
-            self.called = true;
-        }
-    }
-
-    fn non_zero(value: u64) -> NonZeroU64 {
-        NonZeroU64::new(value).expect("not zero")
-    }
-
-    #[test]
-    fn process_cap_content_corrupt_input_shm_cap_error() {
-        let mut deferred_space_specific: MockDeferredSpaceSpecific = Default::default();
-        let corrupt_input_shm_cap = ShmCap::new(ShmType::FourKiB, non_zero(u64::MAX), Box::new([0u8; 8]) as Box<[u8]>, CapType::UserCap);
-        let mut output_shm_cap = ShmCap::new(ShmType::FourKiB, non_zero(1), Box::new([0u8; 4096]) as Box<[u8]>, CapType::UserCap);
-
-        DefaultDeferredSpace::process_cap_content(&mut deferred_space_specific, &corrupt_input_shm_cap, &mut output_shm_cap);
-
-        assert!(!deferred_space_specific.called);
-        assert_eq!(output_shm_cap.backing()[0..8], u64::from(DeferredError::InvalidLength).to_le_bytes());
-    }
-
-    #[test]
-    fn process_cap_content_multi_page_input_shm_cap_allowed() {
-        let mut deferred_space_specific: MockDeferredSpaceSpecific = Default::default();
-        let mut multi_page_input_shm_cap_backing: Box<[u8]> = Box::new([0u8; 8192]);
-        // untrusted_length is 8184
-        multi_page_input_shm_cap_backing[0..8].copy_from_slice(&8184u64.to_le_bytes());
-        let multi_page_input_shm_cap = ShmCap::new(ShmType::FourKiB, non_zero(2), multi_page_input_shm_cap_backing, CapType::UserCap);
-        let mut output_shm_cap = ShmCap::new(ShmType::FourKiB, non_zero(1), Box::new([0u8; 4096]) as Box<[u8]>, CapType::UserCap);
-
-        DefaultDeferredSpace::process_cap_content(&mut deferred_space_specific, &multi_page_input_shm_cap, &mut output_shm_cap);
-
-        assert!(deferred_space_specific.called);
-    }
 }

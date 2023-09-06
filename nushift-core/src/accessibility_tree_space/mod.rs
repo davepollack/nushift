@@ -1,3 +1,5 @@
+use serde::Deserialize;
+
 use self::accessibility_tree::AccessibilityTree;
 use super::deferred_space::{self, DeferredSpace, DeferredSpaceSpecific, DefaultDeferredSpace, DeferredError, DeferredSpaceError};
 use super::shm_space::{ShmSpace, ShmCapId, ShmCap};
@@ -12,13 +14,22 @@ pub struct AccessibilityTreeSpace {
     accessibility_tree_space_specific: AccessibilityTreeSpaceSpecific,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AccessibilityTreeSpaceRonPayload<'payload> {
+    ron_accessibility_tree: &'payload str,
+}
+
 struct AccessibilityTreeSpaceSpecific {
     app_accessibility_tree: Option<AccessibilityTree>,
 }
 
 impl DeferredSpaceSpecific for AccessibilityTreeSpaceSpecific {
-    fn process_cap_str(&mut self, str: &str, output_shm_cap: &mut ShmCap) {
-        let accessibility_tree: AccessibilityTree = match ron::from_str(str) {
+    fn process_cap_payload(&mut self, input: &[u8], output_shm_cap: &mut ShmCap) {
+        // TODO: We need multiple payloads.
+        let Ok(payload): Result<AccessibilityTreeSpaceRonPayload<'_>, ()> = deferred_space::deserialize_general(input) else { return; };
+
+        let accessibility_tree: AccessibilityTree = match ron::from_str(payload.ron_accessibility_tree) {
             Ok(accessibility_tree) => accessibility_tree,
             Err(spanned_error) => {
                 tracing::debug!("Deserialisation error: {spanned_error}");
