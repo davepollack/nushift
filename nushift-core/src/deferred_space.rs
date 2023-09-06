@@ -2,12 +2,11 @@ use std::collections::{HashMap, hash_map::Entry};
 
 use num_enum::IntoPrimitive;
 use reusable_id_pool::{ReusableIdPoolManual, ReusableIdPoolError};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use snafu::prelude::*;
 use snafu_cli_debug::SnafuCliDebug;
 
 use super::shm_space::{CapType, OwnedShmIdAndCap, ShmCapId, ShmCap, ShmSpace, ShmSpaceError, ShmType};
-use super::usize_or_u64::UsizeOrU64;
 
 // This trait may not be necessary. I'm only implementing it for
 // DefaultDeferredSpace, and I'm currently composing DefaultDeferredSpace with
@@ -184,36 +183,29 @@ impl DefaultDeferredSpace {
     }
 }
 
-pub fn print_error(output_shm_cap: &mut ShmCap, deferred_error: DeferredError, error: &dyn core::fmt::Display) {
-    let error_message = format!("{deferred_error:?}: {error}");
-
-    // Write error code
-    output_shm_cap.backing_mut()[0..8].copy_from_slice(&u64::from(deferred_error).to_le_bytes());
-
-    // Only write the error message and length to the output cap if there's actually room
-    if UsizeOrU64::usize(error_message.len()) <= UsizeOrU64::u64(output_shm_cap.shm_type().page_bytes() - 16) {
-        // If it is <= a u64, which was checked in the if condition, it can be casted to one
-        let error_message_len = error_message.len() as u64;
-        output_shm_cap.backing_mut()[8..16].copy_from_slice(&error_message_len.to_le_bytes());
-        output_shm_cap.backing_mut()[16..(16+error_message.len())].copy_from_slice(error_message.as_bytes());
-    }
-}
-
 /// I have this function to be called by trait methods, instead of calling it in
 /// publish_deferred and passing Deserialize<'de> to the trait method, the
 /// Deserialize<'de> being an associated type of the trait. Couldn't get the
 /// lifetimes of the latter to work, while also doing mutation in the epilogue
 /// of publish_deferred. I don't know why.
-pub fn deserialize_general<'de, D>(input: &'de [u8]) -> Result<D, ()>
+pub fn deserialize_general<'de, D>(input: &'de [u8], output_shm_cap: &mut ShmCap) -> Result<D, ()>
 where
     D: Deserialize<'de>,
 {
     postcard::from_bytes(input)
         .map_err(|postcard_error| {
             tracing::debug!("Postcard deserialise error: {postcard_error}");
-            // TODO: Print error to output cap... in postcard format.
+            print_error(output_shm_cap, DeferredError::DeserializeError, &postcard_error);
             ()
         })
+}
+
+pub fn print_error(output_shm_cap: &mut ShmCap, deferred_error: DeferredError, error: &dyn core::fmt::Display) {
+    let error = DeferredErrorWithMessage::new(deferred_error, error.to_string());
+
+    // The below might fail if, for example, the serialize buffer is full. Just
+    // do nothing in this case.
+    let _ = postcard::to_slice(&error, output_shm_cap.backing_mut());
 }
 
 #[derive(Snafu, SnafuCliDebug)]
@@ -236,11 +228,22 @@ pub enum DeferredSpaceError {
     PublishInternalError, // Should never occur, indicates a bug in Nushift's code
 }
 
-#[derive(IntoPrimitive, Debug)]
+#[derive(IntoPrimitive, Debug, Serialize)]
 #[repr(u64)]
 pub enum DeferredError {
-    InvalidLength = 0,
-    InvalidDataUtf8 = 1,
-    InvalidDataRon = 2,
-    SubmitFailed = 3,
+    DeserializeError = 0,
+    DeserializeRonError = 1,
+    SubmitFailed = 2,
+}
+
+#[derive(Serialize)]
+struct DeferredErrorWithMessage {
+    deferred_error: DeferredError,
+    message: String,
+}
+
+impl DeferredErrorWithMessage {
+    fn new(deferred_error: DeferredError, message: String) -> Self {
+        Self { deferred_error, message }
+    }
 }

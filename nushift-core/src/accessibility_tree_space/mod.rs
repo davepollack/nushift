@@ -27,13 +27,13 @@ struct AccessibilityTreeSpaceSpecific {
 impl DeferredSpaceSpecific for AccessibilityTreeSpaceSpecific {
     fn process_cap_payload(&mut self, input: &[u8], output_shm_cap: &mut ShmCap) {
         // TODO: We need multiple payloads.
-        let Ok(payload): Result<AccessibilityTreeSpaceRonPayload<'_>, ()> = deferred_space::deserialize_general(input) else { return; };
+        let Ok(payload): Result<AccessibilityTreeSpaceRonPayload<'_>, ()> = deferred_space::deserialize_general(input, output_shm_cap) else { return; };
 
         let accessibility_tree: AccessibilityTree = match ron::from_str(payload.ron_accessibility_tree) {
             Ok(accessibility_tree) => accessibility_tree,
             Err(spanned_error) => {
                 tracing::debug!("Deserialisation error: {spanned_error}");
-                deferred_space::print_error(output_shm_cap, DeferredError::InvalidDataRon, &spanned_error);
+                deferred_space::print_error(output_shm_cap, DeferredError::DeserializeRonError, &spanned_error);
                 return;
             },
         };
