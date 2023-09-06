@@ -25,10 +25,10 @@ struct AccessibilityTreeSpaceSpecific {
 }
 
 impl DeferredSpaceSpecific for AccessibilityTreeSpaceSpecific {
-    fn process_cap_payload(&mut self, input: &[u8], output_shm_cap: &mut ShmCap) {
-        // TODO: We need multiple payloads.
-        let Ok(payload): Result<AccessibilityTreeSpaceRonPayload<'_>, ()> = deferred_space::deserialize_general(input, output_shm_cap) else { return; };
+    // TODO: We need multiple payloads.
+    type Payload<'de> = AccessibilityTreeSpaceRonPayload<'de>;
 
+    fn process_cap_payload(&mut self, payload: Self::Payload<'_>, output_shm_cap: &mut ShmCap) {
         let accessibility_tree: AccessibilityTree = match ron::from_str(payload.ron_accessibility_tree) {
             Ok(accessibility_tree) => accessibility_tree,
             Err(spanned_error) => {

@@ -23,7 +23,9 @@ pub trait DeferredSpace {
 
 // In contrast to the above trait, this one is used by multiple impls.
 pub trait DeferredSpaceSpecific {
-    fn process_cap_payload(&mut self, input: &[u8], output_shm_cap: &mut ShmCap);
+    type Payload<'de>: Deserialize<'de>;
+
+    fn process_cap_payload(&mut self, payload: Self::Payload<'_>, output_shm_cap: &mut ShmCap);
 }
 
 pub type DefaultDeferredSpaceCapId = u64;
@@ -166,7 +168,7 @@ impl DefaultDeferredSpace {
             PrologueReturn::ContinueCaps(input_shm_cap, output_shm_cap) => (input_shm_cap, output_shm_cap),
         };
 
-        deferred_space_specific.process_cap_payload(input_shm_cap.backing(), output_shm_cap);
+        Self::process_cap_content(deferred_space_specific, input_shm_cap, output_shm_cap);
 
         fn epilogue(this: &mut DefaultDeferredSpace, cap_id: DefaultDeferredSpaceCapId, shm_space: &mut ShmSpace) -> Result<(), ()> {
             // It should still not be possible for in_progress_cap to be empty. This
@@ -181,23 +183,22 @@ impl DefaultDeferredSpace {
 
         epilogue(self, cap_id, shm_space)
     }
-}
 
-/// I have this function to be called by trait methods, instead of calling it in
-/// publish_deferred and passing Deserialize<'de> to the trait method, the
-/// Deserialize<'de> being an associated type of the trait. Couldn't get the
-/// lifetimes of the latter to work, while also doing mutation in the epilogue
-/// of publish_deferred. I don't know why.
-pub fn deserialize_general<'de, D>(input: &'de [u8], output_shm_cap: &mut ShmCap) -> Result<D, ()>
-where
-    D: Deserialize<'de>,
-{
-    postcard::from_bytes(input)
-        .map_err(|postcard_error| {
-            tracing::debug!("Postcard deserialise error: {postcard_error}");
-            print_error(output_shm_cap, DeferredError::DeserializeError, &postcard_error);
-            ()
-        })
+    fn process_cap_content<S>(deferred_space_specific: &mut S, input_shm_cap: &ShmCap, output_shm_cap: &mut ShmCap)
+    where
+        S: DeferredSpaceSpecific,
+    {
+        let payload = match postcard::from_bytes(input_shm_cap.backing()) {
+            Ok(payload) => payload,
+            Err(postcard_error) => {
+                tracing::debug!("Postcard deserialise error: {postcard_error}");
+                print_error(output_shm_cap, DeferredError::DeserializeError, &postcard_error);
+                return;
+            },
+        };
+
+        deferred_space_specific.process_cap_payload(payload, output_shm_cap);
+    }
 }
 
 pub fn print_error(output_shm_cap: &mut ShmCap, deferred_error: DeferredError, error: &dyn core::fmt::Display) {

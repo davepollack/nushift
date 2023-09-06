@@ -26,9 +26,9 @@ struct TitleSpaceSpecific {
 }
 
 impl DeferredSpaceSpecific for TitleSpaceSpecific {
-    fn process_cap_payload(&mut self, input: &[u8], output_shm_cap: &mut ShmCap) {
-        let Ok(payload): Result<TitleSpacePayload<'_>, ()> = deferred_space::deserialize_general(input, output_shm_cap) else { return; };
+    type Payload<'de> = TitleSpacePayload<'de>;
 
+    fn process_cap_payload(&mut self, payload: Self::Payload<'_>, output_shm_cap: &mut ShmCap) {
         (self.bound_hypervisor_event_handler)(UnboundHypervisorEvent::TitleChange(payload.title.into()))
             .unwrap_or_else(|hypervisor_event_error| match hypervisor_event_error {
                 HypervisorEventError::SubmitCommandError => {
