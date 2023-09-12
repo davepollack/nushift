@@ -42,7 +42,7 @@ impl ProtectedMemory {
         Self::load_multi_byte(shm_space, addr, ShmSpace::walk_execute)
     }
 
-    pub fn load_multi_byte<T, W, const N: usize>(shm_space: &ShmSpace, addr: u64, walk: W) -> Result<T, ProtectedMemoryError>
+    fn load_multi_byte<T, W, const N: usize>(shm_space: &ShmSpace, addr: u64, walk: W) -> Result<T, ProtectedMemoryError>
     where
         T: Numeric<N>,
         W: Fn(&ShmSpace, u64) -> Result<WalkResult<'_>, PageTableError>,
@@ -93,7 +93,7 @@ impl ProtectedMemory {
         Self::store_multi_byte(shm_space, addr, value)
     }
 
-    pub fn store_multi_byte<T, const N: usize>(shm_space: &mut ShmSpace, addr: u64, value: T) -> Result<(), ProtectedMemoryError>
+    fn store_multi_byte<T, const N: usize>(shm_space: &mut ShmSpace, addr: u64, value: T) -> Result<(), ProtectedMemoryError>
     where
         T: Numeric<N>,
     {
@@ -158,7 +158,7 @@ pub enum ProtectedMemoryError {
 }
 
 /// Alternatively, could use the `funty` crate for this.
-pub trait Numeric<const N: usize> {
+trait Numeric<const N: usize> {
     fn from_le_bytes(bytes: [u8; N]) -> Self;
     fn to_le_bytes(self) -> [u8; N];
 }
