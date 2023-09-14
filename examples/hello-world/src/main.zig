@@ -59,7 +59,7 @@ pub fn main() usize {
     return a11y_tree_cap_id + 1000;
 }
 
-fn write_to_input_cap(comptime buffer: []u8, comptime str: []const u8) std.io.FixedBufferStream([]u8).WriteError!void {
+fn write_to_input_cap(buffer: []u8, str: []const u8) std.io.FixedBufferStream([]u8).WriteError!void {
     var stream = std.io.fixedBufferStream(buffer);
     const writer = stream.writer();
 
