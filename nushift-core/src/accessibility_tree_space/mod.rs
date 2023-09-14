@@ -29,7 +29,7 @@ impl DeferredSpaceSpecific for AccessibilityTreeSpaceSpecific {
     type Payload<'de> = AccessibilityTreeSpaceRonPayload<'de>;
 
     fn process_cap_payload(&mut self, payload: Self::Payload<'_>, output_shm_cap: &mut ShmCap) {
-        let accessibility_tree: AccessibilityTree = match ron::from_str(payload.ron_accessibility_tree) {
+        let accessibility_tree = match ron::from_str(payload.ron_accessibility_tree) {
             Ok(accessibility_tree) => accessibility_tree,
             Err(spanned_error) => {
                 tracing::debug!("Deserialisation error: {spanned_error}");
