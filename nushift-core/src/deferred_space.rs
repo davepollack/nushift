@@ -59,7 +59,7 @@ impl DeferredSpace for DefaultDeferredSpace {
     type Cap = DefaultDeferredCap;
 
     fn new() -> Self {
-        DefaultDeferredSpace {
+        Self {
             id_pool: ReusableIdPoolManual::new(),
             space: HashMap::new(),
         }

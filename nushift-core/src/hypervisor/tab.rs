@@ -5,9 +5,9 @@ use std::thread;
 use reusable_id_pool::ArcId;
 
 use super::hypervisor_event::{HypervisorEvent, HypervisorEventHandler};
+use crate::app_global_deferred_space::Task;
 use crate::nushift_subsystem::NushiftSubsystem;
 use crate::process_control_block::ProcessControlBlock;
-use crate::register_ipc::Task;
 
 pub struct Tab {
     id: ArcId,
@@ -66,29 +66,38 @@ impl Tab {
                 let mut subsystem = self.machine_nushift_subsystem.lock().unwrap();
                 subsystem.ecall(receive)
             };
-            syscall_return_send.send(syscall_return.0).expect("Since we just received, other thread should be waiting on our send");
+            syscall_return_send.send(syscall_return).expect("Since we just received, other thread should be waiting on our send");
 
             // Call the non-blocking bit of ecall here. Asynchronous tasks?
             // If this "non-blocking" bit locks the subsystem, it's not going to
             // be non-blocking with the bits of the app that access memory.
-            match syscall_return.1 {
-                Some(Task::AccessibilityTreePublish { accessibility_tree_cap_id }) => {
-                    let mut guard = self.machine_nushift_subsystem.lock().unwrap();
-                    let subsystem = guard.deref_mut();
-                    match subsystem.accessibility_tree_space.publish_accessibility_tree_deferred(accessibility_tree_cap_id, &mut subsystem.shm_space) {
-                        Ok(_) => {},
-                        Err(_) => {}, // TODO: On internal error, terminate app (?)
-                    }
-                },
-                Some(Task::TitlePublish { title_cap_id }) => {
-                    let mut guard = self.machine_nushift_subsystem.lock().unwrap();
-                    let subsystem = guard.deref_mut();
-                    match subsystem.title_space.publish_title_deferred(title_cap_id, &mut subsystem.shm_space) {
-                        Ok(_) => {},
-                        Err(_) => {}, // TODO: On internal error, terminate app (?)
-                    }
-                },
-                _ => {},
+            //
+            // This "non-blocking" bit does currently entirely lock the
+            // subsystem.
+            //
+            // It must be made sure that a task being set up in the
+            // AppGlobalDeferredSpace and the blocking part being processed in
+            // the relevant space have both been done before dispatching tasks.
+            // In other words, when we make the locking more fine-grained later,
+            // those two things must still be locked together.
+            let mut guard = self.machine_nushift_subsystem.lock().unwrap();
+            let subsystem = guard.deref_mut();
+            let tasks = subsystem.app_global_deferred_space.drain_tasks();
+            for task in tasks {
+                match task {
+                    Task::AccessibilityTreePublish { accessibility_tree_cap_id } => {
+                        match subsystem.accessibility_tree_space.publish_accessibility_tree_deferred(accessibility_tree_cap_id, &mut subsystem.shm_space) {
+                            Ok(_) => {},
+                            Err(_) => {}, // TODO: On internal error, terminate app (?)
+                        }
+                    },
+                    Task::TitlePublish { title_cap_id } => {
+                        match subsystem.title_space.publish_title_deferred(title_cap_id, &mut subsystem.shm_space) {
+                            Ok(_) => {},
+                            Err(_) => {}, // TODO: On internal error, terminate app (?)
+                        }
+                    },
+                }
             }
         }
 

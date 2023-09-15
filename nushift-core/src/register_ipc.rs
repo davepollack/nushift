@@ -1,8 +1,5 @@
 use core::ops::Index;
 
-use super::accessibility_tree_space::AccessibilityTreeCapId;
-use super::title_space::TitleCapId;
-
 // Instead of using the structs in this file for mpsc IPC, I would like to go
 // back to using a condition variable. However with the current structure of the
 // ckb-vm library, it might not be possible to do that.
@@ -46,9 +43,3 @@ pub const THIRD_ARG_REGISTER_INDEX: SyscallEnterIndex = SyscallEnterIndex(3);
 pub struct SyscallReturnIndex(usize);
 pub const RETURN_VAL_REGISTER_INDEX: SyscallReturnIndex = SyscallReturnIndex(0);
 pub const ERROR_RETURN_VAL_REGISTER_INDEX: SyscallReturnIndex = SyscallReturnIndex(1);
-
-pub struct SyscallReturnAndTask<R>(pub SyscallReturn<R>, pub Option<Task>);
-pub enum Task {
-    AccessibilityTreePublish { accessibility_tree_cap_id: AccessibilityTreeCapId },
-    TitlePublish { title_cap_id: TitleCapId },
-}
