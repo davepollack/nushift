@@ -8,6 +8,8 @@ use snafu_cli_debug::SnafuCliDebug;
 
 use super::shm_space::{CapType, OwnedShmIdAndCap, ShmCapId, ShmCap, ShmSpace, ShmSpaceError, ShmType};
 
+pub(super) mod app_global_deferred_space;
+
 // This trait may not be necessary. I'm only implementing it for
 // DefaultDeferredSpace, and I'm currently composing DefaultDeferredSpace with
 // other things, rather than using generics.

@@ -1,7 +1,7 @@
 use ckb_vm::Register;
 use num_enum::{TryFromPrimitive, IntoPrimitive};
 
-use super::app_global_deferred_space::{AppGlobalDeferredSpace, AppGlobalDeferredSpaceError, Task};
+use super::deferred_space::app_global_deferred_space::{AppGlobalDeferredSpace, AppGlobalDeferredSpaceError, Task};
 use super::accessibility_tree_space::AccessibilityTreeSpace;
 use super::deferred_space::DeferredSpaceError;
 use super::hypervisor::hypervisor_event::BoundHypervisorEventHandler;

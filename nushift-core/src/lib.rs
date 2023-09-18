@@ -8,7 +8,6 @@ mod register_ipc;
 mod elf_loader;
 mod deferred_space;
 mod title_space;
-mod app_global_deferred_space;
 
 pub use crate::hypervisor::Hypervisor;
 pub use crate::hypervisor::hypervisor_event::{HypervisorEvent, HypervisorEventError};

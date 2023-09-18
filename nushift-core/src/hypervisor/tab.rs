@@ -5,7 +5,7 @@ use std::thread;
 use reusable_id_pool::ArcId;
 
 use super::hypervisor_event::{HypervisorEvent, HypervisorEventHandler};
-use crate::app_global_deferred_space::Task;
+use crate::deferred_space::app_global_deferred_space::Task;
 use crate::nushift_subsystem::NushiftSubsystem;
 use crate::process_control_block::ProcessControlBlock;
 
