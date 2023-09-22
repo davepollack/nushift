@@ -1,6 +1,8 @@
-use std::collections::{HashMap, hash_map::{Entry, VacantEntry}};
+use core::mem;
+use std::{collections::{HashMap, hash_map::{Entry, VacantEntry}, HashSet}, hash::Hash};
 
 use reusable_id_pool::{ReusableIdPoolManual, ReusableIdPoolError};
+use serde::Deserialize;
 use snafu::prelude::*;
 use snafu_cli_debug::SnafuCliDebug;
 
@@ -9,14 +11,62 @@ use crate::title_space::TitleCapId;
 
 pub type TaskId = u64;
 
+#[derive(Debug, PartialEq, Eq)]
 pub enum Task {
     AccessibilityTreePublish { accessibility_tree_cap_id: AccessibilityTreeCapId },
     TitlePublish { title_cap_id: TitleCapId },
 }
 
+enum ScheduledTask {
+    Waiting(Task),
+    Finished,
+}
+
+#[derive(Deserialize)]
+pub struct TaskDescriptor {
+    task_id: TaskId,
+    input_shm_cap_acquire_addr: u64, // FIXME: Not used yet
+    output_shm_cap_acquire_addr: u64, // FIXME: Not used yet
+}
+
+#[cfg(test)]
+impl TaskDescriptor {
+    fn new(task_id: TaskId, input_shm_cap_acquire_addr: u64, output_shm_cap_acquire_addr: u64) -> Self {
+        Self { task_id, input_shm_cap_acquire_addr, output_shm_cap_acquire_addr }
+    }
+}
+
+#[derive(Deserialize)]
+pub struct TaskDescriptors(Vec<TaskDescriptor>);
+
+trait HasDuplicates<F> {
+    fn has_duplicates(&mut self, get_id: F) -> bool;
+}
+
+impl<F, Item, Id, I> HasDuplicates<F> for I
+where
+    F: FnMut(Item) -> Id,
+    I: Iterator<Item = Item>,
+    Id: Eq + Hash,
+{
+    fn has_duplicates(&mut self, mut get_id: F) -> bool {
+        let mut set = HashSet::new();
+
+        for item in self {
+            let id = get_id(item);
+            let inserted = set.insert(id);
+            if !inserted {
+                return true;
+            }
+        }
+
+        return false;
+    }
+}
+
 pub struct AppGlobalDeferredSpace {
     id_pool: ReusableIdPoolManual,
-    space: HashMap<TaskId, Task>,
+    space: HashMap<TaskId, ScheduledTask>,
 }
 
 impl AppGlobalDeferredSpace {
@@ -39,24 +89,57 @@ impl AppGlobalDeferredSpace {
         Ok(TaskAllocation::new(task_id, task, vacant_entry, &mut self.id_pool))
     }
 
-    pub fn drain_tasks(&mut self) -> Vec<Task> {
-        self.space.drain()
-            .map(|(task_id, task)| {
-                self.id_pool.release(task_id);
-                task
+    pub fn finish_tasks(&mut self) -> Vec<Task> {
+        let mut tasks = vec![];
+        for scheduled_task in self.space.values_mut() {
+            match mem::replace(scheduled_task, ScheduledTask::Finished) {
+                ScheduledTask::Waiting(task) => tasks.push(task),
+                _ => {},
+            }
+        }
+        tasks
+    }
+
+    pub fn validate_task_descriptors(&self, task_descriptors: &TaskDescriptors) -> Result<(), AppGlobalDeferredSpaceError> {
+        // The validate method relies on the whole app being blocked making it
+        // still valid once the deferred tasks are finished. Is this true?
+
+        // TODO: Use `acquire_addr`s. Not just checking the task IDs.
+
+        // It's only important to check for duplicates if we're going to use
+        // `acquire_addr`s later.
+        if task_descriptors.0.iter().has_duplicates(|TaskDescriptor { task_id, .. }| task_id) {
+            return DuplicateTaskDescriptorIdsSnafu.fail();
+        }
+
+        let not_found_task_ids: Vec<TaskId> = task_descriptors.0.iter()
+            .filter_map(|&TaskDescriptor { task_id, .. }| {
+                if !self.space.contains_key(&task_id) { Some(task_id) } else { None }
             })
-            .collect()
+            .collect();
+        if !not_found_task_ids.is_empty() {
+            return NotFoundSnafu { task_ids: not_found_task_ids }.fail();
+        }
+
+        Ok(())
+    }
+
+    pub fn consume_finished_tasks(&mut self, task_descriptors: TaskDescriptors) {
+        for TaskDescriptor { task_id, .. } in task_descriptors.0 {
+            self.space.remove(&task_id);
+            self.id_pool.release(task_id);
+        }
     }
 }
 
 pub struct TaskAllocation<'space> {
     task_id: TaskId,
-    vacant_entry_and_task: Option<(VacantEntry<'space, TaskId, Task>, Task)>,
+    vacant_entry_and_task: Option<(VacantEntry<'space, TaskId, ScheduledTask>, Task)>,
     id_pool: &'space mut ReusableIdPoolManual,
 }
 
 impl<'space> TaskAllocation<'space> {
-    fn new(task_id: TaskId, task: Task, vacant_entry: VacantEntry<'space, TaskId, Task>, id_pool: &'space mut ReusableIdPoolManual) -> TaskAllocation<'space> {
+    fn new(task_id: TaskId, task: Task, vacant_entry: VacantEntry<'space, TaskId, ScheduledTask>, id_pool: &'space mut ReusableIdPoolManual) -> TaskAllocation<'space> {
         Self { task_id, vacant_entry_and_task: Some((vacant_entry, task)), id_pool }
     }
 
@@ -66,7 +149,7 @@ impl<'space> TaskAllocation<'space> {
     pub fn push_task(&mut self) -> TaskId {
         match self.vacant_entry_and_task.take() {
             Some(vacant_entry_and_task) => {
-                vacant_entry_and_task.0.insert(vacant_entry_and_task.1);
+                vacant_entry_and_task.0.insert(ScheduledTask::Waiting(vacant_entry_and_task.1));
             },
             None => {},
         }
@@ -89,6 +172,10 @@ pub enum AppGlobalDeferredSpaceError {
     DuplicateId,
     #[snafu(display("The maximum amount of deferred tasks have been reached. This is not a great situation, but maybe it's possible to wait for deferred tasks to finish."))]
     Exhausted,
+    #[snafu(display("Multiple task descriptors with the same task ID were provided."))]
+    DuplicateTaskDescriptorIds,
+    #[snafu(display("Tasks with task IDs {task_ids:?} not found."))]
+    NotFound { task_ids: Vec<TaskId> },
 }
 
 #[cfg(test)]
@@ -124,7 +211,7 @@ mod tests {
     }
 
     #[test]
-    fn drain_tasks() {
+    fn finish_tasks() {
         let mut space = AppGlobalDeferredSpace::new();
 
         {
@@ -132,8 +219,64 @@ mod tests {
             task.push_task();
         }
 
-        let tasks = space.drain_tasks();
-        assert_eq!(1, tasks.len());
+        // Should be 1 entry in space before finishing
+        assert_eq!(1, space.space.len());
+
+        // Finished tasks should be returned
+        let tasks = space.finish_tasks();
+        assert_eq!(vec![Task::TitlePublish { title_cap_id: 0 }], tasks);
+
+        // Should still be 1 entry in space
+        assert_eq!(1, space.space.len());
+
+        // All entries should now have the finished status
+        assert!(space.space.values().all(|scheduled_task| matches!(scheduled_task, ScheduledTask::Finished)));
+    }
+
+    #[test]
+    fn validate_task_descriptors() {
+        let mut space = AppGlobalDeferredSpace::new();
+
+        let task_id = {
+            let mut task = space.allocate_task(Task::TitlePublish { title_cap_id: 0 }).expect("Should work");
+            task.push_task();
+            task.task_id
+        };
+
+        // Task descriptor matching existent ID: valid
+        assert!(matches!(
+            space.validate_task_descriptors(&TaskDescriptors(vec![TaskDescriptor::new(task_id, 0x1000, 0x2000)])),
+            Ok(()),
+        ));
+
+        // Task descriptors with duplicate IDs: not valid
+        assert!(matches!(
+            space.validate_task_descriptors(&TaskDescriptors(vec![TaskDescriptor::new(task_id, 0x1000, 0x2000), TaskDescriptor::new(task_id, 0x3000, 0x4000)])),
+            Err(AppGlobalDeferredSpaceError::DuplicateTaskDescriptorIds),
+        ));
+
+        // Task descriptor with non-existent ID: not valid
+        assert!(matches!(
+            space.validate_task_descriptors(&TaskDescriptors(vec![TaskDescriptor::new(task_id + 1, 0x1000, 0x2000)])),
+            Err(AppGlobalDeferredSpaceError::NotFound { task_ids: m_task_ids }) if m_task_ids == vec![task_id + 1],
+        ));
+    }
+
+    #[test]
+    fn consume_finished_tasks() {
+        let mut space = AppGlobalDeferredSpace::new();
+
+        let task_id = {
+            let mut task = space.allocate_task(Task::TitlePublish { title_cap_id: 0 }).expect("Should work");
+            task.push_task();
+            task.task_id
+        };
+
+        space.finish_tasks();
+        space.consume_finished_tasks(TaskDescriptors(vec![TaskDescriptor::new(task_id, 0x1000, 0x2000)]));
+
+        // There should be no entries in the space
+        assert_eq!(0, space.space.len());
 
         // The ID should be released!
         assert_eq!(0, space.id_pool.allocate()); // Observe pool by doing another allocation

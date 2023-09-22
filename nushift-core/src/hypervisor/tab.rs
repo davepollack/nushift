@@ -4,10 +4,11 @@ use std::thread;
 
 use reusable_id_pool::ArcId;
 
-use super::hypervisor_event::{HypervisorEvent, HypervisorEventHandler};
 use crate::deferred_space::app_global_deferred_space::Task;
 use crate::nushift_subsystem::NushiftSubsystem;
 use crate::process_control_block::ProcessControlBlock;
+
+use super::hypervisor_event::{HypervisorEvent, HypervisorEventHandler};
 
 pub struct Tab {
     id: ArcId,
@@ -82,7 +83,7 @@ impl Tab {
             // those two things must still be locked together.
             let mut guard = self.machine_nushift_subsystem.lock().unwrap();
             let subsystem = guard.deref_mut();
-            let tasks = subsystem.app_global_deferred_space.drain_tasks();
+            let tasks = subsystem.app_global_deferred_space.finish_tasks();
             for task in tasks {
                 match task {
                     Task::AccessibilityTreePublish { accessibility_tree_cap_id } => {

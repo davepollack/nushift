@@ -2,8 +2,8 @@ use ckb_vm::Register;
 use num_enum::{TryFromPrimitive, IntoPrimitive};
 
 use super::deferred_space::app_global_deferred_space::{AppGlobalDeferredSpace, AppGlobalDeferredSpaceError, Task};
-use super::accessibility_tree_space::AccessibilityTreeSpace;
 use super::deferred_space::DeferredSpaceError;
+use super::accessibility_tree_space::AccessibilityTreeSpace;
 use super::hypervisor::hypervisor_event::BoundHypervisorEventHandler;
 use super::register_ipc::{SyscallEnter, SyscallReturn, SYSCALL_NUM_REGISTER_INDEX, FIRST_ARG_REGISTER_INDEX, SECOND_ARG_REGISTER_INDEX, THIRD_ARG_REGISTER_INDEX};
 use super::shm_space::{CapType, ShmType, ShmSpace, ShmSpaceError};
@@ -60,6 +60,9 @@ pub enum SyscallError {
     ShmAddressOutOfBounds = 8,
     ShmAddressNotAligned = 9,
     ShmOverlapsExistingAcquisition = 10,
+
+    DeferredDuplicateTaskIds = 13,
+    DeferredTaskIdNotFound = 14,
 }
 
 fn set_error<R: Register>(error: SyscallError) -> SyscallReturn<R> {
@@ -112,6 +115,8 @@ fn marshall_app_global_deferred_space_error<R: Register>(app_global_deferred_spa
     match app_global_deferred_space_error {
         AppGlobalDeferredSpaceError::DuplicateId => set_error(SyscallError::InternalError),
         AppGlobalDeferredSpaceError::Exhausted => set_error(SyscallError::Exhausted),
+        AppGlobalDeferredSpaceError::DuplicateTaskDescriptorIds => set_error(SyscallError::DeferredDuplicateTaskIds),
+        AppGlobalDeferredSpaceError::NotFound { .. } => set_error(SyscallError::DeferredTaskIdNotFound),
     }
 }
 
@@ -210,7 +215,7 @@ impl NushiftSubsystem {
             Ok(Syscall::ShmRelease) => {
                 let shm_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
 
-                match self.shm_space_mut().release_shm_cap(shm_cap_id, CapType::UserCap) {
+                match self.shm_space_mut().release_shm_cap(shm_cap_id) {
                     Ok(_) => {},
                     Err(shm_space_error) => return marshall_shm_space_error(shm_space_error),
                 };
@@ -230,7 +235,7 @@ impl NushiftSubsystem {
             Ok(Syscall::ShmReleaseAndDestroy) => {
                 let shm_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
 
-                match self.shm_space_mut().release_shm_cap(shm_cap_id, CapType::UserCap) {
+                match self.shm_space_mut().release_shm_cap(shm_cap_id) {
                     Ok(_) => {},
                     Err(shm_space_error) => return marshall_shm_space_error(shm_space_error),
                 };

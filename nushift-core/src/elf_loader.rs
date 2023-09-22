@@ -175,7 +175,7 @@ impl ElfLoader for Loader<'_> {
 
         if errored_caps.len() > 0 {
             for shm_cap_id in errored_caps.into_iter().rev() {
-                self.shm_space.release_shm_cap(shm_cap_id, CapType::ElfCap)
+                self.shm_space.release_shm_cap_elf(shm_cap_id)
                     .map_err(|err| {
                         tracing::error!("Error while rolling back, release_shm_cap internal error: {err:?}");
                         ElfLoaderErr::UnsupportedSectionData

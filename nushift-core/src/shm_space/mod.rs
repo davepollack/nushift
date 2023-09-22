@@ -174,7 +174,15 @@ impl ShmSpace {
             })
     }
 
-    pub fn release_shm_cap(&mut self, shm_cap_id: ShmCapId, expected_cap_type: CapType) -> Result<(), ShmSpaceError> {
+    pub fn release_shm_cap(&mut self, shm_cap_id: ShmCapId) -> Result<(), ShmSpaceError> {
+        self.release_shm_cap_impl(shm_cap_id, CapType::UserCap)
+    }
+
+    pub fn release_shm_cap_elf(&mut self, shm_cap_id: ShmCapId) -> Result<(), ShmSpaceError> {
+        self.release_shm_cap_impl(shm_cap_id, CapType::ElfCap)
+    }
+
+    fn release_shm_cap_impl(&mut self, shm_cap_id: ShmCapId, expected_cap_type: CapType) -> Result<(), ShmSpaceError> {
         let shm_cap = self.space.get(&shm_cap_id).ok_or_else(|| CapNotFoundSnafu.build())?;
         (shm_cap.cap_type() == expected_cap_type).then_some(()).ok_or_else(|| PermissionDeniedSnafu.build())?;
 

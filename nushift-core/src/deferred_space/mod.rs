@@ -106,7 +106,7 @@ impl DefaultDeferredSpace {
         // while one is being processed.
         matches!(default_deferred_cap.in_progress_cap, None).then_some(()).ok_or_else(|| InProgressSnafu { context }.build())?;
 
-        shm_space.release_shm_cap(input_shm_cap_id, CapType::UserCap).map_err(|shm_space_error| match shm_space_error {
+        shm_space.release_shm_cap(input_shm_cap_id).map_err(|shm_space_error| match shm_space_error {
             ShmSpaceError::CapNotFound => ShmCapNotFoundSnafu { id: input_shm_cap_id }.build(),
             ShmSpaceError::PermissionDenied => ShmPermissionDeniedSnafu { id: input_shm_cap_id }.build(),
             err => DeferredSpaceError::ShmSpaceInternalError { source: err },

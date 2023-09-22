@@ -54,6 +54,9 @@ pub const SyscallError = enum(usize) {
     shm_address_out_of_bounds = 8,
     shm_address_not_aligned = 9,
     shm_overlaps_existing_acquisition = 10,
+
+    deferred_duplicate_task_ids = 13,
+    deferred_task_id_not_found = 14,
 };
 
 pub const SyscallResult = union(enum) {
