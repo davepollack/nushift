@@ -148,7 +148,7 @@ impl ShmSpace {
         Ok((id, shm_cap))
     }
 
-    pub fn acquire_shm_cap(&mut self, shm_cap_id: ShmCapId, address: u64) -> Result<(), ShmSpaceError> {
+    pub fn acquire_shm_cap_user(&mut self, shm_cap_id: ShmCapId, address: u64) -> Result<(), ShmSpaceError> {
         let shm_cap = self.space.get(&shm_cap_id).ok_or_else(|| CapNotFoundSnafu.build())?;
         matches!(shm_cap.cap_type(), CapType::UserCap).then_some(()).ok_or_else(|| PermissionDeniedSnafu.build())?;
 
@@ -174,7 +174,7 @@ impl ShmSpace {
             })
     }
 
-    pub fn release_shm_cap(&mut self, shm_cap_id: ShmCapId) -> Result<(), ShmSpaceError> {
+    pub fn release_shm_cap_user(&mut self, shm_cap_id: ShmCapId) -> Result<(), ShmSpaceError> {
         self.release_shm_cap_impl(shm_cap_id, CapType::UserCap)
     }
 
@@ -232,13 +232,18 @@ impl ShmSpace {
         self.acquisitions.walk_execute(vaddr, &self.space)
     }
 
-    #[allow(dead_code)]
-    pub fn get(&self, shm_cap_id: ShmCapId) -> Option<&ShmCap> {
-        self.space.get(&shm_cap_id)
+    pub fn get_shm_cap_user(&self, shm_cap_id: ShmCapId) -> Result<&ShmCap, ShmSpaceError> {
+        let shm_cap = self.space.get(&shm_cap_id).ok_or_else(|| CapNotFoundSnafu.build())?;
+        matches!(shm_cap.cap_type(), CapType::UserCap).then_some(()).ok_or_else(|| PermissionDeniedSnafu.build())?;
+
+        Ok(shm_cap)
     }
 
-    pub fn get_mut(&mut self, shm_cap_id: ShmCapId) -> Option<&mut ShmCap> {
-        self.space.get_mut(&shm_cap_id)
+    pub fn get_mut_shm_cap_elf(&mut self, shm_cap_id: ShmCapId) -> Result<&mut ShmCap, ShmSpaceError> {
+        let shm_cap = self.space.get_mut(&shm_cap_id).ok_or_else(|| CapNotFoundSnafu.build())?;
+        matches!(shm_cap.cap_type(), CapType::ElfCap).then_some(()).ok_or_else(|| PermissionDeniedSnafu.build())?;
+
+        Ok(shm_cap)
     }
 
     /// This assumes that all pages can be arranged as: all 1 GiB ones first,

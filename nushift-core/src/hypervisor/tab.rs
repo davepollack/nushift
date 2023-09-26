@@ -1,5 +1,6 @@
 use core::ops::DerefMut;
-use std::sync::{mpsc, Arc, Mutex};
+use std::collections::HashSet;
+use std::sync::{mpsc, Arc, Mutex, Condvar};
 use std::thread;
 
 use reusable_id_pool::ArcId;
@@ -25,9 +26,11 @@ impl Tab {
             }
         });
 
+        let blocking_on_tasks = Arc::new((Mutex::new(HashSet::new()), Condvar::new()));
+
         Tab {
             id,
-            machine_nushift_subsystem: Arc::new(Mutex::new(NushiftSubsystem::new(bound_hypervisor_event_handler))),
+            machine_nushift_subsystem: Arc::new(Mutex::new(NushiftSubsystem::new(bound_hypervisor_event_handler, blocking_on_tasks))),
         }
     }
 
@@ -84,7 +87,7 @@ impl Tab {
             let mut guard = self.machine_nushift_subsystem.lock().unwrap();
             let subsystem = guard.deref_mut();
             let tasks = subsystem.app_global_deferred_space.finish_tasks();
-            for task in tasks {
+            for (task_id, task) in tasks {
                 match task {
                     Task::AccessibilityTreePublish { accessibility_tree_cap_id } => {
                         match subsystem.accessibility_tree_space.publish_accessibility_tree_deferred(accessibility_tree_cap_id, &mut subsystem.shm_space) {
@@ -99,6 +102,11 @@ impl Tab {
                         }
                     },
                 }
+
+                let (lock, cvar) = &*subsystem.blocking_on_tasks;
+                let mut guard = lock.lock().unwrap();
+                guard.remove(&task_id);
+                cvar.notify_one();
             }
         }
 

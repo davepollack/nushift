@@ -17,6 +17,8 @@ pub const Syscall = enum(usize) {
     title_new = 10,
     title_publish = 11,
     title_destroy = 12,
+
+    block_on_deferred_tasks = 13,
 };
 
 pub fn SyscallArgs(comptime sys: Syscall) type {
@@ -35,6 +37,8 @@ pub fn SyscallArgs(comptime sys: Syscall) type {
         .title_new => struct {},
         .title_publish => struct { title_cap_id: usize, input_shm_cap_id: usize },
         .title_destroy => struct { title_cap_id: usize },
+
+        .block_on_deferred_tasks => struct { input_shm_cap_id: usize },
     };
 }
 
@@ -55,8 +59,9 @@ pub const SyscallError = enum(usize) {
     shm_address_not_aligned = 9,
     shm_overlaps_existing_acquisition = 10,
 
-    deferred_duplicate_task_ids = 13,
-    deferred_task_id_not_found = 14,
+    deferred_deserialize_task_descriptors_error = 13,
+    deferred_duplicate_task_ids = 14,
+    deferred_task_id_not_found = 15,
 };
 
 pub const SyscallResult = union(enum) {
@@ -99,6 +104,8 @@ fn syscall_internal(comptime sys: Syscall, sys_args: SyscallArgs(sys), comptime 
         .title_new => syscall_internal_args(@intFromEnum(sys), 0, .{}, ignore_errors),
         .title_publish => syscall_internal_args(@intFromEnum(sys), 2, .{ sys_args.title_cap_id, sys_args.input_shm_cap_id }, ignore_errors),
         .title_destroy => syscall_internal_args(@intFromEnum(sys), 1, .{sys_args.title_cap_id}, ignore_errors),
+
+        .block_on_deferred_tasks => syscall_internal_args(@intFromEnum(sys), 1, .{sys_args.input_shm_cap_id}, ignore_errors),
     };
 }
 

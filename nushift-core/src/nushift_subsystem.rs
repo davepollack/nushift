@@ -1,7 +1,10 @@
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex, Condvar};
+
 use ckb_vm::Register;
 use num_enum::{TryFromPrimitive, IntoPrimitive};
 
-use super::deferred_space::app_global_deferred_space::{AppGlobalDeferredSpace, AppGlobalDeferredSpaceError, Task};
+use super::deferred_space::app_global_deferred_space::{AppGlobalDeferredSpace, AppGlobalDeferredSpaceError, Task, TaskId};
 use super::deferred_space::DeferredSpaceError;
 use super::accessibility_tree_space::AccessibilityTreeSpace;
 use super::hypervisor::hypervisor_event::BoundHypervisorEventHandler;
@@ -40,6 +43,8 @@ enum Syscall {
     TitleNew = 10,
     TitlePublish = 11,
     TitleDestroy = 12,
+
+    BlockOnDeferredTasks = 13,
 }
 
 #[derive(IntoPrimitive)]
@@ -61,8 +66,9 @@ pub enum SyscallError {
     ShmAddressNotAligned = 9,
     ShmOverlapsExistingAcquisition = 10,
 
-    DeferredDuplicateTaskIds = 13,
-    DeferredTaskIdNotFound = 14,
+    DeferredDeserializeTaskDescriptorsError = 13,
+    DeferredDuplicateTaskIds = 14,
+    DeferredTaskIdNotFound = 15,
 }
 
 fn set_error<R: Register>(error: SyscallError) -> SyscallReturn<R> {
@@ -113,27 +119,35 @@ fn marshall_deferred_space_error<R: Register>(deferred_space_error: DeferredSpac
 
 fn marshall_app_global_deferred_space_error<R: Register>(app_global_deferred_space_error: AppGlobalDeferredSpaceError) -> SyscallReturn<R> {
     match app_global_deferred_space_error {
-        AppGlobalDeferredSpaceError::DuplicateId => set_error(SyscallError::InternalError),
+        AppGlobalDeferredSpaceError::DuplicateId
+        | AppGlobalDeferredSpaceError::ShmUnexpectedError => set_error(SyscallError::InternalError),
         AppGlobalDeferredSpaceError::Exhausted => set_error(SyscallError::Exhausted),
+        AppGlobalDeferredSpaceError::DeserializeTaskDescriptorsError { .. } => set_error(SyscallError::DeferredDeserializeTaskDescriptorsError),
         AppGlobalDeferredSpaceError::DuplicateTaskDescriptorIds => set_error(SyscallError::DeferredDuplicateTaskIds),
         AppGlobalDeferredSpaceError::NotFound { .. } => set_error(SyscallError::DeferredTaskIdNotFound),
+        AppGlobalDeferredSpaceError::ShmCapNotFound { .. } => set_error(SyscallError::CapNotFound),
+        AppGlobalDeferredSpaceError::ShmPermissionDenied { .. } => set_error(SyscallError::PermissionDenied),
     }
 }
+
+pub type BlockingOnTasksCondvar = Arc<(Mutex<HashSet<TaskId>>, Condvar)>;
 
 pub struct NushiftSubsystem {
     pub(crate) shm_space: ShmSpace,
     pub(crate) accessibility_tree_space: AccessibilityTreeSpace,
     pub(crate) title_space: TitleSpace,
     pub(crate) app_global_deferred_space: AppGlobalDeferredSpace,
+    pub(crate) blocking_on_tasks: BlockingOnTasksCondvar,
 }
 
 impl NushiftSubsystem {
-    pub(crate) fn new(bound_hypervisor_event_handler: BoundHypervisorEventHandler) -> Self {
+    pub(crate) fn new(bound_hypervisor_event_handler: BoundHypervisorEventHandler, blocking_on_tasks: BlockingOnTasksCondvar) -> Self {
         NushiftSubsystem {
             shm_space: ShmSpace::new(),
             accessibility_tree_space: AccessibilityTreeSpace::new(),
             title_space: TitleSpace::new(bound_hypervisor_event_handler),
             app_global_deferred_space: AppGlobalDeferredSpace::new(),
+            blocking_on_tasks,
         }
     }
 
@@ -177,7 +191,7 @@ impl NushiftSubsystem {
                 let shm_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
                 let address = registers[SECOND_ARG_REGISTER_INDEX].to_u64();
 
-                match self.shm_space_mut().acquire_shm_cap(shm_cap_id, address) {
+                match self.shm_space_mut().acquire_shm_cap_user(shm_cap_id, address) {
                     Ok(_) => {},
                     Err(shm_space_error) => return marshall_shm_space_error(shm_space_error),
                 };
@@ -197,7 +211,7 @@ impl NushiftSubsystem {
                     Err(shm_space_error) => return marshall_shm_space_error(shm_space_error),
                 };
 
-                match self.shm_space_mut().acquire_shm_cap(shm_cap_id, address) {
+                match self.shm_space_mut().acquire_shm_cap_user(shm_cap_id, address) {
                     Ok(_) => {},
                     Err(shm_space_error) => {
                         // If an acquire error occurs, roll back the just-created cap.
@@ -215,7 +229,7 @@ impl NushiftSubsystem {
             Ok(Syscall::ShmRelease) => {
                 let shm_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
 
-                match self.shm_space_mut().release_shm_cap(shm_cap_id) {
+                match self.shm_space_mut().release_shm_cap_user(shm_cap_id) {
                     Ok(_) => {},
                     Err(shm_space_error) => return marshall_shm_space_error(shm_space_error),
                 };
@@ -235,7 +249,7 @@ impl NushiftSubsystem {
             Ok(Syscall::ShmReleaseAndDestroy) => {
                 let shm_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
 
-                match self.shm_space_mut().release_shm_cap(shm_cap_id) {
+                match self.shm_space_mut().release_shm_cap_user(shm_cap_id) {
                     Ok(_) => {},
                     Err(shm_space_error) => return marshall_shm_space_error(shm_space_error),
                 };
@@ -318,6 +332,17 @@ impl NushiftSubsystem {
                 match self.title_space.destroy_title_cap(title_cap_id) {
                     Ok(_) => {},
                     Err(deferred_space_error) => return marshall_deferred_space_error(deferred_space_error),
+                };
+
+                set_success(0)
+            },
+
+            Ok(Syscall::BlockOnDeferredTasks) => {
+                let input_shm_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
+
+                match self.app_global_deferred_space.block_on_deferred_tasks(input_shm_cap_id, &mut self.shm_space, &self.blocking_on_tasks) {
+                    Ok(_) => {},
+                    Err(app_global_deferred_space_error) => return marshall_app_global_deferred_space_error(app_global_deferred_space_error),
                 };
 
                 set_success(0)

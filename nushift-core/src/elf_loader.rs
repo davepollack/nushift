@@ -219,8 +219,8 @@ impl ElfLoader for Loader<'_> {
             ElfLoaderErr::UnsupportedSectionData
         })?;
 
-        self.shm_space.get_mut(shm_cap_id)
-            .ok_or_else(|| {
+        self.shm_space.get_mut_shm_cap_elf(shm_cap_id)
+            .map_err(|_| {
                 tracing::error!("Internal error refetching SHM cap when loading ELF data");
                 ElfLoaderErr::UnsupportedSectionData
             })?

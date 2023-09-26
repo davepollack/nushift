@@ -1,12 +1,15 @@
 use core::mem;
 use std::{collections::{HashMap, hash_map::{Entry, VacantEntry}, HashSet}, hash::Hash};
 
+use postcard::Error as PostcardError;
 use reusable_id_pool::{ReusableIdPoolManual, ReusableIdPoolError};
 use serde::Deserialize;
 use snafu::prelude::*;
 use snafu_cli_debug::SnafuCliDebug;
 
 use crate::accessibility_tree_space::AccessibilityTreeCapId;
+use crate::nushift_subsystem::BlockingOnTasksCondvar;
+use crate::shm_space::{ShmCapId, ShmSpace, ShmSpaceError};
 use crate::title_space::TitleCapId;
 
 pub type TaskId = u64;
@@ -89,18 +92,46 @@ impl AppGlobalDeferredSpace {
         Ok(TaskAllocation::new(task_id, task, vacant_entry, &mut self.id_pool))
     }
 
-    pub fn finish_tasks(&mut self) -> Vec<Task> {
+    pub fn finish_tasks(&mut self) -> Vec<(TaskId, Task)> {
         let mut tasks = vec![];
-        for scheduled_task in self.space.values_mut() {
+        for (task_id, scheduled_task) in self.space.iter_mut() {
             match mem::replace(scheduled_task, ScheduledTask::Finished) {
-                ScheduledTask::Waiting(task) => tasks.push(task),
+                ScheduledTask::Waiting(task) => tasks.push((*task_id, task)),
                 _ => {},
             }
         }
         tasks
     }
 
-    pub fn validate_task_descriptors(&self, task_descriptors: &TaskDescriptors) -> Result<(), AppGlobalDeferredSpaceError> {
+    pub fn block_on_deferred_tasks(&mut self, input_shm_cap_id: ShmCapId, shm_space: &ShmSpace, blocking_on_tasks_condvar: &BlockingOnTasksCondvar) -> Result<(), AppGlobalDeferredSpaceError> {
+        let input_shm_cap = shm_space.get_shm_cap_user(input_shm_cap_id).map_err(|shm_space_error| match shm_space_error {
+            ShmSpaceError::CapNotFound => ShmCapNotFoundSnafu { id: input_shm_cap_id }.build(),
+            ShmSpaceError::PermissionDenied => ShmPermissionDeniedSnafu { id: input_shm_cap_id }.build(),
+            _ => ShmUnexpectedSnafu.build(),
+        })?;
+
+        let task_descriptors = postcard::from_bytes(input_shm_cap.backing()).context(DeserializeTaskDescriptorsSnafu)?;
+        self.validate_task_descriptors(&task_descriptors)?;
+
+        // Consume tasks that are already finished even at this start point.
+        let unfinished_task_descriptor_ids = self.consume_finished_tasks(task_descriptors);
+
+        if unfinished_task_descriptor_ids.is_empty() {
+            return Ok(());
+        }
+
+        // Wait on condvar for remaining tasks.
+        let (lock, cvar) = &**blocking_on_tasks_condvar;
+        let mut guard = lock.lock().unwrap();
+        *guard = unfinished_task_descriptor_ids.into_iter().collect();
+        while !guard.is_empty() {
+            guard = cvar.wait(guard).unwrap();
+        }
+
+        Ok(())
+    }
+
+    fn validate_task_descriptors(&self, task_descriptors: &TaskDescriptors) -> Result<(), AppGlobalDeferredSpaceError> {
         // The validate method relies on the whole app being blocked making it
         // still valid once the deferred tasks are finished. Is this true?
 
@@ -124,11 +155,21 @@ impl AppGlobalDeferredSpace {
         Ok(())
     }
 
-    pub fn consume_finished_tasks(&mut self, task_descriptors: TaskDescriptors) {
+    fn consume_finished_tasks(&mut self, task_descriptors: TaskDescriptors) -> Vec<TaskId> {
+        let mut unfinished_task_descriptor_ids = vec![];
+
         for TaskDescriptor { task_id, .. } in task_descriptors.0 {
-            self.space.remove(&task_id);
-            self.id_pool.release(task_id);
+            match self.space.entry(task_id) {
+                Entry::Occupied(occupied_entry) if matches!(occupied_entry.get(), ScheduledTask::Finished) => {
+                    occupied_entry.remove();
+                    self.id_pool.release(task_id);
+                },
+                Entry::Occupied(_) => unfinished_task_descriptor_ids.push(task_id),
+                Entry::Vacant(_) => panic!("Vacant shouldn't be possible. The provided IDs should be validated before calling this function."),
+            }
         }
+
+        unfinished_task_descriptor_ids
     }
 }
 
@@ -176,6 +217,13 @@ pub enum AppGlobalDeferredSpaceError {
     DuplicateTaskDescriptorIds,
     #[snafu(display("Tasks with task IDs {task_ids:?} not found."))]
     NotFound { task_ids: Vec<TaskId> },
+    #[snafu(display("Error deserialising task descriptors: {source}"))]
+    DeserializeTaskDescriptorsError { source: PostcardError },
+    #[snafu(display("The SHM cap with ID {id} was not found."))]
+    ShmCapNotFound { id: ShmCapId },
+    #[snafu(display("The SHM cap with ID {id} is not allowed to be used as an input cap, possibly because it is an ELF cap."))]
+    ShmPermissionDenied { id: ShmCapId },
+    ShmUnexpectedError,
 }
 
 #[cfg(test)]
@@ -224,7 +272,7 @@ mod tests {
 
         // Finished tasks should be returned
         let tasks = space.finish_tasks();
-        assert_eq!(vec![Task::TitlePublish { title_cap_id: 0 }], tasks);
+        assert_eq!(vec![(0, Task::TitlePublish { title_cap_id: 0 })], tasks);
 
         // Should still be 1 entry in space
         assert_eq!(1, space.space.len());
