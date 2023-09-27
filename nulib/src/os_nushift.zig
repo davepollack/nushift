@@ -154,27 +154,30 @@ fn SyscallInternalReturnType(comptime ignore_errors: bool) type {
 
 fn syscall_internal(comptime sys: Syscall, sys_args: SyscallArgs(sys), comptime ignore_errors: bool) SyscallInternalReturnType(ignore_errors) {
     return switch (sys) {
-        .exit => syscall_internal_args(sys, 1, .{sys_args.exit_reason}, ignore_errors),
+        .exit => syscall_internal_args(sys, .{sys_args.exit_reason}, ignore_errors),
 
-        .shm_new => syscall_internal_args(sys, 2, .{ @intFromEnum(sys_args.shm_type), sys_args.length }, ignore_errors),
-        .shm_acquire => syscall_internal_args(sys, 2, .{ sys_args.shm_cap_id, sys_args.address }, ignore_errors),
-        .shm_new_and_acquire => syscall_internal_args(sys, 3, .{ @intFromEnum(sys_args.shm_type), sys_args.length, sys_args.address }, ignore_errors),
-        .shm_release, .shm_destroy, .shm_release_and_destroy => syscall_internal_args(sys, 1, .{sys_args.shm_cap_id}, ignore_errors),
+        .shm_new => syscall_internal_args(sys, .{ @intFromEnum(sys_args.shm_type), sys_args.length }, ignore_errors),
+        .shm_acquire => syscall_internal_args(sys, .{ sys_args.shm_cap_id, sys_args.address }, ignore_errors),
+        .shm_new_and_acquire => syscall_internal_args(sys, .{ @intFromEnum(sys_args.shm_type), sys_args.length, sys_args.address }, ignore_errors),
+        .shm_release, .shm_destroy, .shm_release_and_destroy => syscall_internal_args(sys, .{sys_args.shm_cap_id}, ignore_errors),
 
         // Send maxInt(usize) as the first argument. The first argument is not used yet, but may be in the future.
-        .accessibility_tree_new => syscall_internal_args(sys, 1, .{std.math.maxInt(usize)}, ignore_errors),
-        .accessibility_tree_publish => syscall_internal_args(sys, 2, .{ sys_args.accessibility_tree_cap_id, sys_args.input_shm_cap_id }, ignore_errors),
-        .accessibility_tree_destroy => syscall_internal_args(sys, 1, .{sys_args.accessibility_tree_cap_id}, ignore_errors),
+        .accessibility_tree_new => syscall_internal_args(sys, .{std.math.maxInt(usize)}, ignore_errors),
+        .accessibility_tree_publish => syscall_internal_args(sys, .{ sys_args.accessibility_tree_cap_id, sys_args.input_shm_cap_id }, ignore_errors),
+        .accessibility_tree_destroy => syscall_internal_args(sys, .{sys_args.accessibility_tree_cap_id}, ignore_errors),
 
-        .title_new => syscall_internal_args(sys, 0, .{}, ignore_errors),
-        .title_publish => syscall_internal_args(sys, 2, .{ sys_args.title_cap_id, sys_args.input_shm_cap_id }, ignore_errors),
-        .title_destroy => syscall_internal_args(sys, 1, .{sys_args.title_cap_id}, ignore_errors),
+        .title_new => syscall_internal_args(sys, .{}, ignore_errors),
+        .title_publish => syscall_internal_args(sys, .{ sys_args.title_cap_id, sys_args.input_shm_cap_id }, ignore_errors),
+        .title_destroy => syscall_internal_args(sys, .{sys_args.title_cap_id}, ignore_errors),
 
-        .block_on_deferred_tasks => syscall_internal_args(sys, 1, .{sys_args.input_shm_cap_id}, ignore_errors),
+        .block_on_deferred_tasks => syscall_internal_args(sys, .{sys_args.input_shm_cap_id}, ignore_errors),
     };
 }
 
-fn syscall_internal_args(comptime sys: Syscall, comptime num_args: comptime_int, args: [num_args]usize, comptime ignore_errors: bool) SyscallInternalReturnType(ignore_errors) {
+fn syscall_internal_args(comptime sys: Syscall, args: anytype, comptime ignore_errors: bool) SyscallInternalReturnType(ignore_errors) {
+    comptime std.debug.assert(@typeInfo(@TypeOf(args)) == .Struct);
+    comptime std.debug.assert(@typeInfo(@TypeOf(args)).Struct.is_tuple);
+
     const syscall_number: usize = @intFromEnum(sys);
 
     if (ignore_errors) {
@@ -182,7 +185,7 @@ fn syscall_internal_args(comptime sys: Syscall, comptime num_args: comptime_int,
         // be included in the clobber list. Even in this ignore_errors case,
         // otherwise the register allocator is very happy to store things in t0
         // across this inline assembly which destroys it.
-        return switch (num_args) {
+        return switch (args.len) {
             0 => asm volatile ("ecall"
                 : [ret] "={a0}" (-> usize),
                 : [syscall_number] "{a0}" (syscall_number),
@@ -209,14 +212,14 @@ fn syscall_internal_args(comptime sys: Syscall, comptime num_args: comptime_int,
                   [arg3] "{a3}" (args[2]),
                 : "memory", "t0", "a0", "a1", "a2", "a3"
             ),
-            else => @compileError("syscall_internal_args does not support " ++ std.fmt.comptimePrint("{}", .{num_args}) ++ " args, please add support if needed"),
+            else => @compileError("syscall_internal_args does not support " ++ std.fmt.comptimePrint("{}", .{args.len}) ++ " args, please add support if needed"),
         };
     }
 
     var a0_output: usize = undefined;
     var t0_output: usize = undefined;
 
-    switch (num_args) {
+    switch (args.len) {
         0 => asm volatile ("ecall"
             : [ret_a0] "={a0}" (a0_output),
               [ret_t0] "={t0}" (t0_output),
@@ -247,7 +250,7 @@ fn syscall_internal_args(comptime sys: Syscall, comptime num_args: comptime_int,
               [arg3] "{a3}" (args[2]),
             : "memory", "t0", "a0", "a1", "a2", "a3"
         ),
-        else => @compileError("syscall_internal_args does not support " ++ std.fmt.comptimePrint("{}", .{num_args}) ++ " args, please add support if needed"),
+        else => @compileError("syscall_internal_args does not support " ++ std.fmt.comptimePrint("{}", .{args.len}) ++ " args, please add support if needed"),
     }
 
     if (a0_output == std.math.maxInt(usize)) {
