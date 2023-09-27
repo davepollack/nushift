@@ -15,13 +15,12 @@ fn init_stack() usize {
     const STACK_END: usize = 0x80000000;
     const STACK_NUMBER_OF_4_KIB_PAGES: usize = 64;
 
-    const new_and_acquire_result = OsNushift.syscall(.shm_new_and_acquire, .{ .shm_type = OsNushift.ShmType.four_kib, .length = STACK_NUMBER_OF_4_KIB_PAGES, .address = STACK_END });
-    const shm_cap_id = switch (new_and_acquire_result) {
-        .ok => |val| val,
-        .fail => |err_enum| {
-            _ = OsNushift.syscall_ignore_errors(.exit, .{ .exit_reason = @intFromEnum(err_enum) });
-            unreachable;
-        },
+    const shm_cap_id = OsNushift.syscall(.shm_new_and_acquire, .{ .shm_type = OsNushift.ShmType.four_kib, .length = STACK_NUMBER_OF_4_KIB_PAGES, .address = STACK_END }) catch {
+        // Hardcode the .exit_reason rather than using the error from
+        // .shm_new_and_acquire. Because if we do the latter, the stack is used
+        // before we initialise the stack :( including in the happy path.
+        _ = OsNushift.syscall_ignore_errors(.exit, .{ .exit_reason = @intFromEnum(OsNushift.SyscallErrorEnum.internal_error) });
+        unreachable;
     };
 
     // Set SP to base

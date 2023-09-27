@@ -42,7 +42,7 @@ pub fn SyscallArgs(comptime sys: Syscall) type {
     };
 }
 
-pub const SyscallError = enum(usize) {
+pub const SyscallErrorEnum = enum(usize) {
     unknown_syscall = 0,
 
     internal_error = 1,
@@ -64,10 +64,75 @@ pub const SyscallError = enum(usize) {
     deferred_task_id_not_found = 15,
 };
 
-pub const SyscallResult = union(enum) {
-    ok: usize,
-    fail: SyscallError,
+pub const SyscallError = error{
+    UnknownSyscall,
+
+    InternalError,
+    Exhausted,
+    CapNotFound,
+    InProgress,
+    PermissionDenied,
+
+    ShmUnknownShmType,
+    ShmInvalidLength,
+    ShmCapacityNotAvailable,
+    ShmCapCurrentlyAcquired,
+    ShmAddressOutOfBounds,
+    ShmAddressNotAligned,
+    ShmOverlapsExistingAcquisition,
+
+    DeferredDeserializeTaskDescriptorsError,
+    DeferredDuplicateTaskIds,
+    DeferredTaskIdNotFound,
 };
+
+fn syscallErrorFromErrorCode(error_code: usize) SyscallError {
+    const syscall_error_enum: SyscallErrorEnum = @enumFromInt(error_code);
+
+    return switch (syscall_error_enum) {
+        inline else => |tag| @field(SyscallError, snakeToCamel(@tagName(tag))),
+    };
+}
+
+pub fn errorCodeFromSyscallError(syscall_error: SyscallError) usize {
+    return switch (syscall_error) {
+        inline else => |err| @intFromEnum(@field(SyscallErrorEnum, camelToSnake(@errorName(err)))),
+    };
+}
+
+fn snakeToCamel(comptime snake: []const u8) []const u8 {
+    var upper = true;
+    var camel: [snake.len]u8 = undefined;
+    var camelIndex: usize = 0;
+
+    for (snake) |byte| {
+        if (byte == '_') {
+            upper = true;
+            continue;
+        }
+        camel[camelIndex] = if (upper) std.ascii.toUpper(byte) else byte;
+        upper = false;
+        camelIndex += 1;
+    }
+
+    return camel[0..camelIndex];
+}
+
+fn camelToSnake(comptime camel: []const u8) []const u8 {
+    var buffer: [2 * camel.len]u8 = undefined; // At most twice the size if every character is uppercase.
+    var bufferIndex: usize = 0;
+
+    for (camel, 0..) |byte, i| {
+        if (std.ascii.isUpper(byte) and i > 0) {
+            buffer[bufferIndex] = '_';
+            bufferIndex += 1;
+        }
+        buffer[bufferIndex] = std.ascii.toLower(byte);
+        bufferIndex += 1;
+    }
+
+    return buffer[0..bufferIndex];
+}
 
 pub const ShmType = enum(usize) {
     four_kib = 0,
@@ -75,7 +140,7 @@ pub const ShmType = enum(usize) {
     one_gib = 2,
 };
 
-pub fn syscall(comptime sys: Syscall, sys_args: SyscallArgs(sys)) SyscallResult {
+pub fn syscall(comptime sys: Syscall, sys_args: SyscallArgs(sys)) SyscallError!usize {
     return syscall_internal(sys, sys_args, false);
 }
 
@@ -84,7 +149,7 @@ pub fn syscall_ignore_errors(comptime sys: Syscall, sys_args: SyscallArgs(sys)) 
 }
 
 fn SyscallInternalReturnType(comptime ignore_errors: bool) type {
-    return if (ignore_errors) usize else SyscallResult;
+    return if (ignore_errors) usize else SyscallError!usize;
 }
 
 fn syscall_internal(comptime sys: Syscall, sys_args: SyscallArgs(sys), comptime ignore_errors: bool) SyscallInternalReturnType(ignore_errors) {
@@ -113,24 +178,28 @@ fn syscall_internal_args(comptime sys: Syscall, comptime num_args: comptime_int,
     const syscall_number: usize = @intFromEnum(sys);
 
     if (ignore_errors) {
+        // t0 is always clobbered by the hypervisor on an ecall. So it needs to
+        // be included in the clobber list. Even in this ignore_errors case,
+        // otherwise the register allocator is very happy to store things in t0
+        // across this inline assembly which destroys it.
         return switch (num_args) {
             0 => asm volatile ("ecall"
                 : [ret] "={a0}" (-> usize),
                 : [syscall_number] "{a0}" (syscall_number),
-                : "memory"
+                : "memory", "t0", "a0"
             ),
             1 => asm volatile ("ecall"
                 : [ret] "={a0}" (-> usize),
                 : [syscall_number] "{a0}" (syscall_number),
                   [arg1] "{a1}" (args[0]),
-                : "memory"
+                : "memory", "t0", "a0", "a1"
             ),
             2 => asm volatile ("ecall"
                 : [ret] "={a0}" (-> usize),
                 : [syscall_number] "{a0}" (syscall_number),
                   [arg1] "{a1}" (args[0]),
                   [arg2] "{a2}" (args[1]),
-                : "memory"
+                : "memory", "t0", "a0", "a1", "a2"
             ),
             3 => asm volatile ("ecall"
                 : [ret] "={a0}" (-> usize),
@@ -138,7 +207,7 @@ fn syscall_internal_args(comptime sys: Syscall, comptime num_args: comptime_int,
                   [arg1] "{a1}" (args[0]),
                   [arg2] "{a2}" (args[1]),
                   [arg3] "{a3}" (args[2]),
-                : "memory"
+                : "memory", "t0", "a0", "a1", "a2", "a3"
             ),
             else => @compileError("syscall_internal_args does not support " ++ std.fmt.comptimePrint("{}", .{num_args}) ++ " args, please add support if needed"),
         };
@@ -152,14 +221,14 @@ fn syscall_internal_args(comptime sys: Syscall, comptime num_args: comptime_int,
             : [ret_a0] "={a0}" (a0_output),
               [ret_t0] "={t0}" (t0_output),
             : [syscall_number] "{a0}" (syscall_number),
-            : "memory"
+            : "memory", "t0", "a0"
         ),
         1 => asm volatile ("ecall"
             : [ret_a0] "={a0}" (a0_output),
               [ret_t0] "={t0}" (t0_output),
             : [syscall_number] "{a0}" (syscall_number),
               [arg1] "{a1}" (args[0]),
-            : "memory"
+            : "memory", "t0", "a0", "a1"
         ),
         2 => asm volatile ("ecall"
             : [ret_a0] "={a0}" (a0_output),
@@ -167,7 +236,7 @@ fn syscall_internal_args(comptime sys: Syscall, comptime num_args: comptime_int,
             : [syscall_number] "{a0}" (syscall_number),
               [arg1] "{a1}" (args[0]),
               [arg2] "{a2}" (args[1]),
-            : "memory"
+            : "memory", "t0", "a0", "a1", "a2"
         ),
         3 => asm volatile ("ecall"
             : [ret_a0] "={a0}" (a0_output),
@@ -176,14 +245,14 @@ fn syscall_internal_args(comptime sys: Syscall, comptime num_args: comptime_int,
               [arg1] "{a1}" (args[0]),
               [arg2] "{a2}" (args[1]),
               [arg3] "{a3}" (args[2]),
-            : "memory"
+            : "memory", "t0", "a0", "a1", "a2", "a3"
         ),
         else => @compileError("syscall_internal_args does not support " ++ std.fmt.comptimePrint("{}", .{num_args}) ++ " args, please add support if needed"),
     }
 
     if (a0_output == std.math.maxInt(usize)) {
-        return SyscallResult{ .fail = @enumFromInt(t0_output) };
+        return syscallErrorFromErrorCode(t0_output);
     }
 
-    return SyscallResult{ .ok = a0_output };
+    return a0_output;
 }
