@@ -25,7 +25,7 @@ enum ScheduledTask {
     Finished,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct TaskDescriptor {
     task_id: TaskId,
     input_shm_cap_acquire_addr: u64, // FIXME: Not used yet
@@ -39,7 +39,7 @@ impl TaskDescriptor {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct TaskDescriptors(Vec<TaskDescriptor>);
 
 trait HasDuplicates<F> {
@@ -112,6 +112,7 @@ impl AppGlobalDeferredSpace {
 
         let task_descriptors = postcard::from_bytes(input_shm_cap.backing()).context(DeserializeTaskDescriptorsSnafu)?;
         self.validate_task_descriptors(&task_descriptors)?;
+        tracing::debug!("{task_descriptors:?}");
 
         // Consume tasks that are already finished even at this start point.
         let unfinished_task_descriptor_ids = self.consume_finished_tasks(task_descriptors);
