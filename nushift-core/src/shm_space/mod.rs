@@ -152,17 +152,17 @@ impl ShmSpace {
         let shm_cap = self.space.get(&shm_cap_id).ok_or_else(|| CapNotFoundSnafu.build())?;
         matches!(shm_cap.cap_type(), CapType::UserCap).then_some(()).ok_or_else(|| PermissionDeniedSnafu.build())?;
 
-        Self::try_acquire(&mut self.acquisitions, shm_cap_id, shm_cap, address, Sv39Flags::RW)
+        Self::acquire_shm_cap_impl(&mut self.acquisitions, shm_cap_id, shm_cap, address, Sv39Flags::RW)
     }
 
     pub fn acquire_shm_cap_elf(&mut self, shm_cap_id: ShmCapId, address: u64, flags: Sv39Flags) -> Result<(), ShmSpaceError> {
         let shm_cap = self.space.get(&shm_cap_id).ok_or_else(|| CapNotFoundSnafu.build())?;
         matches!(shm_cap.cap_type(), CapType::ElfCap).then_some(()).ok_or_else(|| PermissionDeniedSnafu.build())?;
 
-        Self::try_acquire(&mut self.acquisitions, shm_cap_id, shm_cap, address, flags)
+        Self::acquire_shm_cap_impl(&mut self.acquisitions, shm_cap_id, shm_cap, address, flags)
     }
 
-    fn try_acquire(acquisitions: &mut AcquisitionsAndPageTable, shm_cap_id: ShmCapId, shm_cap: &ShmCap, address: u64, flags: Sv39Flags) -> Result<(), ShmSpaceError> {
+    fn acquire_shm_cap_impl(acquisitions: &mut AcquisitionsAndPageTable, shm_cap_id: ShmCapId, shm_cap: &ShmCap, address: u64, flags: Sv39Flags) -> Result<(), ShmSpaceError> {
         // try_acquire does the out-of-bounds and alignment checks. We map the errors here.
         acquisitions.try_acquire(shm_cap_id, shm_cap, address, flags)
             .map_err(|acquire_error| match acquire_error {
