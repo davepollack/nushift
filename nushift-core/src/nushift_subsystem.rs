@@ -107,13 +107,11 @@ fn marshall_deferred_space_error<R: Register>(deferred_space_error: DeferredSpac
         DeferredSpaceError::DuplicateId
         | DeferredSpaceError::ShmSpaceInternalError { .. }
         | DeferredSpaceError::PublishInternalError => set_error(SyscallError::InternalError),
-        DeferredSpaceError::Exhausted { .. }
-        | DeferredSpaceError::ShmExhausted => set_error(SyscallError::Exhausted),
+        DeferredSpaceError::Exhausted { .. } => set_error(SyscallError::Exhausted),
         DeferredSpaceError::CapNotFound { .. }
         | DeferredSpaceError::ShmCapNotFound { .. } => set_error(SyscallError::CapNotFound),
         DeferredSpaceError::InProgress { .. } => set_error(SyscallError::InProgress),
         DeferredSpaceError::ShmPermissionDenied { .. } => set_error(SyscallError::PermissionDenied),
-        DeferredSpaceError::ShmCapacityNotAvailable => set_error(SyscallError::ShmCapacityNotAvailable),
     }
 }
 
@@ -274,13 +272,14 @@ impl NushiftSubsystem {
             Ok(Syscall::AccessibilityTreePublish) => {
                 let accessibility_tree_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
                 let input_shm_cap_id = registers[SECOND_ARG_REGISTER_INDEX].to_u64();
+                let output_shm_cap_id = registers[THIRD_ARG_REGISTER_INDEX].to_u64();
 
                 let mut task = match self.app_global_deferred_space.allocate_task(Task::AccessibilityTreePublish { accessibility_tree_cap_id }) {
                     Ok(task) => task,
                     Err(app_global_deferred_space_error) => return marshall_app_global_deferred_space_error(app_global_deferred_space_error),
                 };
 
-                match self.accessibility_tree_space.publish_accessibility_tree_blocking(accessibility_tree_cap_id, input_shm_cap_id, &mut self.shm_space) {
+                match self.accessibility_tree_space.publish_accessibility_tree_blocking(accessibility_tree_cap_id, input_shm_cap_id, output_shm_cap_id, &mut self.shm_space) {
                     Ok(_) => {},
                     Err(deferred_space_error) => return marshall_deferred_space_error(deferred_space_error),
                 };
@@ -311,13 +310,14 @@ impl NushiftSubsystem {
             Ok(Syscall::TitlePublish) => {
                 let title_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
                 let input_shm_cap_id = registers[SECOND_ARG_REGISTER_INDEX].to_u64();
+                let output_shm_cap_id = registers[THIRD_ARG_REGISTER_INDEX].to_u64();
 
                 let mut task = match self.app_global_deferred_space.allocate_task(Task::TitlePublish { title_cap_id }) {
                     Ok(task) => task,
                     Err(app_global_deferred_space_error) => return marshall_app_global_deferred_space_error(app_global_deferred_space_error),
                 };
 
-                match self.title_space.publish_title_blocking(title_cap_id, input_shm_cap_id, &mut self.shm_space) {
+                match self.title_space.publish_title_blocking(title_cap_id, input_shm_cap_id, output_shm_cap_id, &mut self.shm_space) {
                     Ok(_) => {},
                     Err(deferred_space_error) => return marshall_deferred_space_error(deferred_space_error),
                 };

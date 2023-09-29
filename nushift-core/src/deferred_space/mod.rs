@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use snafu::prelude::*;
 use snafu_cli_debug::SnafuCliDebug;
 
-use super::shm_space::{CapType, OwnedShmIdAndCap, ShmCapId, ShmCap, ShmSpace, ShmSpaceError, ShmType};
+use super::shm_space::{OwnedShmIdAndCap, ShmCapId, ShmCap, ShmSpace, ShmSpaceError};
 
 pub(super) mod app_global_deferred_space;
 
@@ -105,7 +105,7 @@ impl DefaultDeferredSpace {
     /// new_shm_cap all need to be rolled back if an error is returned by a
     /// subsequent line. They should NOT be rolled back if the function
     /// completes normally with no error.
-    pub fn publish_blocking(&mut self, context: &str, cap_id: DefaultDeferredSpaceCapId, input_shm_cap_id: ShmCapId, shm_space: &mut ShmSpace) -> Result<(), DeferredSpaceError> {
+    pub fn publish_blocking(&mut self, context: &str, cap_id: DefaultDeferredSpaceCapId, input_shm_cap_id: ShmCapId, output_shm_cap_id: ShmCapId, shm_space: &mut ShmSpace) -> Result<(), DeferredSpaceError> {
         let default_deferred_cap = self.get_mut(cap_id).ok_or_else(|| CapNotFoundSnafu { context, id: cap_id }.build())?;
 
         // Currently, you can't queue/otherwise process an [accessibility tree/other thing]
@@ -118,17 +118,15 @@ impl DefaultDeferredSpace {
             err => DeferredSpaceError::ShmSpaceInternalError { source: err },
         })?;
 
-        // Move out of the SHM space for the duration of us processing it.
-        let input_shm_cap = shm_space.move_shm_cap_to_other_space(input_shm_cap_id).ok_or_else(|| PublishInternalSnafu.build())?; // Internal error because presence was already checked in release
-        // Create an output cap
-        let (output_shm_cap_id, _) = shm_space.new_shm_cap(ShmType::FourKiB, 1, CapType::UserCap).map_err(|shm_new_error| match shm_new_error {
-            ShmSpaceError::CapacityNotAvailable
-            | ShmSpaceError::BackingCapacityNotAvailable { .. }
-            | ShmSpaceError::BackingCapacityNotAvailableOverflows => ShmCapacityNotAvailableSnafu.build(),
-            ShmSpaceError::Exhausted => ShmExhaustedSnafu.build(),
+        shm_space.release_shm_cap_user(output_shm_cap_id).map_err(|shm_space_error| match shm_space_error {
+            ShmSpaceError::CapNotFound => ShmCapNotFoundSnafu { id: input_shm_cap_id }.build(),
+            ShmSpaceError::PermissionDenied => ShmPermissionDeniedSnafu { id: input_shm_cap_id }.build(),
             err => DeferredSpaceError::ShmSpaceInternalError { source: err },
         })?;
-        let output_shm_cap = shm_space.move_shm_cap_to_other_space(output_shm_cap_id).ok_or_else(|| PublishInternalSnafu.build())?; // Internal error because we just created it
+
+        // Move out of the SHM space for the duration of us processing it.
+        let input_shm_cap = shm_space.move_shm_cap_to_other_space(input_shm_cap_id).ok_or_else(|| PublishInternalSnafu.build())?; // Internal error because presence was already checked in release
+        let output_shm_cap = shm_space.move_shm_cap_to_other_space(output_shm_cap_id).ok_or_else(|| PublishInternalSnafu.build())?; // Internal error because presence was already checked in release
 
         default_deferred_cap.in_progress_cap = Some(InProgressCap::new((input_shm_cap_id, input_shm_cap), (output_shm_cap_id, output_shm_cap)));
         Ok(())
@@ -231,8 +229,6 @@ pub enum DeferredSpaceError {
     ShmCapNotFound { id: ShmCapId },
     #[snafu(display("The SHM cap with ID {id} is not allowed to be used as an input cap, possibly because it is an ELF cap."))]
     ShmPermissionDenied { id: ShmCapId },
-    ShmExhausted,
-    ShmCapacityNotAvailable,
     ShmSpaceInternalError { source: ShmSpaceError }, // Should never occur, indicates a bug in Nushift's code
     PublishInternalError, // Should never occur, indicates a bug in Nushift's code
 }

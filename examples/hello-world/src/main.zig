@@ -35,11 +35,15 @@ fn main_impl() (FBSWriteError || OsNushift.SyscallError)!usize {
 
     try write_str_to_input_cap(@as([*]u8, @ptrFromInt(TITLE_INPUT_ACQUIRE_ADDRESS))[0..4096], title);
 
-    const title_task_id = try OsNushift.syscall(.title_publish, .{ .title_cap_id = title_cap_id, .input_shm_cap_id = title_input_shm_cap_id });
+    const title_output_shm_cap_id = try OsNushift.syscall(.shm_new, .{ .shm_type = OsNushift.ShmType.four_kib, .length = 1 });
+    defer _ = OsNushift.syscall_ignore_errors(.shm_destroy, .{ .shm_cap_id = title_output_shm_cap_id });
 
-    // TODO: Title cap and input cap should be destroyed after deferred task is
-    // finished. The current defer statements mean this is indeed happening,
-    // just not immediately after the deferred task is finished.
+    const title_task_id = try OsNushift.syscall(.title_publish, .{ .title_cap_id = title_cap_id, .input_shm_cap_id = title_input_shm_cap_id, .output_shm_cap_id = title_output_shm_cap_id });
+
+    // TODO: Title cap, input cap and output cap should be destroyed after
+    // deferred task is finished. The current defer statements mean this is
+    // indeed happening, just not immediately after the deferred task is
+    // finished.
 
     const a11y_tree_cap_id = try OsNushift.syscall(.accessibility_tree_new, .{});
     defer _ = OsNushift.syscall_ignore_errors(.accessibility_tree_destroy, .{ .accessibility_tree_cap_id = a11y_tree_cap_id });
@@ -49,7 +53,10 @@ fn main_impl() (FBSWriteError || OsNushift.SyscallError)!usize {
 
     try write_str_to_input_cap(@as([*]u8, @ptrFromInt(A11Y_INPUT_ACQUIRE_ADDRESS))[0..40960], ron);
 
-    const a11y_task_id = try OsNushift.syscall(.accessibility_tree_publish, .{ .accessibility_tree_cap_id = a11y_tree_cap_id, .input_shm_cap_id = a11y_input_shm_cap_id });
+    const a11y_output_shm_cap_id = try OsNushift.syscall(.shm_new, .{ .shm_type = OsNushift.ShmType.four_kib, .length = 1 });
+    defer _ = OsNushift.syscall_ignore_errors(.shm_destroy, .{ .shm_cap_id = a11y_output_shm_cap_id });
+
+    const a11y_task_id = try OsNushift.syscall(.accessibility_tree_publish, .{ .accessibility_tree_cap_id = a11y_tree_cap_id, .input_shm_cap_id = a11y_input_shm_cap_id, .output_shm_cap_id = a11y_output_shm_cap_id });
 
     const task_descriptors = [_]TaskDescriptor{
         TaskDescriptor{ .task_id = title_task_id, .input_shm_cap_acquire_addr = 0x1000, .output_shm_cap_acquire_addr = 0x2000 },
@@ -63,9 +70,10 @@ fn main_impl() (FBSWriteError || OsNushift.SyscallError)!usize {
 
     _ = try OsNushift.syscall(.block_on_deferred_tasks, .{ .input_shm_cap_id = block_on_deferred_tasks_input_cap_id });
 
-    // TODO: Accessibility cap and input cap should be destroyed after deferred
-    // task is finished. The current defer statements mean this is indeed
-    // happening, just not immediately after the deferred task is finished.
+    // TODO: Accessibility cap, input cap and output cap should be destroyed
+    // after deferred task is finished. The current defer statements mean this
+    // is indeed happening, just not immediately after the deferred task is
+    // finished.
 
     return a11y_tree_cap_id + 1000;
 }

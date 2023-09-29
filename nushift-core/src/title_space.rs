@@ -57,8 +57,8 @@ impl TitleSpace {
         self.deferred_space.new_cap(TITLE_CONTEXT)
     }
 
-    pub fn publish_title_blocking(&mut self, title_cap_id: TitleCapId, input_shm_cap_id: ShmCapId, shm_space: &mut ShmSpace) -> Result<(), DeferredSpaceError> {
-        self.deferred_space.publish_blocking(TITLE_CONTEXT, title_cap_id, input_shm_cap_id, shm_space)
+    pub fn publish_title_blocking(&mut self, title_cap_id: TitleCapId, input_shm_cap_id: ShmCapId, output_shm_cap_id: ShmCapId, shm_space: &mut ShmSpace) -> Result<(), DeferredSpaceError> {
+        self.deferred_space.publish_blocking(TITLE_CONTEXT, title_cap_id, input_shm_cap_id, output_shm_cap_id, shm_space)
     }
 
     pub fn publish_title_deferred(&mut self, title_cap_id: TitleCapId, shm_space: &mut ShmSpace) -> Result<(), ()> {
