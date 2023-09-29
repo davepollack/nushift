@@ -1,6 +1,7 @@
 use core::mem;
-use std::{collections::{HashMap, hash_map::{Entry, VacantEntry}, HashSet}, hash::Hash};
+use std::collections::{HashMap, hash_map::{Entry, VacantEntry}};
 
+use itertools::Itertools;
 use postcard::Error as PostcardError;
 use reusable_id_pool::{ReusableIdPoolManual, ReusableIdPoolError};
 use serde::Deserialize;
@@ -41,31 +42,6 @@ impl TaskDescriptor {
 
 #[derive(Debug, Deserialize)]
 pub struct TaskDescriptors(Vec<TaskDescriptor>);
-
-trait HasDuplicates<F> {
-    fn has_duplicates(&mut self, get_id: F) -> bool;
-}
-
-impl<F, Item, Id, I> HasDuplicates<F> for I
-where
-    F: FnMut(Item) -> Id,
-    I: Iterator<Item = Item>,
-    Id: Eq + Hash,
-{
-    fn has_duplicates(&mut self, mut get_id: F) -> bool {
-        let mut set = HashSet::new();
-
-        for item in self {
-            let id = get_id(item);
-            let inserted = set.insert(id);
-            if !inserted {
-                return true;
-            }
-        }
-
-        return false;
-    }
-}
 
 pub struct AppGlobalDeferredSpace {
     id_pool: ReusableIdPoolManual,
@@ -140,8 +116,9 @@ impl AppGlobalDeferredSpace {
 
         // It's only important to check for duplicates if we're going to use
         // `acquire_addr`s later.
-        if task_descriptors.0.iter().has_duplicates(|TaskDescriptor { task_id, .. }| task_id) {
-            return DuplicateTaskDescriptorIdsSnafu.fail();
+        let duplicate_task_ids: Vec<TaskId> = task_descriptors.0.iter().map(|&TaskDescriptor { task_id, .. }| task_id).duplicates().collect();
+        if !duplicate_task_ids.is_empty() {
+            return DuplicateTaskDescriptorIdsSnafu { duplicate_task_ids }.fail();
         }
 
         let not_found_task_ids: Vec<TaskId> = task_descriptors.0.iter()
@@ -150,7 +127,7 @@ impl AppGlobalDeferredSpace {
             })
             .collect();
         if !not_found_task_ids.is_empty() {
-            return NotFoundSnafu { task_ids: not_found_task_ids }.fail();
+            return NotFoundSnafu { not_found_task_ids }.fail();
         }
 
         Ok(())
@@ -214,10 +191,10 @@ pub enum AppGlobalDeferredSpaceError {
     DuplicateId,
     #[snafu(display("The maximum amount of deferred tasks have been reached. This is not a great situation, but maybe it's possible to wait for deferred tasks to finish."))]
     Exhausted,
-    #[snafu(display("Multiple task descriptors with the same task ID were provided."))]
-    DuplicateTaskDescriptorIds,
-    #[snafu(display("Tasks with task IDs {task_ids:?} not found."))]
-    NotFound { task_ids: Vec<TaskId> },
+    #[snafu(display("Multiple task descriptors with the same task ID were provided. Duplicate task IDs are: {duplicate_task_ids:?}"))]
+    DuplicateTaskDescriptorIds { duplicate_task_ids: Vec<TaskId> },
+    #[snafu(display("Tasks with task IDs {not_found_task_ids:?} not found."))]
+    NotFound { not_found_task_ids: Vec<TaskId> },
     #[snafu(display("Error deserialising task descriptors: {source}"))]
     DeserializeTaskDescriptorsError { source: PostcardError },
     #[snafu(display("The SHM cap with ID {id} was not found."))]
@@ -301,13 +278,13 @@ mod tests {
         // Task descriptors with duplicate IDs: not valid
         assert!(matches!(
             space.validate_task_descriptors(&TaskDescriptors(vec![TaskDescriptor::new(task_id, 0x1000, 0x2000), TaskDescriptor::new(task_id, 0x3000, 0x4000)])),
-            Err(AppGlobalDeferredSpaceError::DuplicateTaskDescriptorIds),
+            Err(AppGlobalDeferredSpaceError::DuplicateTaskDescriptorIds { duplicate_task_ids: m_duplicate_task_ids }) if m_duplicate_task_ids == vec![task_id],
         ));
 
         // Task descriptor with non-existent ID: not valid
         assert!(matches!(
             space.validate_task_descriptors(&TaskDescriptors(vec![TaskDescriptor::new(task_id + 1, 0x1000, 0x2000)])),
-            Err(AppGlobalDeferredSpaceError::NotFound { task_ids: m_task_ids }) if m_task_ids == vec![task_id + 1],
+            Err(AppGlobalDeferredSpaceError::NotFound { not_found_task_ids: m_not_found_task_ids }) if m_not_found_task_ids == vec![task_id + 1],
         ));
     }
 
