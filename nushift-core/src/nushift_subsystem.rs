@@ -66,7 +66,7 @@ pub enum SyscallError {
     ShmAddressNotAligned = 9,
     ShmOverlapsExistingAcquisition = 10,
 
-    DeferredDeserializeTaskDescriptorsError = 13,
+    DeferredDeserializeTaskIdsError = 13,
     DeferredDuplicateTaskIds = 14,
     DeferredTaskIdNotFound = 15,
 }
@@ -120,8 +120,8 @@ fn marshall_app_global_deferred_space_error<R: Register>(app_global_deferred_spa
         AppGlobalDeferredSpaceError::DuplicateId
         | AppGlobalDeferredSpaceError::ShmUnexpectedError => set_error(SyscallError::InternalError),
         AppGlobalDeferredSpaceError::Exhausted => set_error(SyscallError::Exhausted),
-        AppGlobalDeferredSpaceError::DeserializeTaskDescriptorsError { .. } => set_error(SyscallError::DeferredDeserializeTaskDescriptorsError),
-        AppGlobalDeferredSpaceError::DuplicateTaskDescriptorIds { .. } => set_error(SyscallError::DeferredDuplicateTaskIds),
+        AppGlobalDeferredSpaceError::DeserializeTaskIdsError { .. } => set_error(SyscallError::DeferredDeserializeTaskIdsError),
+        AppGlobalDeferredSpaceError::Duplicates { .. } => set_error(SyscallError::DeferredDuplicateTaskIds),
         AppGlobalDeferredSpaceError::NotFound { .. } => set_error(SyscallError::DeferredTaskIdNotFound),
         AppGlobalDeferredSpaceError::ShmCapNotFound { .. } => set_error(SyscallError::CapNotFound),
         AppGlobalDeferredSpaceError::ShmPermissionDenied { .. } => set_error(SyscallError::PermissionDenied),

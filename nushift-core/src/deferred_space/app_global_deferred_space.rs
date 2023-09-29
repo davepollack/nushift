@@ -4,7 +4,6 @@ use std::collections::{HashMap, hash_map::{Entry, VacantEntry}};
 use itertools::Itertools;
 use postcard::Error as PostcardError;
 use reusable_id_pool::{ReusableIdPoolManual, ReusableIdPoolError};
-use serde::Deserialize;
 use snafu::prelude::*;
 use snafu_cli_debug::SnafuCliDebug;
 
@@ -25,23 +24,6 @@ enum ScheduledTask {
     Waiting(Task),
     Finished,
 }
-
-#[derive(Debug, Deserialize)]
-pub struct TaskDescriptor {
-    task_id: TaskId,
-    input_shm_cap_acquire_addr: u64, // FIXME: Not used yet
-    output_shm_cap_acquire_addr: u64, // FIXME: Not used yet
-}
-
-#[cfg(test)]
-impl TaskDescriptor {
-    fn new(task_id: TaskId, input_shm_cap_acquire_addr: u64, output_shm_cap_acquire_addr: u64) -> Self {
-        Self { task_id, input_shm_cap_acquire_addr, output_shm_cap_acquire_addr }
-    }
-}
-
-#[derive(Debug, Deserialize)]
-pub struct TaskDescriptors(Vec<TaskDescriptor>);
 
 pub struct AppGlobalDeferredSpace {
     id_pool: ReusableIdPoolManual,
@@ -86,21 +68,20 @@ impl AppGlobalDeferredSpace {
             _ => ShmUnexpectedSnafu.build(),
         })?;
 
-        let task_descriptors = postcard::from_bytes(input_shm_cap.backing()).context(DeserializeTaskDescriptorsSnafu)?;
-        self.validate_task_descriptors(&task_descriptors)?;
-        tracing::debug!("{task_descriptors:?}");
+        let task_ids = postcard::from_bytes(input_shm_cap.backing()).context(DeserializeTaskIdsSnafu)?;
+        self.validate_task_ids(&task_ids)?;
 
         // Consume tasks that are already finished even at this start point.
-        let unfinished_task_descriptor_ids = self.consume_finished_tasks(task_descriptors);
+        let unfinished_task_ids = self.consume_finished_tasks(task_ids);
 
-        if unfinished_task_descriptor_ids.is_empty() {
+        if unfinished_task_ids.is_empty() {
             return Ok(());
         }
 
         // Wait on condvar for remaining tasks.
         let (lock, cvar) = &**blocking_on_tasks_condvar;
         let mut guard = lock.lock().unwrap();
-        *guard = unfinished_task_descriptor_ids.into_iter().collect();
+        *guard = unfinished_task_ids.into_iter().collect();
         while !guard.is_empty() {
             guard = cvar.wait(guard).unwrap();
         }
@@ -108,21 +89,17 @@ impl AppGlobalDeferredSpace {
         Ok(())
     }
 
-    fn validate_task_descriptors(&self, task_descriptors: &TaskDescriptors) -> Result<(), AppGlobalDeferredSpaceError> {
+    fn validate_task_ids(&self, task_ids: &Vec<TaskId>) -> Result<(), AppGlobalDeferredSpaceError> {
         // The validate method relies on the whole app being blocked making it
         // still valid once the deferred tasks are finished. Is this true?
 
-        // TODO: Use `acquire_addr`s. Not just checking the task IDs.
-
-        // It's only important to check for duplicates if we're going to use
-        // `acquire_addr`s later.
-        let duplicate_task_ids: Vec<TaskId> = task_descriptors.0.iter().map(|&TaskDescriptor { task_id, .. }| task_id).duplicates().collect();
+        let duplicate_task_ids: Vec<TaskId> = task_ids.iter().map(|&task_id| task_id).duplicates().collect();
         if !duplicate_task_ids.is_empty() {
-            return DuplicateTaskDescriptorIdsSnafu { duplicate_task_ids }.fail();
+            return DuplicatesSnafu { duplicate_task_ids }.fail();
         }
 
-        let not_found_task_ids: Vec<TaskId> = task_descriptors.0.iter()
-            .filter_map(|&TaskDescriptor { task_id, .. }| {
+        let not_found_task_ids: Vec<TaskId> = task_ids.iter()
+            .filter_map(|&task_id| {
                 if !self.space.contains_key(&task_id) { Some(task_id) } else { None }
             })
             .collect();
@@ -133,21 +110,21 @@ impl AppGlobalDeferredSpace {
         Ok(())
     }
 
-    fn consume_finished_tasks(&mut self, task_descriptors: TaskDescriptors) -> Vec<TaskId> {
-        let mut unfinished_task_descriptor_ids = vec![];
+    fn consume_finished_tasks(&mut self, task_ids: Vec<TaskId>) -> Vec<TaskId> {
+        let mut unfinished_task_ids = vec![];
 
-        for TaskDescriptor { task_id, .. } in task_descriptors.0 {
+        for task_id in task_ids {
             match self.space.entry(task_id) {
                 Entry::Occupied(occupied_entry) if matches!(occupied_entry.get(), ScheduledTask::Finished) => {
                     occupied_entry.remove();
                     self.id_pool.release(task_id);
                 },
-                Entry::Occupied(_) => unfinished_task_descriptor_ids.push(task_id),
+                Entry::Occupied(_) => unfinished_task_ids.push(task_id),
                 Entry::Vacant(_) => panic!("Vacant shouldn't be possible. The provided IDs should be validated before calling this function."),
             }
         }
 
-        unfinished_task_descriptor_ids
+        unfinished_task_ids
     }
 }
 
@@ -191,12 +168,12 @@ pub enum AppGlobalDeferredSpaceError {
     DuplicateId,
     #[snafu(display("The maximum amount of deferred tasks have been reached. This is not a great situation, but maybe it's possible to wait for deferred tasks to finish."))]
     Exhausted,
-    #[snafu(display("Multiple task descriptors with the same task ID were provided. Duplicate task IDs are: {duplicate_task_ids:?}"))]
-    DuplicateTaskDescriptorIds { duplicate_task_ids: Vec<TaskId> },
+    #[snafu(display("Error deserialising task IDs: {source}"))]
+    DeserializeTaskIdsError { source: PostcardError },
+    #[snafu(display("Duplicate task IDs were provided, duplicates are: {duplicate_task_ids:?}"))]
+    Duplicates { duplicate_task_ids: Vec<TaskId> },
     #[snafu(display("Tasks with task IDs {not_found_task_ids:?} not found."))]
     NotFound { not_found_task_ids: Vec<TaskId> },
-    #[snafu(display("Error deserialising task descriptors: {source}"))]
-    DeserializeTaskDescriptorsError { source: PostcardError },
     #[snafu(display("The SHM cap with ID {id} was not found."))]
     ShmCapNotFound { id: ShmCapId },
     #[snafu(display("The SHM cap with ID {id} is not allowed to be used as an input cap, possibly because it is an ELF cap."))]
@@ -260,7 +237,7 @@ mod tests {
     }
 
     #[test]
-    fn validate_task_descriptors() {
+    fn validate_task_ids() {
         let mut space = AppGlobalDeferredSpace::new();
 
         let task_id = {
@@ -269,21 +246,21 @@ mod tests {
             task.task_id
         };
 
-        // Task descriptor matching existent ID: valid
+        // Existent ID: valid
         assert!(matches!(
-            space.validate_task_descriptors(&TaskDescriptors(vec![TaskDescriptor::new(task_id, 0x1000, 0x2000)])),
+            space.validate_task_ids(&vec![task_id]),
             Ok(()),
         ));
 
-        // Task descriptors with duplicate IDs: not valid
+        // Duplicate IDs: not valid
         assert!(matches!(
-            space.validate_task_descriptors(&TaskDescriptors(vec![TaskDescriptor::new(task_id, 0x1000, 0x2000), TaskDescriptor::new(task_id, 0x3000, 0x4000)])),
-            Err(AppGlobalDeferredSpaceError::DuplicateTaskDescriptorIds { duplicate_task_ids: m_duplicate_task_ids }) if m_duplicate_task_ids == vec![task_id],
+            space.validate_task_ids(&vec![task_id, task_id]),
+            Err(AppGlobalDeferredSpaceError::Duplicates { duplicate_task_ids: m_duplicate_task_ids }) if m_duplicate_task_ids == vec![task_id],
         ));
 
-        // Task descriptor with non-existent ID: not valid
+        // Non-existent ID: not valid
         assert!(matches!(
-            space.validate_task_descriptors(&TaskDescriptors(vec![TaskDescriptor::new(task_id + 1, 0x1000, 0x2000)])),
+            space.validate_task_ids(&vec![task_id + 1]),
             Err(AppGlobalDeferredSpaceError::NotFound { not_found_task_ids: m_not_found_task_ids }) if m_not_found_task_ids == vec![task_id + 1],
         ));
     }
@@ -299,7 +276,7 @@ mod tests {
         };
 
         space.finish_tasks();
-        space.consume_finished_tasks(TaskDescriptors(vec![TaskDescriptor::new(task_id, 0x1000, 0x2000)]));
+        space.consume_finished_tasks(vec![task_id]);
 
         // There should be no entries in the space
         assert_eq!(0, space.space.len());

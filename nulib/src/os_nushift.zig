@@ -59,7 +59,7 @@ pub const SyscallErrorEnum = enum(usize) {
     shm_address_not_aligned = 9,
     shm_overlaps_existing_acquisition = 10,
 
-    deferred_deserialize_task_descriptors_error = 13,
+    deferred_deserialize_task_ids_error = 13,
     deferred_duplicate_task_ids = 14,
     deferred_task_id_not_found = 15,
 };
@@ -81,7 +81,7 @@ pub const SyscallError = error{
     ShmAddressNotAligned,
     ShmOverlapsExistingAcquisition,
 
-    DeferredDeserializeTaskDescriptorsError,
+    DeferredDeserializeTaskIdsError,
     DeferredDuplicateTaskIds,
     DeferredTaskIdNotFound,
 };
