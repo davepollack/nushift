@@ -99,6 +99,12 @@ impl DeferredSpace for DefaultDeferredSpace {
 
 impl DefaultDeferredSpace {
     /// Releases SHM cap, but does not do further processing yet.
+    ///
+    /// TODO: Rollback logic needs to be added to this function.
+    /// release_shm_cap_user, the first move_shm_cap_to_other_space, and
+    /// new_shm_cap all need to be rolled back if an error is returned by a
+    /// subsequent line. They should NOT be rolled back if the function
+    /// completes normally with no error.
     pub fn publish_blocking(&mut self, context: &str, cap_id: DefaultDeferredSpaceCapId, input_shm_cap_id: ShmCapId, shm_space: &mut ShmSpace) -> Result<(), DeferredSpaceError> {
         let default_deferred_cap = self.get_mut(cap_id).ok_or_else(|| CapNotFoundSnafu { context, id: cap_id }.build())?;
 
