@@ -1,6 +1,6 @@
 use serde::Deserialize;
 
-use super::deferred_space::{self, DeferredSpace, DefaultDeferredSpace, DeferredSpaceSpecific, DeferredError, DeferredSpaceError};
+use super::deferred_space::{self, DeferredSpace, DefaultDeferredSpace, DeferredSpaceSpecificPublish, DeferredError, DeferredSpaceError};
 use super::hypervisor::hypervisor_event::{BoundHypervisorEventHandler, UnboundHypervisorEvent, HypervisorEventError};
 use super::shm_space::{ShmCapId, ShmCap, ShmSpace};
 
@@ -25,10 +25,10 @@ struct TitleSpaceSpecific {
     bound_hypervisor_event_handler: BoundHypervisorEventHandler,
 }
 
-impl DeferredSpaceSpecific for TitleSpaceSpecific {
+impl DeferredSpaceSpecificPublish for TitleSpaceSpecific {
     type Payload<'de> = TitleSpacePayload<'de>;
 
-    fn process_cap_payload(&mut self, payload: Self::Payload<'_>, output_shm_cap: &mut ShmCap) {
+    fn publish_cap_payload(&mut self, payload: Self::Payload<'_>, output_shm_cap: &mut ShmCap) {
         (self.bound_hypervisor_event_handler)(UnboundHypervisorEvent::TitleChange(payload.title.into()))
             .unwrap_or_else(|hypervisor_event_error| match hypervisor_event_error {
                 HypervisorEventError::SubmitCommandError => {

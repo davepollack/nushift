@@ -1,12 +1,13 @@
-mod hypervisor;
-mod process_control_block;
-mod nushift_subsystem;
-mod protected_memory;
-mod shm_space;
 mod accessibility_tree_space;
-mod register_ipc;
-mod elf_loader;
 mod deferred_space;
+mod elf_loader;
+mod gfx_space;
+mod hypervisor;
+mod nushift_subsystem;
+mod process_control_block;
+mod protected_memory;
+mod register_ipc;
+mod shm_space;
 mod title_space;
 
 pub use crate::hypervisor::Hypervisor;
