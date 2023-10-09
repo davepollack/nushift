@@ -4,6 +4,7 @@ use std::sync::{mpsc, Arc, Mutex, Condvar};
 use std::thread;
 
 use reusable_id_pool::ArcId;
+use serde::Serialize;
 
 use crate::deferred_space::app_global_deferred_space::Task;
 use crate::nushift_subsystem::NushiftSubsystem;
@@ -14,10 +15,23 @@ use super::hypervisor_event::{HypervisorEvent, HypervisorEventHandler};
 pub struct Tab {
     id: ArcId,
     machine_nushift_subsystem: Arc<Mutex<NushiftSubsystem>>,
+    output: Output,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Output {
+    size_px: Vec<u64>,
+    scale: Vec<f64>,
+}
+
+impl Output {
+    pub fn new(size_px: Vec<u64>, scale: Vec<f64>) -> Self {
+        Self { size_px, scale }
+    }
 }
 
 impl Tab {
-    pub fn new(id: ArcId, hypervisor_event_handler: HypervisorEventHandler) -> Self {
+    pub fn new(id: ArcId, hypervisor_event_handler: HypervisorEventHandler, initial_output: Output) -> Self {
         // This isn't shared yet, but it will be when NushiftSubsystem hands it to multiple spaces
         let bound_hypervisor_event_handler = Arc::new({
             let cloned_id = ArcId::clone(&id);
@@ -28,10 +42,15 @@ impl Tab {
 
         let blocking_on_tasks = Arc::new((Mutex::new(HashSet::new()), Condvar::new()));
 
-        Tab {
+        Self {
             id,
             machine_nushift_subsystem: Arc::new(Mutex::new(NushiftSubsystem::new(bound_hypervisor_event_handler, blocking_on_tasks))),
+            output: initial_output,
         }
+    }
+
+    pub fn update_output(&mut self, output: Output) {
+        self.output = output;
     }
 
     pub fn load_and_run(&mut self, image: Vec<u8>) {

@@ -14,7 +14,7 @@ mod theme;
 mod selector;
 mod global_key_command_handler;
 
-use self::model::RootData;
+use self::model::{RootData, ScaleAndSize};
 use self::selector::HYPERVISOR_EVENT;
 use self::global_key_command_handler::GlobalKeyCommandHandler;
 
@@ -43,6 +43,7 @@ fn main() {
         tabs: vector![],
         currently_selected_tab_id: None,
         close_tab_requests: vector![],
+        scale_and_size: ScaleAndSize::new(),
         hypervisor,
     };
 
@@ -52,5 +53,7 @@ fn main() {
 }
 
 fn build_root_widget() -> impl Widget<RootData> {
-    Flex::column().with_child(widget::top_bar())
+    Flex::column()
+        .with_child(widget::top_bar())
+        .with_flex_child(widget::client_area::ClientArea::new(Color::grey(0.95)), 1.0)
 }

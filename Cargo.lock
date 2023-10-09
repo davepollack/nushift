@@ -1025,6 +1025,7 @@ dependencies = [
  "nushift-core",
  "reusable-id-pool",
  "static_vcruntime",
+ "tracing",
 ]
 
 [[package]]

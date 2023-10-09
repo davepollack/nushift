@@ -171,6 +171,7 @@ impl NushiftSubsystem {
             Ok(Syscall::Exit) => {
                 user_exit(registers[FIRST_ARG_REGISTER_INDEX].to_u64())
             },
+
             Ok(Syscall::ShmNew) => {
                 let shm_type = match ShmType::try_from(registers[FIRST_ARG_REGISTER_INDEX].to_u64()) {
                     Ok(shm_type) => shm_type,

@@ -4,10 +4,10 @@ use std::{fs, collections::HashMap};
 use reusable_id_pool::{ReusableIdPool, ArcId};
 
 pub(super) mod hypervisor_event;
-mod tab;
+pub(super) mod tab;
 
 use self::hypervisor_event::{HypervisorEventHandler, HypervisorEventHandlerFn};
-use self::tab::Tab;
+use self::tab::{Tab, Output};
 
 pub struct Hypervisor {
     tabs: HashMap<ArcId, Tab>,
@@ -31,13 +31,13 @@ impl Hypervisor {
     /// owned by the `Hypervisor`.
     ///
     /// The newly-created ID is returned.
-    pub fn add_new_tab(&mut self) -> ArcId {
+    pub fn add_new_tab(&mut self, initial_output: Output) -> ArcId {
         let new_tab_id = self.tabs_reusable_id_pool.allocate();
 
         let new_tab_id_cloned_for_tab = ArcId::clone(&new_tab_id);
         let new_tab_id_cloned_for_key = ArcId::clone(&new_tab_id);
 
-        let mut new_tab = Tab::new(new_tab_id_cloned_for_tab, Arc::clone(&self.hypervisor_event_handler));
+        let mut new_tab = Tab::new(new_tab_id_cloned_for_tab, Arc::clone(&self.hypervisor_event_handler), initial_output);
 
         let binary_blob_result = fs::read("../examples/hello-world/zig-out/bin/hello-world");
         match binary_blob_result {
@@ -55,6 +55,17 @@ impl Hypervisor {
     /// If the passed-in `tab_id` does not exist, this method does nothing.
     pub fn close_tab(&mut self, tab_id: &ArcId) {
         self.tabs.remove(tab_id);
+    }
+
+    /// Update all tab outputs, e.g. when the window scale or size changes.
+    ///
+    /// When you can have multiple windows (in the future, possibly), you don't
+    /// want this to update all tabs but only the tabs in the window affected by
+    /// the output change.
+    pub fn update_all_tab_outputs(&mut self, output: Output) {
+        for tab in self.tabs.values_mut() {
+            tab.update_output(output.clone());
+        }
     }
 }
 
@@ -76,7 +87,7 @@ mod tests {
     fn hypervisor_add_new_tab_adds_new_tab() {
         let mut hypervisor = Hypervisor::new(|_| Ok(()));
 
-        hypervisor.add_new_tab();
+        hypervisor.add_new_tab(Output::new(vec![1920, 1080], vec![1.25, 1.25]));
 
         assert_eq!(1, hypervisor.tabs.len());
     }
@@ -84,7 +95,7 @@ mod tests {
     #[test]
     fn hypervisor_close_tab_closes_existing_tab() {
         let mut hypervisor = Hypervisor::new(|_| Ok(()));
-        let tab_id = hypervisor.add_new_tab();
+        let tab_id = hypervisor.add_new_tab(Output::new(vec![1920, 1080], vec![1.25, 1.25]));
 
         hypervisor.close_tab(&tab_id);
 

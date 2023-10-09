@@ -10,6 +10,7 @@ edition = "2021"
 # Use a revision a bit newer than 0.8.3 that fixes the window light theme detection being backwards
 druid = { git = "https://github.com/linebender/druid.git", rev = "af94bdd02798c84f7927e898b1ed28ebcec16b30", features = ["im"] }
 nushift-core = { path = "../nushift-core" }
+tracing = "0.1.37"
 reusable-id-pool = { path = "../reusable-id-pool" }
 
 [build-dependencies]

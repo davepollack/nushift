@@ -1,14 +1,15 @@
+use core::iter;
 use std::fmt::Debug;
 use std::sync::{Mutex, Arc};
 
-use druid::{Data, Env, Lens, LocalizedString};
-use druid::im::Vector;
-use nushift_core::Hypervisor;
+use druid::{Data, Env, LocalizedString, Scale, Size};
+use druid::im::{Vector, vector};
+use nushift_core::{Hypervisor, Output};
 use reusable_id_pool::ArcId;
 
 use super::tab_data::TabData;
 
-#[derive(Clone, Data, Lens)]
+#[derive(Clone, Data)]
 pub struct RootData {
     pub tabs: Vector<TabData>,
     #[data(eq)]
@@ -16,6 +17,7 @@ pub struct RootData {
     /// Currently, it should only be possible to submit one of these at a time, i.e. this should always have a length of 1
     #[data(eq)]
     pub close_tab_requests: Vector<ArcId>,
+    pub scale_and_size: ScaleAndSize,
 
     #[data(ignore)]
     pub hypervisor: Arc<Mutex<Hypervisor>>,
@@ -26,16 +28,56 @@ impl Debug for RootData {
         f.debug_struct("RootData")
             .field("tabs", &self.tabs)
             .field("currently_selected_tab_id", &self.currently_selected_tab_id)
+            .field("close_tab_requests", &self.close_tab_requests)
+            .field("scale_and_size", &self.scale_and_size)
             .finish_non_exhaustive()
     }
 }
 
+#[derive(Debug, Clone, Data)]
+pub struct ScaleAndSize {
+    pub window_scale: Option<Vector<f64>>,
+    pub client_area_size_dp: Option<Vector<f64>>,
+}
+
+impl ScaleAndSize {
+    pub fn new() -> Self {
+        Self { window_scale: None, client_area_size_dp: None }
+    }
+
+    pub fn output(&self) -> Output {
+        match self {
+            Self { window_scale: Some(window_scale), client_area_size_dp: Some(client_area_size_dp) } => {
+                let size_px: Vec<u64> = iter::zip(window_scale, client_area_size_dp)
+                    .map(|(scale_dimension, dp_dimension)| (scale_dimension * dp_dimension).round() as u64)
+                    .collect();
+
+                Output::new(size_px, window_scale.iter().cloned().collect())
+            },
+            _ => panic!("window_scale and client_area_size_dp should always be present"),
+        }
+    }
+}
+
+impl From<(Scale, Size)> for ScaleAndSize {
+    fn from((scale, size): (Scale, Size)) -> Self {
+        Self {
+            window_scale: Some(vector![scale.x(), scale.y()]),
+            client_area_size_dp: Some(vector![size.width, size.height]),
+        }
+    }
+}
+
 impl RootData {
+    /// Before calling add_new_tab, self.scale_and_size MUST be initialised or
+    /// this will panic. It must also be initialised before calling any future
+    /// method that restores tabs, for example, or a future version that by
+    /// default starts with one tab open.
     pub fn add_new_tab(&mut self, env: &Env) -> ArcId {
         let mut hypervisor = self.hypervisor.lock().unwrap();
         let mut title = LocalizedString::new("nushift-new-tab");
         title.resolve(self, env);
-        let tab_id = hypervisor.add_new_tab();
+        let tab_id = hypervisor.add_new_tab(self.scale_and_size.output());
 
         self.currently_selected_tab_id = Some(ArcId::clone(&tab_id));
 
@@ -121,6 +163,7 @@ pub mod tests {
             tabs: vector![],
             currently_selected_tab_id: None,
             close_tab_requests: vector![],
+            scale_and_size: ScaleAndSize { window_scale: Some(vector![1.25, 1.25]), client_area_size_dp: Some(vector![1536.0, 864.0]) },
             hypervisor,
         }
     }

@@ -12,3 +12,4 @@ mod title_space;
 
 pub use crate::hypervisor::Hypervisor;
 pub use crate::hypervisor::hypervisor_event::{HypervisorEvent, HypervisorEventError};
+pub use crate::hypervisor::tab::Output;
