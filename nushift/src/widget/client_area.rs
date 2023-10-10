@@ -40,10 +40,7 @@ impl Widget<RootData> for ClientArea {
 
             // Detect and submit command for scale changes.
             //
-            // TODO:
-            // Check that this Event::WindowScale(scale) is actually fired on
-            // this widget when you drag the window to a different display that
-            // has a different scale.
+            // TODO: This doesn't work :( This event is not received here.
             Event::WindowScale(scale) => {
                 tracing::debug!("Client area size: {:?}", ctx.size());
                 tracing::debug!("Window scale: {:?}", scale);
