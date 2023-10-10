@@ -1,4 +1,8 @@
+use std::sync::Arc;
+
 use crate::deferred_space::{DefaultDeferredSpace, DeferredSpace, DeferredSpaceError, DeferredSpaceSpecificGet};
+use crate::hypervisor::tab::Output;
+use crate::hypervisor::tab_context::TabContext;
 use crate::shm_space::{ShmCap, ShmCapId, ShmSpace};
 
 pub type GfxCapId = u64;
@@ -9,25 +13,35 @@ pub struct GfxSpace {
     gfx_get_outputs: GfxGetOutputs,
 }
 
-struct GfxGetOutputs;
+struct GfxGetOutputs {
+    tab_context: Arc<dyn TabContext>,
+}
 
 impl DeferredSpaceSpecificGet for GfxGetOutputs {
-    fn get_specific(&mut self, output_shm_cap: &mut ShmCap) {
-        todo!()
+    fn get(&mut self, output_shm_cap: &mut ShmCap) {
+        // TODO: Need to serialise a unified structure that could contain an
+        // error or the success result. Not this where you can't discriminate
+        // between either.
+
+        let outputs = self.tab_context.get_outputs();
+        let outputs_dereferenced: Vec<&Output> = outputs.iter().map(|guard| &**guard).collect();
+        // TODO: Serialise an error for the serialise buffer being full! When in
+        // the future we are serialising a unified structure.
+        let _ = postcard::to_slice(&outputs_dereferenced, output_shm_cap.backing_mut());
     }
 }
 
 impl GfxGetOutputs {
-    fn new() -> Self {
-        Self
+    fn new(tab_context: Arc<dyn TabContext>) -> Self {
+        Self { tab_context }
     }
 }
 
 impl GfxSpace {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(tab_context: Arc<dyn TabContext>) -> Self {
         Self {
             deferred_space: DefaultDeferredSpace::new(),
-            gfx_get_outputs: GfxGetOutputs::new(),
+            gfx_get_outputs: GfxGetOutputs::new(tab_context),
         }
     }
 

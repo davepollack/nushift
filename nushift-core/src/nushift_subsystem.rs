@@ -8,6 +8,7 @@ use crate::hypervisor::tab_context::TabContext;
 use super::accessibility_tree_space::AccessibilityTreeSpace;
 use super::deferred_space::app_global_deferred_space::{AppGlobalDeferredSpace, AppGlobalDeferredSpaceError, Task, TaskId};
 use super::deferred_space::DeferredSpaceError;
+use super::gfx_space::GfxSpace;
 use super::register_ipc::{SyscallEnter, SyscallReturn, SYSCALL_NUM_REGISTER_INDEX, FIRST_ARG_REGISTER_INDEX, SECOND_ARG_REGISTER_INDEX, THIRD_ARG_REGISTER_INDEX};
 use super::shm_space::{CapType, ShmType, ShmSpace, ShmSpaceError};
 use super::title_space::TitleSpace;
@@ -45,6 +46,10 @@ enum Syscall {
     TitleDestroy = 12,
 
     BlockOnDeferredTasks = 13,
+
+    GfxNew = 14,
+    GfxGetOutputs = 15,
+    GfxDestroy = 16,
 }
 
 #[derive(IntoPrimitive)]
@@ -132,20 +137,22 @@ pub type BlockingOnTasksCondvar = Arc<(Mutex<HashSet<TaskId>>, Condvar)>;
 
 pub struct NushiftSubsystem {
     pub(crate) shm_space: ShmSpace,
-    pub(crate) accessibility_tree_space: AccessibilityTreeSpace,
-    pub(crate) title_space: TitleSpace,
     pub(crate) app_global_deferred_space: AppGlobalDeferredSpace,
     pub(crate) blocking_on_tasks: BlockingOnTasksCondvar,
+    pub(crate) accessibility_tree_space: AccessibilityTreeSpace,
+    pub(crate) title_space: TitleSpace,
+    pub(crate) gfx_space: GfxSpace,
 }
 
 impl NushiftSubsystem {
     pub(crate) fn new(tab_context: Arc<dyn TabContext>, blocking_on_tasks: BlockingOnTasksCondvar) -> Self {
         NushiftSubsystem {
             shm_space: ShmSpace::new(),
-            accessibility_tree_space: AccessibilityTreeSpace::new(),
-            title_space: TitleSpace::new(tab_context),
             app_global_deferred_space: AppGlobalDeferredSpace::new(),
             blocking_on_tasks,
+            accessibility_tree_space: AccessibilityTreeSpace::new(),
+            title_space: TitleSpace::new(Arc::clone(&tab_context)),
+            gfx_space: GfxSpace::new(Arc::clone(&tab_context)),
         }
     }
 
@@ -344,6 +351,43 @@ impl NushiftSubsystem {
                 match self.app_global_deferred_space.block_on_deferred_tasks(input_shm_cap_id, &mut self.shm_space, &self.blocking_on_tasks) {
                     Ok(_) => {},
                     Err(app_global_deferred_space_error) => return marshall_app_global_deferred_space_error(app_global_deferred_space_error),
+                };
+
+                set_success(0)
+            },
+
+            Ok(Syscall::GfxNew) => {
+                let gfx_cap_id = match self.gfx_space.new_gfx_cap() {
+                    Ok(gfx_cap_id) => gfx_cap_id,
+                    Err(deferred_space_error) => return marshall_deferred_space_error(deferred_space_error),
+                };
+
+                set_success(gfx_cap_id)
+            },
+            Ok(Syscall::GfxGetOutputs) => {
+                let gfx_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
+                let output_shm_cap_id = registers[SECOND_ARG_REGISTER_INDEX].to_u64();
+
+                let mut task = match self.app_global_deferred_space.allocate_task(Task::GfxGetOutputs { gfx_cap_id }) {
+                    Ok(task) => task,
+                    Err(app_global_deferred_space_error) => return marshall_app_global_deferred_space_error(app_global_deferred_space_error),
+                };
+
+                match self.gfx_space.get_outputs_blocking(gfx_cap_id, output_shm_cap_id, &mut self.shm_space) {
+                    Ok(_) => {},
+                    Err(deferred_space_error) => return marshall_deferred_space_error(deferred_space_error),
+                };
+
+                let task_id = task.push_task();
+
+                set_success(task_id)
+            },
+            Ok(Syscall::GfxDestroy) => {
+                let gfx_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
+
+                match self.gfx_space.destroy_gfx_cap(gfx_cap_id) {
+                    Ok(_) => {},
+                    Err(deferred_space_error) => return marshall_deferred_space_error(deferred_space_error),
                 };
 
                 set_success(0)

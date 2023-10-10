@@ -40,7 +40,7 @@ pub trait DeferredSpaceSpecificPublish {
 
 // In contrast to the `DeferredSpace` trait, this one is used by multiple impls.
 pub trait DeferredSpaceSpecificGet {
-    fn get_specific(&mut self, output_shm_cap: &mut ShmCap);
+    fn get(&mut self, output_shm_cap: &mut ShmCap);
 }
 
 pub type DefaultDeferredSpaceCapId = u64;
@@ -241,7 +241,7 @@ impl DefaultDeferredSpace {
             PrologueReturn::ContinueCaps(None, output_shm_cap) => output_shm_cap,
         };
 
-        deferred_space_specific.get_specific(output_shm_cap);
+        deferred_space_specific.get(output_shm_cap);
 
         self.get_or_publish_deferred_epilogue(cap_id, shm_space)
     }

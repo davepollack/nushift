@@ -19,6 +19,10 @@ pub const Syscall = enum(usize) {
     title_destroy = 12,
 
     block_on_deferred_tasks = 13,
+
+    gfx_new = 14,
+    gfx_get_outputs = 15,
+    gfx_destroy = 16,
 };
 
 pub fn SyscallArgs(comptime sys: Syscall) type {
@@ -39,6 +43,10 @@ pub fn SyscallArgs(comptime sys: Syscall) type {
         .title_destroy => struct { title_cap_id: usize },
 
         .block_on_deferred_tasks => struct { input_shm_cap_id: usize },
+
+        .gfx_new => struct {},
+        .gfx_get_outputs => struct { gfx_cap_id: usize, output_shm_cap_id: usize },
+        .gfx_destroy => struct { gfx_cap_id: usize },
     };
 }
 
@@ -171,6 +179,10 @@ fn syscall_internal(comptime sys: Syscall, sys_args: SyscallArgs(sys), comptime 
         .title_destroy => syscall_internal_args(sys, .{sys_args.title_cap_id}, ignore_errors),
 
         .block_on_deferred_tasks => syscall_internal_args(sys, .{sys_args.input_shm_cap_id}, ignore_errors),
+
+        .gfx_new => syscall_internal_args(sys, .{}, ignore_errors),
+        .gfx_get_outputs => syscall_internal_args(sys, .{ sys_args.gfx_cap_id, sys_args.output_shm_cap_id }, ignore_errors),
+        .gfx_destroy => syscall_internal_args(sys, .{sys_args.gfx_cap_id}, ignore_errors),
     };
 }
 

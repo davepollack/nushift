@@ -16,7 +16,7 @@ use super::tab_context::DefaultTabContext;
 pub struct Tab {
     id: ArcId,
     machine_nushift_subsystem: Arc<Mutex<NushiftSubsystem>>,
-    output: Output,
+    output: Arc<Mutex<Output>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -33,20 +33,20 @@ impl Output {
 
 impl Tab {
     pub fn new(id: ArcId, hypervisor_event_handler: HypervisorEventHandler, initial_output: Output) -> Self {
-        // This isn't shared yet, but it will be when NushiftSubsystem hands it to multiple spaces
-        let tab_context = Arc::new(DefaultTabContext::new(ArcId::clone(&id), hypervisor_event_handler));
+        let output = Arc::new(Mutex::new(initial_output));
+        let tab_context = Arc::new(DefaultTabContext::new(ArcId::clone(&id), hypervisor_event_handler, Arc::clone(&output)));
 
         let blocking_on_tasks = Arc::new((Mutex::new(HashSet::new()), Condvar::new()));
 
         Self {
             id,
             machine_nushift_subsystem: Arc::new(Mutex::new(NushiftSubsystem::new(tab_context, blocking_on_tasks))),
-            output: initial_output,
+            output,
         }
     }
 
     pub fn update_output(&mut self, output: Output) {
-        self.output = output;
+        *self.output.lock().unwrap() = output;
     }
 
     pub fn load_and_run(&mut self, image: Vec<u8>) {
@@ -112,6 +112,12 @@ impl Tab {
                     },
                     Task::TitlePublish { title_cap_id } => {
                         match subsystem.title_space.publish_title_deferred(title_cap_id, &mut subsystem.shm_space) {
+                            Ok(_) => {},
+                            Err(_) => {}, // TODO: On internal error, terminate app (?)
+                        }
+                    },
+                    Task::GfxGetOutputs { gfx_cap_id } => {
+                        match subsystem.gfx_space.get_outputs_deferred(gfx_cap_id, &mut subsystem.shm_space) {
                             Ok(_) => {},
                             Err(_) => {}, // TODO: On internal error, terminate app (?)
                         }
