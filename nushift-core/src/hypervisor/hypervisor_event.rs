@@ -11,8 +11,6 @@ pub trait HypervisorEventHandlerFn: Fn(HypervisorEvent) -> Result<(), Hypervisor
 impl<F> HypervisorEventHandlerFn for F where F: Fn(HypervisorEvent) -> Result<(), HypervisorEventError> + Send + Sync + 'static {}
 pub type HypervisorEventHandler = Arc<dyn HypervisorEventHandlerFn>;
 
-pub(crate) type BoundHypervisorEventHandler = Arc<dyn Fn(UnboundHypervisorEvent) -> Result<(), HypervisorEventError> + Send + Sync + 'static>;
-
 #[non_exhaustive] // TODO: Probably remove this non_exhaustive when we add a second (and any more) variants
 pub enum HypervisorEvent {
     TitleChange(ArcId, String),

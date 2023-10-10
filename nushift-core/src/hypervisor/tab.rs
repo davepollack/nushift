@@ -10,7 +10,8 @@ use crate::deferred_space::app_global_deferred_space::Task;
 use crate::nushift_subsystem::NushiftSubsystem;
 use crate::process_control_block::ProcessControlBlock;
 
-use super::hypervisor_event::{HypervisorEvent, HypervisorEventHandler};
+use super::hypervisor_event::HypervisorEventHandler;
+use super::tab_context::DefaultTabContext;
 
 pub struct Tab {
     id: ArcId,
@@ -33,18 +34,13 @@ impl Output {
 impl Tab {
     pub fn new(id: ArcId, hypervisor_event_handler: HypervisorEventHandler, initial_output: Output) -> Self {
         // This isn't shared yet, but it will be when NushiftSubsystem hands it to multiple spaces
-        let bound_hypervisor_event_handler = Arc::new({
-            let cloned_id = ArcId::clone(&id);
-            move |unbound_hyp_event| {
-                hypervisor_event_handler(HypervisorEvent::from(ArcId::clone(&cloned_id), unbound_hyp_event))
-            }
-        });
+        let tab_context = Arc::new(DefaultTabContext::new(ArcId::clone(&id), hypervisor_event_handler));
 
         let blocking_on_tasks = Arc::new((Mutex::new(HashSet::new()), Condvar::new()));
 
         Self {
             id,
-            machine_nushift_subsystem: Arc::new(Mutex::new(NushiftSubsystem::new(bound_hypervisor_event_handler, blocking_on_tasks))),
+            machine_nushift_subsystem: Arc::new(Mutex::new(NushiftSubsystem::new(tab_context, blocking_on_tasks))),
             output: initial_output,
         }
     }

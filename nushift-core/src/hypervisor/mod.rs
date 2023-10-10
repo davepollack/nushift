@@ -5,6 +5,7 @@ use reusable_id_pool::{ReusableIdPool, ArcId};
 
 pub(super) mod hypervisor_event;
 pub(super) mod tab;
+pub(super) mod tab_context;
 
 use self::hypervisor_event::{HypervisorEventHandler, HypervisorEventHandlerFn};
 use self::tab::{Tab, Output};

@@ -1,8 +1,11 @@
+use std::sync::Arc;
+
 use serde::Deserialize;
 
-use super::deferred_space::{self, DeferredSpace, DefaultDeferredSpace, DeferredSpaceSpecificPublish, DeferredError, DeferredSpaceError};
-use super::hypervisor::hypervisor_event::{BoundHypervisorEventHandler, UnboundHypervisorEvent, HypervisorEventError};
-use super::shm_space::{ShmCapId, ShmCap, ShmSpace};
+use crate::deferred_space::{self, DeferredSpace, DefaultDeferredSpace, DeferredSpaceSpecificPublish, DeferredError, DeferredSpaceError};
+use crate::hypervisor::hypervisor_event::{UnboundHypervisorEvent, HypervisorEventError};
+use crate::hypervisor::tab_context::TabContext;
+use crate::shm_space::{ShmCapId, ShmCap, ShmSpace};
 
 pub type TitleCapId = u64;
 const TITLE_CONTEXT: &str = "title";
@@ -22,14 +25,14 @@ struct TitleSpacePayload<'payload> {
 }
 
 struct TitleSpaceSpecific {
-    bound_hypervisor_event_handler: BoundHypervisorEventHandler,
+    tab_context: Arc<dyn TabContext>,
 }
 
 impl DeferredSpaceSpecificPublish for TitleSpaceSpecific {
     type Payload<'de> = TitleSpacePayload<'de>;
 
     fn publish_cap_payload(&mut self, payload: Self::Payload<'_>, output_shm_cap: &mut ShmCap) {
-        (self.bound_hypervisor_event_handler)(UnboundHypervisorEvent::TitleChange(payload.title.into()))
+        self.tab_context.send_hypervisor_event(UnboundHypervisorEvent::TitleChange(payload.title.into()))
             .unwrap_or_else(|hypervisor_event_error| match hypervisor_event_error {
                 HypervisorEventError::SubmitCommandError => {
                     tracing::debug!("Submit failed: {hypervisor_event_error}");
@@ -40,16 +43,16 @@ impl DeferredSpaceSpecificPublish for TitleSpaceSpecific {
 }
 
 impl TitleSpaceSpecific {
-    fn new(bound_hypervisor_event_handler: BoundHypervisorEventHandler) -> Self {
-        Self { bound_hypervisor_event_handler }
+    fn new(tab_context: Arc<dyn TabContext>) -> Self {
+        Self { tab_context }
     }
 }
 
 impl TitleSpace {
-    pub(crate) fn new(bound_hypervisor_event_handler: BoundHypervisorEventHandler) -> Self {
+    pub(crate) fn new(tab_context: Arc<dyn TabContext>) -> Self {
         Self {
             deferred_space: DefaultDeferredSpace::new(),
-            title_space_specific: TitleSpaceSpecific::new(bound_hypervisor_event_handler),
+            title_space_specific: TitleSpaceSpecific::new(tab_context),
         }
     }
 

@@ -4,10 +4,10 @@ use std::sync::{Arc, Mutex, Condvar};
 use ckb_vm::Register;
 use num_enum::{TryFromPrimitive, IntoPrimitive};
 
+use crate::hypervisor::tab_context::TabContext;
+use super::accessibility_tree_space::AccessibilityTreeSpace;
 use super::deferred_space::app_global_deferred_space::{AppGlobalDeferredSpace, AppGlobalDeferredSpaceError, Task, TaskId};
 use super::deferred_space::DeferredSpaceError;
-use super::accessibility_tree_space::AccessibilityTreeSpace;
-use super::hypervisor::hypervisor_event::BoundHypervisorEventHandler;
 use super::register_ipc::{SyscallEnter, SyscallReturn, SYSCALL_NUM_REGISTER_INDEX, FIRST_ARG_REGISTER_INDEX, SECOND_ARG_REGISTER_INDEX, THIRD_ARG_REGISTER_INDEX};
 use super::shm_space::{CapType, ShmType, ShmSpace, ShmSpaceError};
 use super::title_space::TitleSpace;
@@ -139,11 +139,11 @@ pub struct NushiftSubsystem {
 }
 
 impl NushiftSubsystem {
-    pub(crate) fn new(bound_hypervisor_event_handler: BoundHypervisorEventHandler, blocking_on_tasks: BlockingOnTasksCondvar) -> Self {
+    pub(crate) fn new(tab_context: Arc<dyn TabContext>, blocking_on_tasks: BlockingOnTasksCondvar) -> Self {
         NushiftSubsystem {
             shm_space: ShmSpace::new(),
             accessibility_tree_space: AccessibilityTreeSpace::new(),
-            title_space: TitleSpace::new(bound_hypervisor_event_handler),
+            title_space: TitleSpace::new(tab_context),
             app_global_deferred_space: AppGlobalDeferredSpace::new(),
             blocking_on_tasks,
         }
