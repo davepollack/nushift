@@ -40,7 +40,7 @@ impl Widget<RootData> for ClientArea {
 
             // Detect and submit command for scale changes.
             //
-            // TODO: This doesn't work :( This event is not received here.
+            // TODO: This doesn't work :( This event is not received here, on Windows.
             Event::WindowScale(scale) => {
                 tracing::debug!("Client area size: {:?}", ctx.size());
                 tracing::debug!("Window scale: {:?}", scale);
