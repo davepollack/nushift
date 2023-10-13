@@ -22,13 +22,14 @@ pub enum PrologueReturn<'deferred_space> {
 pub trait DeferredSpace {
     type SpaceError;
     type Cap;
+    type CapId;
 
     fn new() -> Self;
     fn new_cap(&mut self, context: &str) -> Result<u64, Self::SpaceError>;
     fn get_mut(&mut self, cap_id: u64) -> Option<&mut Self::Cap>;
     fn destroy_cap(&mut self, context: &str, cap_id: u64) -> Result<(), Self::SpaceError>;
-    fn get_or_publish_deferred_prologue(&mut self, cap_id: DefaultDeferredSpaceCapId) -> PrologueReturn<'_>;
-    fn get_or_publish_deferred_epilogue(&mut self, cap_id: DefaultDeferredSpaceCapId, shm_space: &mut ShmSpace) -> Result<(), ()>;
+    fn get_or_publish_deferred_prologue(&mut self, cap_id: Self::CapId) -> PrologueReturn<'_>;
+    fn get_or_publish_deferred_epilogue(&mut self, cap_id: Self::CapId, shm_space: &mut ShmSpace) -> Result<(), ()>;
 }
 
 // In contrast to the `DeferredSpace` trait, this one is used by multiple impls.
@@ -75,6 +76,7 @@ pub struct DefaultDeferredSpace {
 impl DeferredSpace for DefaultDeferredSpace {
     type SpaceError = DeferredSpaceError;
     type Cap = DefaultDeferredCap;
+    type CapId = DefaultDeferredSpaceCapId;
 
     fn new() -> Self {
         Self {
@@ -112,7 +114,7 @@ impl DeferredSpace for DefaultDeferredSpace {
         Ok(())
     }
 
-    fn get_or_publish_deferred_prologue(&mut self, cap_id: DefaultDeferredSpaceCapId) -> PrologueReturn<'_> {
+    fn get_or_publish_deferred_prologue(&mut self, cap_id: Self::CapId) -> PrologueReturn<'_> {
         // If cap has been deleted after progress is started, that is valid
         // and now do nothing here.
         //
@@ -136,7 +138,7 @@ impl DeferredSpace for DefaultDeferredSpace {
         }
     }
 
-    fn get_or_publish_deferred_epilogue(&mut self, cap_id: DefaultDeferredSpaceCapId, shm_space: &mut ShmSpace) -> Result<(), ()> {
+    fn get_or_publish_deferred_epilogue(&mut self, cap_id: Self::CapId, shm_space: &mut ShmSpace) -> Result<(), ()> {
         // It should still not be possible for in_progress_cap to be empty. This
         // is an internal error.
         let default_deferred_cap = self.get_mut(cap_id).ok_or(())?;
