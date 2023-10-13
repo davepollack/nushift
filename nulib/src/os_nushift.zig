@@ -22,7 +22,10 @@ pub const Syscall = enum(usize) {
 
     gfx_new = 14,
     gfx_get_outputs = 15,
-    gfx_destroy = 16,
+    gfx_cpu_present_buffer_new = 16,
+    gfx_cpu_present = 17,
+    gfx_cpu_present_buffer_destroy = 18,
+    gfx_destroy = 19,
 };
 
 pub fn SyscallArgs(comptime sys: Syscall) type {
@@ -46,6 +49,9 @@ pub fn SyscallArgs(comptime sys: Syscall) type {
 
         .gfx_new => struct {},
         .gfx_get_outputs => struct { gfx_cap_id: usize, output_shm_cap_id: usize },
+        .gfx_cpu_present_buffer_new => struct { gfx_cap_id: usize, present_buffer_format: PresentBufferFormat, buffer_shm_cap_id: usize },
+        .gfx_cpu_present => struct { gfx_cpu_present_buffer_cap_id: usize, wait_for_vblank: usize },
+        .gfx_cpu_present_buffer_destroy => struct { gfx_cpu_present_buffer_cap_id: usize },
         .gfx_destroy => struct { gfx_cap_id: usize },
     };
 }
@@ -70,6 +76,8 @@ pub const SyscallErrorEnum = enum(usize) {
     deferred_deserialize_task_ids_error = 13,
     deferred_duplicate_task_ids = 14,
     deferred_task_id_not_found = 15,
+
+    gfx_unknown_present_buffer_format = 16,
 };
 
 pub const SyscallError = error{
@@ -92,60 +100,18 @@ pub const SyscallError = error{
     DeferredDeserializeTaskIdsError,
     DeferredDuplicateTaskIds,
     DeferredTaskIdNotFound,
+
+    GfxUnknownPresentBufferFormat,
 };
-
-fn syscallErrorFromErrorCode(error_code: usize) SyscallError {
-    const syscall_error_enum: SyscallErrorEnum = @enumFromInt(error_code);
-
-    return switch (syscall_error_enum) {
-        inline else => |tag| @field(SyscallError, snakeToCamel(@tagName(tag))),
-    };
-}
-
-pub fn errorCodeFromSyscallError(syscall_error: SyscallError) usize {
-    return switch (syscall_error) {
-        inline else => |err| @intFromEnum(@field(SyscallErrorEnum, camelToSnake(@errorName(err)))),
-    };
-}
-
-fn snakeToCamel(comptime snake: []const u8) []const u8 {
-    var upper = true;
-    var camel: [snake.len]u8 = undefined;
-    var camelIndex: usize = 0;
-
-    for (snake) |byte| {
-        if (byte == '_') {
-            upper = true;
-            continue;
-        }
-        camel[camelIndex] = if (upper) std.ascii.toUpper(byte) else byte;
-        upper = false;
-        camelIndex += 1;
-    }
-
-    return camel[0..camelIndex];
-}
-
-fn camelToSnake(comptime camel: []const u8) []const u8 {
-    var buffer: [2 * camel.len]u8 = undefined; // At most twice the size if every character is uppercase.
-    var bufferIndex: usize = 0;
-
-    for (camel, 0..) |byte, i| {
-        if (std.ascii.isUpper(byte) and i > 0) {
-            buffer[bufferIndex] = '_';
-            bufferIndex += 1;
-        }
-        buffer[bufferIndex] = std.ascii.toLower(byte);
-        bufferIndex += 1;
-    }
-
-    return buffer[0..bufferIndex];
-}
 
 pub const ShmType = enum(usize) {
     four_kib = 0,
     two_mib = 1,
     one_gib = 2,
+};
+
+pub const PresentBufferFormat = enum(usize) {
+    r8g8b8_uint_srgb = 0,
 };
 
 pub fn syscall(comptime sys: Syscall, sys_args: SyscallArgs(sys)) SyscallError!usize {
@@ -182,6 +148,9 @@ fn syscall_internal(comptime sys: Syscall, sys_args: SyscallArgs(sys), comptime 
 
         .gfx_new => syscall_internal_args(sys, .{}, ignore_errors),
         .gfx_get_outputs => syscall_internal_args(sys, .{ sys_args.gfx_cap_id, sys_args.output_shm_cap_id }, ignore_errors),
+        .gfx_cpu_present_buffer_new => syscall_internal_args(sys, .{ sys_args.gfx_cap_id, @intFromEnum(sys_args.present_buffer_format), sys_args.buffer_shm_cap_id }, ignore_errors),
+        .gfx_cpu_present => syscall_internal_args(sys, .{ sys_args.gfx_cpu_present_buffer_cap_id, sys_args.wait_for_vblank }, ignore_errors),
+        .gfx_cpu_present_buffer_destroy => syscall_internal_args(sys, .{sys_args.gfx_cpu_present_buffer_cap_id}, ignore_errors),
         .gfx_destroy => syscall_internal_args(sys, .{sys_args.gfx_cap_id}, ignore_errors),
     };
 }
@@ -270,4 +239,54 @@ fn syscall_internal_args(comptime sys: Syscall, args: anytype, comptime ignore_e
     }
 
     return a0_output;
+}
+
+fn syscallErrorFromErrorCode(error_code: usize) SyscallError {
+    const syscall_error_enum: SyscallErrorEnum = @enumFromInt(error_code);
+
+    return switch (syscall_error_enum) {
+        inline else => |tag| @field(SyscallError, snakeToCamel(@tagName(tag))),
+    };
+}
+
+pub fn errorCodeFromSyscallError(syscall_error: SyscallError) usize {
+    @setEvalBranchQuota(10000);
+
+    return switch (syscall_error) {
+        inline else => |err| @intFromEnum(@field(SyscallErrorEnum, camelToSnake(@errorName(err)))),
+    };
+}
+
+fn snakeToCamel(comptime snake: []const u8) []const u8 {
+    var upper = true;
+    var camel: [snake.len]u8 = undefined;
+    var camelIndex: usize = 0;
+
+    for (snake) |byte| {
+        if (byte == '_') {
+            upper = true;
+            continue;
+        }
+        camel[camelIndex] = if (upper) std.ascii.toUpper(byte) else byte;
+        upper = false;
+        camelIndex += 1;
+    }
+
+    return camel[0..camelIndex];
+}
+
+fn camelToSnake(comptime camel: []const u8) []const u8 {
+    var buffer: [2 * camel.len]u8 = undefined; // At most twice the size if every character is uppercase.
+    var bufferIndex: usize = 0;
+
+    for (camel, 0..) |byte, i| {
+        if (std.ascii.isUpper(byte) and i > 0) {
+            buffer[bufferIndex] = '_';
+            bufferIndex += 1;
+        }
+        buffer[bufferIndex] = std.ascii.toLower(byte);
+        bufferIndex += 1;
+    }
+
+    return buffer[0..bufferIndex];
 }

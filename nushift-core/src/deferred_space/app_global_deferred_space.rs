@@ -8,7 +8,7 @@ use snafu::prelude::*;
 use snafu_cli_debug::SnafuCliDebug;
 
 use crate::accessibility_tree_space::AccessibilityTreeCapId;
-use crate::gfx_space::GfxCapId;
+use crate::gfx_space::{GfxCapId, GfxCpuPresentBufferCapId};
 use crate::nushift_subsystem::BlockingOnTasksCondvar;
 use crate::shm_space::{ShmCapId, ShmSpace, ShmSpaceError};
 use crate::title_space::TitleCapId;
@@ -20,6 +20,7 @@ pub enum Task {
     AccessibilityTreePublish { accessibility_tree_cap_id: AccessibilityTreeCapId },
     TitlePublish { title_cap_id: TitleCapId },
     GfxGetOutputs { gfx_cap_id: GfxCapId },
+    GfxCpuPresent { gfx_cpu_present_buffer_cap_id: GfxCpuPresentBufferCapId },
 }
 
 enum ScheduledTask {

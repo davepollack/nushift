@@ -8,7 +8,7 @@ use crate::hypervisor::tab_context::TabContext;
 use super::accessibility_tree_space::AccessibilityTreeSpace;
 use super::deferred_space::app_global_deferred_space::{AppGlobalDeferredSpace, AppGlobalDeferredSpaceError, Task, TaskId};
 use super::deferred_space::DeferredSpaceError;
-use super::gfx_space::GfxSpace;
+use super::gfx_space::{GfxSpace, PresentBufferFormat};
 use super::register_ipc::{SyscallEnter, SyscallReturn, SYSCALL_NUM_REGISTER_INDEX, FIRST_ARG_REGISTER_INDEX, SECOND_ARG_REGISTER_INDEX, THIRD_ARG_REGISTER_INDEX};
 use super::shm_space::{CapType, ShmType, ShmSpace, ShmSpaceError};
 use super::title_space::TitleSpace;
@@ -49,7 +49,10 @@ enum Syscall {
 
     GfxNew = 14,
     GfxGetOutputs = 15,
-    GfxDestroy = 16,
+    GfxCpuPresentBufferNew = 16,
+    GfxCpuPresent = 17,
+    GfxCpuPresentBufferDestroy = 18,
+    GfxDestroy = 19,
 }
 
 #[derive(IntoPrimitive)]
@@ -74,6 +77,8 @@ pub enum SyscallError {
     DeferredDeserializeTaskIdsError = 13,
     DeferredDuplicateTaskIds = 14,
     DeferredTaskIdNotFound = 15,
+
+    GfxUnknownPresentBufferFormat = 16,
 }
 
 fn set_error<R: Register>(error: SyscallError) -> SyscallReturn<R> {
@@ -381,6 +386,55 @@ impl NushiftSubsystem {
                 let task_id = task.push_task();
 
                 set_success(task_id)
+            },
+            Ok(Syscall::GfxCpuPresentBufferNew) => {
+                let gfx_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
+                let present_buffer_format = match PresentBufferFormat::try_from(registers[SECOND_ARG_REGISTER_INDEX].to_u64()) {
+                    Ok(present_buffer_format) => present_buffer_format,
+                    Err(_) => return set_error(SyscallError::GfxUnknownPresentBufferFormat),
+                };
+                let buffer_shm_cap_id = registers[THIRD_ARG_REGISTER_INDEX].to_u64();
+
+                let gfx_cpu_present_buffer_cap_id = match self.gfx_space.new_gfx_cpu_present_buffer_cap(gfx_cap_id, present_buffer_format, buffer_shm_cap_id) {
+                    Ok(gfx_cpu_present_buffer_cap_id) => gfx_cpu_present_buffer_cap_id,
+                    Err(deferred_space_error) => return marshall_deferred_space_error(deferred_space_error),
+                };
+
+                set_success(gfx_cpu_present_buffer_cap_id)
+            },
+            Ok(Syscall::GfxCpuPresent) => {
+                let gfx_cpu_present_buffer_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
+                // TODO: This is not used yet, we cannot implement it within the
+                // current Druid framework. It will also likely need to be
+                // changed/extended. For example, if the blitting starts but
+                // does not finish until beyond the end of the vblank interval,
+                // there may need to be another option that extends the vblank
+                // (VRR).
+                let _wait_for_vblank = registers[SECOND_ARG_REGISTER_INDEX].to_u64();
+
+                let mut task = match self.app_global_deferred_space.allocate_task(Task::GfxCpuPresent { gfx_cpu_present_buffer_cap_id }) {
+                    Ok(task) => task,
+                    Err(app_global_deferred_space_error) => return marshall_app_global_deferred_space_error(app_global_deferred_space_error),
+                };
+
+                match self.gfx_space.cpu_present_blocking(gfx_cpu_present_buffer_cap_id, &mut self.shm_space) {
+                    Ok(_) => {},
+                    Err(deferred_space_error) => return marshall_deferred_space_error(deferred_space_error),
+                };
+
+                let task_id = task.push_task();
+
+                set_success(task_id)
+            },
+            Ok(Syscall::GfxCpuPresentBufferDestroy) => {
+                let gfx_cpu_present_buffer_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
+
+                match self.gfx_space.destroy_gfx_cpu_present_buffer_cap(gfx_cpu_present_buffer_cap_id) {
+                    Ok(_) => {},
+                    Err(deferred_space_error) => return marshall_deferred_space_error(deferred_space_error),
+                };
+
+                set_success(0)
             },
             Ok(Syscall::GfxDestroy) => {
                 let gfx_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();

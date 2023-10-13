@@ -122,6 +122,12 @@ impl Tab {
                             Err(_) => {}, // TODO: On internal error, terminate app (?)
                         }
                     },
+                    Task::GfxCpuPresent { gfx_cpu_present_buffer_cap_id } => {
+                        match subsystem.gfx_space.cpu_present_deferred(gfx_cpu_present_buffer_cap_id, &mut subsystem.shm_space) {
+                            Ok(_) => {},
+                            Err(_) => {}, // TODO: On internal error, terminate app (?)
+                        }
+                    },
                 }
 
                 let (lock, cvar) = &*subsystem.blocking_on_tasks;
