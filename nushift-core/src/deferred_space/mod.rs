@@ -300,6 +300,7 @@ pub enum DeferredError {
     DeserializeError = 0,
     DeserializeRonError = 1,
     SubmitFailed = 2,
+    ExtraInfoNoLongerPresent = 3,
 }
 
 #[derive(Serialize)]
