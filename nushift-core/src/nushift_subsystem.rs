@@ -411,13 +411,14 @@ impl NushiftSubsystem {
                 // there may need to be another option that extends the vblank
                 // (VRR).
                 let _wait_for_vblank = registers[SECOND_ARG_REGISTER_INDEX].to_u64();
+                let output_shm_cap_id = registers[THIRD_ARG_REGISTER_INDEX].to_u64();
 
                 let mut task = match self.app_global_deferred_space.allocate_task(Task::GfxCpuPresent { gfx_cpu_present_buffer_cap_id }) {
                     Ok(task) => task,
                     Err(app_global_deferred_space_error) => return marshall_app_global_deferred_space_error(app_global_deferred_space_error),
                 };
 
-                match self.gfx_space.cpu_present_blocking(gfx_cpu_present_buffer_cap_id, &mut self.shm_space) {
+                match self.gfx_space.cpu_present_blocking(gfx_cpu_present_buffer_cap_id, output_shm_cap_id, &mut self.shm_space) {
                     Ok(_) => {},
                     Err(deferred_space_error) => return marshall_deferred_space_error(deferred_space_error),
                 };

@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use num_enum::TryFromPrimitive;
 
-use crate::deferred_space::{DefaultDeferredSpace, DeferredSpace, DeferredSpaceError, DeferredSpaceGet, DefaultDeferredSpaceCapId, DeferredSpacePublishIgnoreOutput};
+use crate::deferred_space::{DefaultDeferredSpace, DeferredSpace, DeferredSpaceError, DeferredSpaceGet, DefaultDeferredSpaceCapId, DeferredSpacePublish};
 use crate::hypervisor::tab::Output;
 use crate::hypervisor::tab_context::TabContext;
 use crate::shm_space::{ShmCap, ShmCapId, ShmSpace};
@@ -77,10 +77,10 @@ impl CpuPresent {
     }
 }
 
-impl DeferredSpacePublishIgnoreOutput for CpuPresent {
+impl DeferredSpacePublish for CpuPresent {
     type Payload<'de> = &'de [u8];
 
-    fn publish_cap_payload(&mut self, payload: Self::Payload<'_>, cap_id: u64) {
+    fn publish_cap_payload(&mut self, payload: Self::Payload<'_>, output_shm_cap: &mut ShmCap, cap_id: u64) {
         todo!()
     }
 }
@@ -128,15 +128,15 @@ impl GfxSpace {
         Ok(gfx_cpu_present_buffer_cap_id)
     }
 
-    pub fn cpu_present_blocking(&mut self, gfx_cpu_present_buffer_cap_id: GfxCpuPresentBufferCapId, shm_space: &mut ShmSpace) -> Result<(), DeferredSpaceError> {
+    pub fn cpu_present_blocking(&mut self, gfx_cpu_present_buffer_cap_id: GfxCpuPresentBufferCapId, output_shm_cap_id: ShmCapId, shm_space: &mut ShmSpace) -> Result<(), DeferredSpaceError> {
         let cpu_present_buffer_info = self.cpu_present.get_info(gfx_cpu_present_buffer_cap_id)
             .ok_or_else(|| DeferredSpaceError::CapNotFound { context: GFX_CPU_PRESENT_CONTEXT.into(), id: gfx_cpu_present_buffer_cap_id })?;
 
-        self.cpu_present_buffer_deferred_space.publish_ignore_output_blocking(GFX_CPU_PRESENT_CONTEXT, gfx_cpu_present_buffer_cap_id, cpu_present_buffer_info.buffer_shm_cap_id, shm_space)
+        self.cpu_present_buffer_deferred_space.publish_blocking(GFX_CPU_PRESENT_CONTEXT, gfx_cpu_present_buffer_cap_id, cpu_present_buffer_info.buffer_shm_cap_id, output_shm_cap_id, shm_space)
     }
 
     pub fn cpu_present_deferred(&mut self, gfx_cpu_present_buffer_cap_id: GfxCpuPresentBufferCapId, shm_space: &mut ShmSpace) -> Result<(), ()> {
-        self.cpu_present_buffer_deferred_space.publish_ignore_output_deferred(&mut self.cpu_present, gfx_cpu_present_buffer_cap_id, shm_space)
+        self.cpu_present_buffer_deferred_space.publish_deferred(&mut self.cpu_present, gfx_cpu_present_buffer_cap_id, shm_space)
     }
 
     pub fn destroy_gfx_cpu_present_buffer_cap(&mut self, gfx_cpu_present_buffer_cap_id: GfxCpuPresentBufferCapId) -> Result<(), DeferredSpaceError> {

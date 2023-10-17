@@ -15,7 +15,6 @@ pub enum PrologueReturn<'deferred_space> {
     ReturnErr,
     ContinueCapsPublish(&'deferred_space ShmCap, &'deferred_space mut ShmCap),
     ContinueCapsGet(&'deferred_space mut ShmCap),
-    ContinueCapsPublishIgnoreOutput(&'deferred_space ShmCap),
 }
 
 // This trait may not be necessary. I'm only implementing it for
@@ -43,13 +42,6 @@ pub trait DeferredSpacePublish {
 }
 
 // In contrast to the `DeferredSpace` trait, this one is used by multiple impls.
-pub trait DeferredSpacePublishIgnoreOutput {
-    type Payload<'de>: Deserialize<'de>;
-
-    fn publish_cap_payload(&mut self, payload: Self::Payload<'_>, cap_id: u64);
-}
-
-// In contrast to the `DeferredSpace` trait, this one is used by multiple impls.
 pub trait DeferredSpaceGet {
     fn get(&mut self, output_shm_cap: &mut ShmCap);
 }
@@ -58,15 +50,14 @@ pub type DefaultDeferredSpaceCapId = u64;
 
 struct InProgressCap {
     input: Option<OwnedShmIdAndCap>,
-    output: Option<OwnedShmIdAndCap>,
+    output: OwnedShmIdAndCap,
 }
 impl InProgressCap {
-    fn new<OptionalInput, OptionalOutput>(input: OptionalInput, output: OptionalOutput) -> Self
+    fn new<OptionalInput>(input: OptionalInput, output: OwnedShmIdAndCap) -> Self
     where
         OptionalInput: Into<Option<OwnedShmIdAndCap>>,
-        OptionalOutput: Into<Option<OwnedShmIdAndCap>>,
     {
-        Self { input: input.into(), output: output.into() }
+        Self { input: input.into(), output }
     }
 }
 
@@ -148,11 +139,9 @@ impl DeferredSpace for DefaultDeferredSpace {
         // internal error.
         match default_deferred_cap.in_progress_cap {
             // Publish
-            Some(InProgressCap { input: Some((_, ref input_shm_cap)), output: Some((_, ref mut output_shm_cap)) }) => PrologueReturn::ContinueCapsPublish(input_shm_cap, output_shm_cap),
+            Some(InProgressCap { input: Some((_, ref input_shm_cap)), output: (_, ref mut output_shm_cap) }) => PrologueReturn::ContinueCapsPublish(input_shm_cap, output_shm_cap),
             // Get
-            Some(InProgressCap { input: None, output: Some((_, ref mut output_shm_cap)) }) => PrologueReturn::ContinueCapsGet(output_shm_cap),
-            // Publish ignore output
-            Some(InProgressCap { input: Some((_, ref input_shm_cap)), output: None }) => PrologueReturn::ContinueCapsPublishIgnoreOutput(input_shm_cap),
+            Some(InProgressCap { input: None, output: (_, ref mut output_shm_cap) }) => PrologueReturn::ContinueCapsGet(output_shm_cap),
 
             _ => PrologueReturn::ReturnErr,
         }
@@ -164,18 +153,14 @@ impl DeferredSpace for DefaultDeferredSpace {
         let default_deferred_cap = self.get_mut(cap_id).ok_or(())?;
         let in_progress_cap = default_deferred_cap.in_progress_cap.take().ok_or(())?;
         match in_progress_cap {
-            InProgressCap { input: Some(input), output: Some(output) } => {
+            InProgressCap { input: Some(input), output } => {
                 shm_space.move_shm_cap_back_into_space(input.0, input.1);
                 shm_space.move_shm_cap_back_into_space(output.0, output.1);
             },
-            InProgressCap { input: Some(input), output: None } => {
-                shm_space.move_shm_cap_back_into_space(input.0, input.1);
-            },
-            InProgressCap { input: None, output: Some(output) } => {
+            InProgressCap { input: None, output } => {
                 shm_space.move_shm_cap_back_into_space(output.0, output.1);
-            }
-            InProgressCap { input: None, output: None } => return Err(()),
-        }
+            },
+        };
 
         Ok(())
     }
@@ -183,15 +168,11 @@ impl DeferredSpace for DefaultDeferredSpace {
 
 impl DefaultDeferredSpace {
     pub fn publish_blocking(&mut self, context: &str, cap_id: DefaultDeferredSpaceCapId, input_shm_cap_id: ShmCapId, output_shm_cap_id: ShmCapId, shm_space: &mut ShmSpace) -> Result<(), DeferredSpaceError> {
-        self.get_or_publish_blocking(context, cap_id, Some(input_shm_cap_id), Some(output_shm_cap_id), shm_space)
+        self.get_or_publish_blocking(context, cap_id, Some(input_shm_cap_id), output_shm_cap_id, shm_space)
     }
 
     pub fn get_blocking(&mut self, context: &str, cap_id: DefaultDeferredSpaceCapId, output_shm_cap_id: ShmCapId, shm_space: &mut ShmSpace) -> Result<(), DeferredSpaceError> {
-        self.get_or_publish_blocking(context, cap_id, None, Some(output_shm_cap_id), shm_space)
-    }
-
-    pub fn publish_ignore_output_blocking(&mut self, context: &str, cap_id: DefaultDeferredSpaceCapId, input_shm_cap_id: ShmCapId, shm_space: &mut ShmSpace) -> Result<(), DeferredSpaceError> {
-        self.get_or_publish_blocking(context, cap_id, Some(input_shm_cap_id), None, shm_space)
+        self.get_or_publish_blocking(context, cap_id, None, output_shm_cap_id, shm_space)
     }
 
     /// Releases SHM cap, but does not do further processing yet.
@@ -201,7 +182,7 @@ impl DefaultDeferredSpace {
     /// new_shm_cap all need to be rolled back if an error is returned by a
     /// subsequent line. They should NOT be rolled back if the function
     /// completes normally with no error.
-    fn get_or_publish_blocking(&mut self, context: &str, cap_id: DefaultDeferredSpaceCapId, input_shm_cap_id: Option<ShmCapId>, output_shm_cap_id: Option<ShmCapId>, shm_space: &mut ShmSpace) -> Result<(), DeferredSpaceError> {
+    fn get_or_publish_blocking(&mut self, context: &str, cap_id: DefaultDeferredSpaceCapId, input_shm_cap_id: Option<ShmCapId>, output_shm_cap_id: ShmCapId, shm_space: &mut ShmSpace) -> Result<(), DeferredSpaceError> {
         let default_deferred_cap = self.get_mut(cap_id).ok_or_else(|| CapNotFoundSnafu { context, id: cap_id }.build())?;
 
         // Currently, you can't queue/otherwise process an [accessibility tree/other thing]
@@ -216,35 +197,26 @@ impl DefaultDeferredSpace {
             })?;
         }
 
-        if let Some(output_shm_cap_id) = output_shm_cap_id {
-            shm_space.release_shm_cap_user(output_shm_cap_id).map_err(|shm_space_error| match shm_space_error {
-                ShmSpaceError::CapNotFound => ShmCapNotFoundSnafu { id: output_shm_cap_id }.build(),
-                ShmSpaceError::PermissionDenied => ShmPermissionDeniedSnafu { id: output_shm_cap_id }.build(),
-                err => DeferredSpaceError::ShmSpaceInternalError { source: err },
-            })?;
-        }
+        shm_space.release_shm_cap_user(output_shm_cap_id).map_err(|shm_space_error| match shm_space_error {
+            ShmSpaceError::CapNotFound => ShmCapNotFoundSnafu { id: output_shm_cap_id }.build(),
+            ShmSpaceError::PermissionDenied => ShmPermissionDeniedSnafu { id: output_shm_cap_id }.build(),
+            err => DeferredSpaceError::ShmSpaceInternalError { source: err },
+        })?;
 
         // Move out of the SHM space for the duration of us processing it.
         match (input_shm_cap_id, output_shm_cap_id) {
             // Publish
-            (Some(input_shm_cap_id), Some(output_shm_cap_id)) => {
+            (Some(input_shm_cap_id), output_shm_cap_id) => {
                 let input_shm_cap = shm_space.move_shm_cap_to_other_space(input_shm_cap_id).ok_or_else(|| GetOrPublishInternalSnafu.build())?; // Internal error because presence was already checked in release
                 let output_shm_cap = shm_space.move_shm_cap_to_other_space(output_shm_cap_id).ok_or_else(|| GetOrPublishInternalSnafu.build())?; // Internal error because presence was already checked in release
                 default_deferred_cap.in_progress_cap = Some(InProgressCap::new((input_shm_cap_id, input_shm_cap), (output_shm_cap_id, output_shm_cap)));
             },
             // Get
-            (None, Some(output_shm_cap_id)) => {
+            (None, output_shm_cap_id) => {
                 let output_shm_cap = shm_space.move_shm_cap_to_other_space(output_shm_cap_id).ok_or_else(|| GetOrPublishInternalSnafu.build())?; // Internal error because presence was already checked in release
                 default_deferred_cap.in_progress_cap = Some(InProgressCap::new(None, (output_shm_cap_id, output_shm_cap)));
             },
-            // Publish ignore output
-            (Some(input_shm_cap_id), None) => {
-                let input_shm_cap = shm_space.move_shm_cap_to_other_space(input_shm_cap_id).ok_or_else(|| GetOrPublishInternalSnafu.build())?; // Internal error because presence was already checked in release
-                default_deferred_cap.in_progress_cap = Some(InProgressCap::new((input_shm_cap_id, input_shm_cap), None));
-            },
-            // Should not be possible
-            (None, None) => return GetOrPublishInternalSnafu.fail(),
-        }
+        };
 
         Ok(())
     }
@@ -261,7 +233,6 @@ impl DefaultDeferredSpace {
             PrologueReturn::ReturnErr => return Err(()),
             PrologueReturn::ContinueCapsPublish(input_shm_cap, output_shm_cap) => (input_shm_cap, output_shm_cap),
             PrologueReturn::ContinueCapsGet(..) => return Err(()), // Internal error. We must have started with a publish.
-            PrologueReturn::ContinueCapsPublishIgnoreOutput(..) => return Err(()), // Internal error. We must have started with a NON-ignore-output publish.
         };
 
         match postcard::from_bytes(input_shm_cap.backing()) {
@@ -289,38 +260,9 @@ impl DefaultDeferredSpace {
             PrologueReturn::ReturnErr => return Err(()),
             PrologueReturn::ContinueCapsPublish(..) => return Err(()), // Internal error. We must have started with a get.
             PrologueReturn::ContinueCapsGet(output_shm_cap) => output_shm_cap,
-            PrologueReturn::ContinueCapsPublishIgnoreOutput(..) => return Err(()), // Internal error. We must have started with a get.
         };
 
         deferred_space_specific.get(output_shm_cap);
-
-        self.get_or_publish_deferred_epilogue(cap_id, shm_space)
-    }
-
-    /// The Err(()) variant is only used for an internal error where the output
-    /// cap is not available. All other errors should be reported through the
-    /// output cap.
-    pub fn publish_ignore_output_deferred<S>(&mut self, deferred_space_specific: &mut S, cap_id: DefaultDeferredSpaceCapId, shm_space: &mut ShmSpace) -> Result<(), ()>
-    where
-        S: DeferredSpacePublishIgnoreOutput,
-    {
-        let input_shm_cap = match self.get_or_publish_deferred_prologue(cap_id) {
-            PrologueReturn::ReturnOk => return Ok(()),
-            PrologueReturn::ReturnErr => return Err(()),
-            PrologueReturn::ContinueCapsPublish(..) => return Err(()), // Internal error.
-            PrologueReturn::ContinueCapsGet(..) => return Err(()), // Internal error.
-            PrologueReturn::ContinueCapsPublishIgnoreOutput(input_shm_cap) => input_shm_cap,
-        };
-
-        match postcard::from_bytes(input_shm_cap.backing()) {
-            Ok(payload) => {
-                deferred_space_specific.publish_cap_payload(payload, cap_id);
-            },
-            Err(postcard_error) => {
-                tracing::debug!("Postcard deserialise error: {postcard_error}");
-                // Cannot print error to output cap because we don't have an output cap.
-            },
-        };
 
         self.get_or_publish_deferred_epilogue(cap_id, shm_space)
     }

@@ -50,7 +50,7 @@ pub fn SyscallArgs(comptime sys: Syscall) type {
         .gfx_new => struct {},
         .gfx_get_outputs => struct { gfx_cap_id: usize, output_shm_cap_id: usize },
         .gfx_cpu_present_buffer_new => struct { gfx_cap_id: usize, present_buffer_format: PresentBufferFormat, buffer_shm_cap_id: usize },
-        .gfx_cpu_present => struct { gfx_cpu_present_buffer_cap_id: usize, wait_for_vblank: usize },
+        .gfx_cpu_present => struct { gfx_cpu_present_buffer_cap_id: usize, wait_for_vblank: usize, output_shm_cap_id: usize },
         .gfx_cpu_present_buffer_destroy => struct { gfx_cpu_present_buffer_cap_id: usize },
         .gfx_destroy => struct { gfx_cap_id: usize },
     };
@@ -149,7 +149,7 @@ fn syscall_internal(comptime sys: Syscall, sys_args: SyscallArgs(sys), comptime 
         .gfx_new => syscall_internal_args(sys, .{}, ignore_errors),
         .gfx_get_outputs => syscall_internal_args(sys, .{ sys_args.gfx_cap_id, sys_args.output_shm_cap_id }, ignore_errors),
         .gfx_cpu_present_buffer_new => syscall_internal_args(sys, .{ sys_args.gfx_cap_id, @intFromEnum(sys_args.present_buffer_format), sys_args.buffer_shm_cap_id }, ignore_errors),
-        .gfx_cpu_present => syscall_internal_args(sys, .{ sys_args.gfx_cpu_present_buffer_cap_id, sys_args.wait_for_vblank }, ignore_errors),
+        .gfx_cpu_present => syscall_internal_args(sys, .{ sys_args.gfx_cpu_present_buffer_cap_id, sys_args.wait_for_vblank, sys_args.output_shm_cap_id }, ignore_errors),
         .gfx_cpu_present_buffer_destroy => syscall_internal_args(sys, .{sys_args.gfx_cpu_present_buffer_cap_id}, ignore_errors),
         .gfx_destroy => syscall_internal_args(sys, .{sys_args.gfx_cap_id}, ignore_errors),
     };
