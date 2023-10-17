@@ -1,7 +1,7 @@
 use serde::Deserialize;
 
 use self::accessibility_tree::AccessibilityTree;
-use super::deferred_space::{self, DeferredSpace, DeferredSpaceSpecificPublish, DefaultDeferredSpace, DeferredError, DeferredSpaceError};
+use super::deferred_space::{self, DeferredSpace, DeferredSpacePublish, DefaultDeferredSpace, DeferredError, DeferredSpaceError};
 use super::shm_space::{ShmSpace, ShmCapId, ShmCap};
 
 mod accessibility_tree;
@@ -24,11 +24,11 @@ struct AccessibilityTreeSpaceSpecific {
     app_accessibility_tree: Option<AccessibilityTree>,
 }
 
-impl DeferredSpaceSpecificPublish for AccessibilityTreeSpaceSpecific {
+impl DeferredSpacePublish for AccessibilityTreeSpaceSpecific {
     // TODO: We need multiple payloads.
     type Payload<'de> = AccessibilityTreeSpaceRonPayload<'de>;
 
-    fn publish_cap_payload(&mut self, payload: Self::Payload<'_>, output_shm_cap: &mut ShmCap) {
+    fn publish_cap_payload(&mut self, payload: Self::Payload<'_>, output_shm_cap: &mut ShmCap, _cap_id: u64) {
         let accessibility_tree = match ron::from_str(payload.ron_accessibility_tree) {
             Ok(accessibility_tree) => accessibility_tree,
             Err(spanned_error) => {

@@ -1,8 +1,9 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use num_enum::TryFromPrimitive;
 
-use crate::deferred_space::{DefaultDeferredSpace, DeferredSpace, DeferredSpaceError, DeferredSpaceSpecificGet};
+use crate::deferred_space::{DefaultDeferredSpace, DeferredSpace, DeferredSpaceError, DeferredSpaceGet, DefaultDeferredSpaceCapId, DeferredSpacePublishIgnoreOutput};
 use crate::hypervisor::tab::Output;
 use crate::hypervisor::tab_context::TabContext;
 use crate::shm_space::{ShmCap, ShmCapId, ShmSpace};
@@ -10,11 +11,13 @@ use crate::shm_space::{ShmCap, ShmCapId, ShmSpace};
 pub type GfxCapId = u64;
 pub type GfxCpuPresentBufferCapId = u64;
 const GFX_CONTEXT: &str = "gfx";
+const GFX_CPU_PRESENT_CONTEXT: &str = "gfx_cpu_present";
 
 pub struct GfxSpace {
     root_deferred_space: DefaultDeferredSpace,
     cpu_present_buffer_deferred_space: DefaultDeferredSpace,
-    gfx_get_outputs: GfxGetOutputs,
+    get_outputs: GetOutputs,
+    cpu_present: CpuPresent,
 }
 
 #[derive(TryFromPrimitive, Debug, Clone, Copy, PartialEq, Eq)]
@@ -23,11 +26,11 @@ pub enum PresentBufferFormat {
     R8g8b8UintSrgb = 0,
 }
 
-struct GfxGetOutputs {
+struct GetOutputs {
     tab_context: Arc<dyn TabContext>,
 }
 
-impl DeferredSpaceSpecificGet for GfxGetOutputs {
+impl DeferredSpaceGet for GetOutputs {
     fn get(&mut self, output_shm_cap: &mut ShmCap) {
         // TODO: Need to serialise a unified structure that could contain an
         // error or the success result. Not this where you can't discriminate
@@ -41,9 +44,44 @@ impl DeferredSpaceSpecificGet for GfxGetOutputs {
     }
 }
 
-impl GfxGetOutputs {
+impl GetOutputs {
     fn new(tab_context: Arc<dyn TabContext>) -> Self {
         Self { tab_context }
+    }
+}
+
+struct CpuPresent {
+    space: HashMap<DefaultDeferredSpaceCapId, CpuPresentBufferInfo>,
+}
+
+struct CpuPresentBufferInfo {
+    present_buffer_format: PresentBufferFormat,
+    buffer_shm_cap_id: ShmCapId,
+}
+
+impl CpuPresent {
+    fn new() -> Self {
+        Self { space: HashMap::new() }
+    }
+
+    fn add_info(&mut self, cap_id: DefaultDeferredSpaceCapId, present_buffer_format: PresentBufferFormat, buffer_shm_cap_id: ShmCapId) {
+        self.space.insert(cap_id, CpuPresentBufferInfo { present_buffer_format, buffer_shm_cap_id });
+    }
+
+    fn get_info(&self, cap_id: DefaultDeferredSpaceCapId) -> Option<&CpuPresentBufferInfo> {
+        self.space.get(&cap_id)
+    }
+
+    fn remove_info(&mut self, cap_id: DefaultDeferredSpaceCapId) -> Option<CpuPresentBufferInfo> {
+        self.space.remove(&cap_id)
+    }
+}
+
+impl DeferredSpacePublishIgnoreOutput for CpuPresent {
+    type Payload<'de> = &'de [u8];
+
+    fn publish_cap_payload(&mut self, payload: Self::Payload<'_>, cap_id: u64) {
+        todo!()
     }
 }
 
@@ -52,7 +90,8 @@ impl GfxSpace {
         Self {
             root_deferred_space: DefaultDeferredSpace::new(),
             cpu_present_buffer_deferred_space: DefaultDeferredSpace::new(),
-            gfx_get_outputs: GfxGetOutputs::new(tab_context),
+            get_outputs: GetOutputs::new(tab_context),
+            cpu_present: CpuPresent::new(),
         }
     }
 
@@ -65,23 +104,53 @@ impl GfxSpace {
     }
 
     pub fn get_outputs_deferred(&mut self, gfx_cap_id: GfxCapId, shm_space: &mut ShmSpace) -> Result<(), ()> {
-        self.root_deferred_space.get_deferred(&mut self.gfx_get_outputs, gfx_cap_id, shm_space)
+        self.root_deferred_space.get_deferred(&mut self.get_outputs, gfx_cap_id, shm_space)
     }
 
     pub fn new_gfx_cpu_present_buffer_cap(&mut self, gfx_cap_id: GfxCapId, present_buffer_format: PresentBufferFormat, buffer_shm_cap_id: ShmCapId) -> Result<GfxCpuPresentBufferCapId, DeferredSpaceError> {
-        todo!()
+        // Check that gfx_cap_id is a valid cap
+        self.root_deferred_space.contains_key(gfx_cap_id).then_some(()).ok_or_else(|| DeferredSpaceError::CapNotFound { context: GFX_CONTEXT.into(), id: gfx_cap_id })?;
+
+        // Create the cpu present cap
+        let gfx_cpu_present_buffer_cap_id = self.cpu_present_buffer_deferred_space.new_cap(GFX_CPU_PRESENT_CONTEXT)?;
+        let mut all_succeeded = drop_guard::guard(false, |all_succeeded| {
+            if !all_succeeded {
+                // CapNotFound is an internal error. We cannot change the error
+                // being returned at this point anyway, so ignore.
+                let _ = self.cpu_present_buffer_deferred_space.destroy_cap(GFX_CPU_PRESENT_CONTEXT, gfx_cpu_present_buffer_cap_id);
+            }
+        });
+
+        // Store the additional info
+        self.cpu_present.add_info(gfx_cpu_present_buffer_cap_id, present_buffer_format, buffer_shm_cap_id);
+
+        *all_succeeded = true;
+        Ok(gfx_cpu_present_buffer_cap_id)
     }
 
     pub fn cpu_present_blocking(&mut self, gfx_cpu_present_buffer_cap_id: GfxCpuPresentBufferCapId, shm_space: &mut ShmSpace) -> Result<(), DeferredSpaceError> {
-        todo!()
+        let cpu_present_buffer_info = self.cpu_present.get_info(gfx_cpu_present_buffer_cap_id)
+            .ok_or_else(|| DeferredSpaceError::CapNotFound { context: GFX_CPU_PRESENT_CONTEXT.into(), id: gfx_cpu_present_buffer_cap_id })?;
+
+        self.cpu_present_buffer_deferred_space.publish_ignore_output_blocking(GFX_CPU_PRESENT_CONTEXT, gfx_cpu_present_buffer_cap_id, cpu_present_buffer_info.buffer_shm_cap_id, shm_space)
     }
 
     pub fn cpu_present_deferred(&mut self, gfx_cpu_present_buffer_cap_id: GfxCpuPresentBufferCapId, shm_space: &mut ShmSpace) -> Result<(), ()> {
-        todo!()
+        self.cpu_present_buffer_deferred_space.publish_ignore_output_deferred(&mut self.cpu_present, gfx_cpu_present_buffer_cap_id, shm_space)
     }
 
     pub fn destroy_gfx_cpu_present_buffer_cap(&mut self, gfx_cpu_present_buffer_cap_id: GfxCpuPresentBufferCapId) -> Result<(), DeferredSpaceError> {
-        todo!()
+        let cpu_present_buffer_info = self.cpu_present.remove_info(gfx_cpu_present_buffer_cap_id).ok_or_else(|| DeferredSpaceError::CapNotFound { context: GFX_CPU_PRESENT_CONTEXT.into(), id: gfx_cpu_present_buffer_cap_id })?;
+        let mut all_succeeded = drop_guard::guard(false, |all_succeeded| {
+            if !all_succeeded {
+                self.cpu_present.add_info(gfx_cpu_present_buffer_cap_id, cpu_present_buffer_info.present_buffer_format, cpu_present_buffer_info.buffer_shm_cap_id);
+            }
+        });
+
+        self.cpu_present_buffer_deferred_space.destroy_cap(GFX_CPU_PRESENT_CONTEXT, gfx_cpu_present_buffer_cap_id)?;
+
+        *all_succeeded = true;
+        Ok(())
     }
 
     pub fn destroy_gfx_cap(&mut self, gfx_cap_id: GfxCapId) -> Result<(), DeferredSpaceError> {

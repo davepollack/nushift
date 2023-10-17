@@ -116,7 +116,7 @@ fn marshall_deferred_space_error<R: Register>(deferred_space_error: DeferredSpac
     match deferred_space_error {
         DeferredSpaceError::DuplicateId
         | DeferredSpaceError::ShmSpaceInternalError { .. }
-        | DeferredSpaceError::PublishInternalError => set_error(SyscallError::InternalError),
+        | DeferredSpaceError::GetOrPublishInternalError => set_error(SyscallError::InternalError),
         DeferredSpaceError::Exhausted { .. } => set_error(SyscallError::Exhausted),
         DeferredSpaceError::CapNotFound { .. }
         | DeferredSpaceError::ShmCapNotFound { .. } => set_error(SyscallError::CapNotFound),

@@ -319,6 +319,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fea41bba32d969b513997752735605054bc0dfa92b4c56bf1189f2e174be7a10"
 
 [[package]]
+name = "drop_guard"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2c4a817d8b683f6e649aed359aab0c47a875377516bb5791d0f7e46d9066d209"
+
+[[package]]
 name = "druid"
 version = "0.8.3"
 source = "git+https://github.com/linebender/druid.git?rev=af94bdd02798c84f7927e898b1ed28ebcec16b30#af94bdd02798c84f7927e898b1ed28ebcec16b30"
@@ -1034,6 +1040,7 @@ version = "0.1.0"
 dependencies = [
  "bitflags 2.3.3",
  "ckb-vm",
+ "drop_guard",
  "elfloader",
  "itertools",
  "memmap2",

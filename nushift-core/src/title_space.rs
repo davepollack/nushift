@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use serde::Deserialize;
 
-use crate::deferred_space::{self, DeferredSpace, DefaultDeferredSpace, DeferredSpaceSpecificPublish, DeferredError, DeferredSpaceError};
+use crate::deferred_space::{self, DeferredSpace, DefaultDeferredSpace, DeferredSpacePublish, DeferredError, DeferredSpaceError};
 use crate::hypervisor::hypervisor_event::{UnboundHypervisorEvent, HypervisorEventError};
 use crate::hypervisor::tab_context::TabContext;
 use crate::shm_space::{ShmCapId, ShmCap, ShmSpace};
@@ -28,10 +28,10 @@ struct TitleSpaceSpecific {
     tab_context: Arc<dyn TabContext>,
 }
 
-impl DeferredSpaceSpecificPublish for TitleSpaceSpecific {
+impl DeferredSpacePublish for TitleSpaceSpecific {
     type Payload<'de> = TitleSpacePayload<'de>;
 
-    fn publish_cap_payload(&mut self, payload: Self::Payload<'_>, output_shm_cap: &mut ShmCap) {
+    fn publish_cap_payload(&mut self, payload: Self::Payload<'_>, output_shm_cap: &mut ShmCap, _cap_id: u64) {
         self.tab_context.send_hypervisor_event(UnboundHypervisorEvent::TitleChange(payload.title.into()))
             .unwrap_or_else(|hypervisor_event_error| match hypervisor_event_error {
                 HypervisorEventError::SubmitCommandError => {
