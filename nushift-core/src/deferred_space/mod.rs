@@ -160,7 +160,7 @@ impl DeferredSpace for DefaultDeferredSpace {
             InProgressCap { input: None, output } => {
                 shm_space.move_shm_cap_back_into_space(output.0, output.1);
             },
-        };
+        }
 
         Ok(())
     }
@@ -216,7 +216,7 @@ impl DefaultDeferredSpace {
                 let output_shm_cap = shm_space.move_shm_cap_to_other_space(output_shm_cap_id).ok_or_else(|| GetOrPublishInternalSnafu.build())?; // Internal error because presence was already checked in release
                 default_deferred_cap.in_progress_cap = Some(InProgressCap::new(None, (output_shm_cap_id, output_shm_cap)));
             },
-        };
+        }
 
         Ok(())
     }
@@ -243,7 +243,7 @@ impl DefaultDeferredSpace {
                 tracing::debug!("Postcard deserialise error: {postcard_error}");
                 print_error(output_shm_cap, DeferredError::DeserializeError, &postcard_error);
             },
-        };
+        }
 
         self.get_or_publish_deferred_epilogue(cap_id, shm_space)
     }

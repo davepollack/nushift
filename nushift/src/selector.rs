@@ -1,7 +1,7 @@
 use druid::{Selector, SingleUse};
 use nushift_core::HypervisorEvent;
 
-use crate::model::ScaleAndSize;
+use crate::model::scale_and_size::ScaleAndSize;
 
 pub(crate) const HYPERVISOR_EVENT: Selector<HypervisorEvent> = Selector::new("hypervisor.event");
 

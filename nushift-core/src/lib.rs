@@ -10,6 +10,7 @@ mod register_ipc;
 mod shm_space;
 mod title_space;
 
+pub use crate::gfx_space::PresentBufferFormat;
 pub use crate::hypervisor::Hypervisor;
 pub use crate::hypervisor::hypervisor_event::{HypervisorEvent, HypervisorEventError};
 pub use crate::hypervisor::tab::Output;

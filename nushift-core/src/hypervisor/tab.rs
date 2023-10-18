@@ -29,6 +29,14 @@ impl Output {
     pub fn new(size_px: Vec<u64>, scale: Vec<f64>) -> Self {
         Self { size_px, scale }
     }
+
+    pub fn size_px(&self) -> &Vec<u64> {
+        &self.size_px
+    }
+
+    pub fn scale(&self) -> &Vec<f64> {
+        &self.scale
+    }
 }
 
 impl Tab {
