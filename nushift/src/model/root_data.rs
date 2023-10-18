@@ -32,6 +32,7 @@ impl Debug for RootData {
             .field("currently_selected_tab_id", &self.currently_selected_tab_id)
             .field("close_tab_requests", &self.close_tab_requests)
             .field("scale_and_size", &self.scale_and_size)
+            .field("client_framebuffer", &self.client_framebuffer)
             .finish_non_exhaustive()
     }
 }
