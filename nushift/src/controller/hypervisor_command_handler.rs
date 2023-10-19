@@ -1,14 +1,14 @@
 use druid::{Env, EventCtx, Data, Widget, widget::Controller, Event};
 use nushift_core::HypervisorEvent;
 
-use crate::selector::HYPERVISOR_EVENT;
+use crate::selector::{HYPERVISOR_EVENT, InspectBeforeSingleUse};
 
 pub struct HypervisorCommandHandler<T> {
-    action: Box<dyn Fn(&HypervisorEvent, &mut T)>,
+    action: Box<dyn Fn(&InspectBeforeSingleUse<HypervisorEvent>, &mut T)>,
 }
 
 impl<T> HypervisorCommandHandler<T> {
-    pub fn new(action: impl Fn(&HypervisorEvent, &mut T) + 'static) -> Self {
+    pub(crate) fn new(action: impl Fn(&InspectBeforeSingleUse<HypervisorEvent>, &mut T) + 'static) -> Self {
         Self { action: Box::new(action) }
     }
 }

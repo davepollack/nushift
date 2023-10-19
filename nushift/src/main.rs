@@ -15,7 +15,7 @@ mod selector;
 mod global_key_command_handler;
 
 use self::model::RootData;
-use self::selector::HYPERVISOR_EVENT;
+use self::selector::{HYPERVISOR_EVENT, InspectBeforeSingleUse};
 use self::global_key_command_handler::GlobalKeyCommandHandler;
 
 fn main() {
@@ -32,7 +32,7 @@ fn main() {
     let hypervisor_event_handler = {
         let event_sink = launcher.get_external_handle();
         move |hypervisor_event| {
-            event_sink.submit_command(HYPERVISOR_EVENT, hypervisor_event, Target::Auto)
+            event_sink.submit_command(HYPERVISOR_EVENT, InspectBeforeSingleUse::new(hypervisor_event), Target::Auto)
                 .map_err(|_| HypervisorEventError::SubmitCommandError)
         }
     };
@@ -44,7 +44,6 @@ fn main() {
         currently_selected_tab_id: None,
         close_tab_requests: vector![],
         scale_and_size: None,
-        client_framebuffer: None,
         hypervisor,
     };
 

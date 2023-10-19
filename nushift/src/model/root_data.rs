@@ -1,16 +1,15 @@
 use std::fmt::Debug;
 use std::sync::{Mutex, Arc};
 
-use druid::{Data, Env, LocalizedString, Lens};
+use druid::{Data, Env, LocalizedString};
 use druid::im::Vector;
 use nushift_core::Hypervisor;
 use reusable_id_pool::ArcId;
 
-use super::client_framebuffer::ClientFramebuffer;
 use super::scale_and_size::ScaleAndSize;
 use super::tab_data::TabData;
 
-#[derive(Clone, Data, Lens)]
+#[derive(Clone, Data)]
 pub struct RootData {
     pub tabs: Vector<TabData>,
     #[data(eq)]
@@ -19,7 +18,6 @@ pub struct RootData {
     #[data(eq)]
     pub close_tab_requests: Vector<ArcId>,
     pub scale_and_size: Option<ScaleAndSize>,
-    pub client_framebuffer: Option<ClientFramebuffer>, // TODO: This must be per-tab
 
     #[data(ignore)]
     pub hypervisor: Arc<Mutex<Hypervisor>>,
@@ -32,7 +30,6 @@ impl Debug for RootData {
             .field("currently_selected_tab_id", &self.currently_selected_tab_id)
             .field("close_tab_requests", &self.close_tab_requests)
             .field("scale_and_size", &self.scale_and_size)
-            .field("client_framebuffer", &self.client_framebuffer)
             .finish_non_exhaustive()
     }
 }
@@ -53,9 +50,14 @@ impl RootData {
         self.tabs.push_back(TabData {
             id: ArcId::clone(&tab_id),
             title: title.localized_str(),
+            client_framebuffer: None,
         });
 
         ArcId::clone(&tab_id)
+    }
+
+    pub fn get_tab(&self, tab_id: &ArcId) -> Option<&TabData> {
+        self.tabs.iter().find(|tab_data| tab_data.id == *tab_id)
     }
 
     pub fn select_tab(&mut self, tab_id: &ArcId) {
@@ -133,7 +135,6 @@ pub mod tests {
             currently_selected_tab_id: None,
             close_tab_requests: vector![],
             scale_and_size: Some(ScaleAndSize { window_scale: vector![1.25, 1.25], client_area_size_dp: vector![1536.0, 864.0] }),
-            client_framebuffer: None,
             hypervisor,
         }
     }

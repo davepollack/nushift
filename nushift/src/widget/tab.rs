@@ -5,7 +5,7 @@ use druid::{
 };
 use nushift_core::HypervisorEvent;
 
-use crate::model::RootAndTabData;
+use crate::model::{RootAndTabData, client_framebuffer::ClientFramebuffer};
 use crate::controller::ClickInverse;
 use crate::controller::HypervisorCommandHandler;
 use super::{button, value};
@@ -52,10 +52,18 @@ pub fn tab() -> impl Widget<RootAndTabData> {
             };
         }))
         .controller(HypervisorCommandHandler::new(|hypervisor_event, root_and_tab_data: &mut RootAndTabData| {
-            if let HypervisorEvent::TitleChange(tab_id, new_title) = hypervisor_event {
-                let tab_data = root_and_tab_data.tab_data_mut();
-                if *tab_id == tab_data.id {
-                    tab_data.title = new_title.as_str().into();
+            let tab_data = root_and_tab_data.tab_data_mut();
+
+            // If tab ID matches, then take.
+            if matches!(hypervisor_event.inspect(), Some(Some(tab_id)) if tab_id == tab_data.id) {
+                match hypervisor_event.take() {
+                    Some(HypervisorEvent::TitleChange(_, new_title)) => {
+                        tab_data.title = new_title.as_str().into();
+                    },
+                    Some(HypervisorEvent::GfxCpuPresent(_, present_buffer_format, framebuffer)) => {
+                        tab_data.client_framebuffer = Some(ClientFramebuffer { present_buffer_format, framebuffer });
+                    },
+                    _ => {},
                 }
             }
         }));

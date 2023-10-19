@@ -24,19 +24,21 @@ impl ClientArea {
             let (width, height) = (output.size_px()[0].try_into(), output.size_px()[1].try_into());
 
             if let (Ok(width), Ok(height)) = (width, height) {
-                let img_buf = match data.client_framebuffer {
-                    Some(ref client_framebuffer) => ImageBuf::from_raw(
-                        Arc::clone(&client_framebuffer.framebuffer),
-                        match client_framebuffer.present_buffer_format {
-                            PresentBufferFormat::R8g8b8UintSrgb => ImageFormat::Rgb,
-                        },
-                        width,
-                        height,
-                    ),
-                    None => ImageBuf::empty(),
-                };
+                if let Some(tab_data) = data.currently_selected_tab_id.as_ref().and_then(|currently_selected_tab_id| data.get_tab(&currently_selected_tab_id)) {
+                    let img_buf = match tab_data.client_framebuffer {
+                        Some(ref client_framebuffer) => ImageBuf::from_raw(
+                            Arc::clone(&client_framebuffer.framebuffer),
+                            match client_framebuffer.present_buffer_format {
+                                PresentBufferFormat::R8g8b8UintSrgb => ImageFormat::Rgb,
+                            },
+                            width,
+                            height,
+                        ),
+                        None => ImageBuf::empty(),
+                    };
 
-                self.image_widget.widget_mut().set_image_data(img_buf);
+                    self.image_widget.widget_mut().set_image_data(img_buf);
+                }
             }
         }
     }
@@ -92,10 +94,35 @@ impl Widget<RootData> for ClientArea {
     }
 
     fn update(&mut self, ctx: &mut UpdateCtx, old_data: &RootData, data: &RootData, env: &Env) {
-        if !old_data.client_framebuffer.same(&data.client_framebuffer) {
+        let old_framebuffer_currently_selected_tab = data.currently_selected_tab_id.as_ref()
+            .and_then(|tab_id| old_data.get_tab(&tab_id))
+            .map(|tab_data| &tab_data.client_framebuffer);
+
+        let new_framebuffer_currently_selected_tab = data.currently_selected_tab_id.as_ref()
+            .and_then(|tab_id| data.get_tab(&tab_id))
+            .map(|tab_data| &tab_data.client_framebuffer);
+
+        let currently_selected_tab_framebuffer_same = match (old_framebuffer_currently_selected_tab, new_framebuffer_currently_selected_tab) {
+            (Some(old_option_framebuffer), Some(new_option_framebuffer)) => old_option_framebuffer.same(new_option_framebuffer),
+            (None, None) => true,
+            _ => false,
+        };
+
+        // If the currently selected tab has changed, then update the client area.
+        //
+        // Else if, the client framebuffer for the currently selected tab has
+        // changed, then update the client area. The bindings
+        // `old_framebuffer_currently_selected_tab`,
+        // `new_framebuffer_currently_selected_tab`,
+        // `currently_selected_tab_framebuffer_same` are only for this else if
+        // case.
+        if old_data.currently_selected_tab_id != data.currently_selected_tab_id
+            || !currently_selected_tab_framebuffer_same
+        {
             self.update_image(data);
             ctx.request_paint();
         }
+
         self.image_widget.update(ctx, data, env)
     }
 

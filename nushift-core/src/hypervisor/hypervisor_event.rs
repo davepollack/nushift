@@ -15,12 +15,12 @@ pub type HypervisorEventHandler = Arc<dyn HypervisorEventHandlerFn>;
 
 pub enum HypervisorEvent {
     TitleChange(ArcId, String),
-    GfxCpuPresent(ArcId, PresentBufferFormat, Box<[u8]>),
+    GfxCpuPresent(ArcId, PresentBufferFormat, Arc<[u8]>),
 }
 
 pub(crate) enum UnboundHypervisorEvent {
     TitleChange(String),
-    GfxCpuPresent(PresentBufferFormat, Box<[u8]>),
+    GfxCpuPresent(PresentBufferFormat, Arc<[u8]>),
 }
 
 impl HypervisorEvent {
@@ -28,6 +28,13 @@ impl HypervisorEvent {
         match unbound_hyp_event {
             UnboundHypervisorEvent::TitleChange(new_title) => HypervisorEvent::TitleChange(tab_id, new_title),
             UnboundHypervisorEvent::GfxCpuPresent(present_buffer_format, buffer) => HypervisorEvent::GfxCpuPresent(tab_id, present_buffer_format, buffer),
+        }
+    }
+
+    pub fn tab_id(&self) -> Option<ArcId> {
+        match self {
+            Self::TitleChange(tab_id, ..) => Some(ArcId::clone(tab_id)),
+            Self::GfxCpuPresent(tab_id, ..) => Some(ArcId::clone(tab_id)),
         }
     }
 }
