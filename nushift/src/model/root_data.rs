@@ -2,7 +2,7 @@ use std::fmt::Debug;
 use std::sync::{Mutex, Arc};
 
 use druid::{Data, Env, LocalizedString};
-use druid::im::Vector;
+use druid::im::{self, Vector};
 use nushift_core::Hypervisor;
 use reusable_id_pool::ArcId;
 
@@ -11,7 +11,9 @@ use super::tab_data::TabData;
 
 #[derive(Clone, Data)]
 pub struct RootData {
-    pub tabs: Vector<TabData>,
+    pub tabs: im::HashMap<ArcId, TabData>,
+    #[data(eq)]
+    pub tabs_order: Vector<ArcId>,
     #[data(eq)]
     pub currently_selected_tab_id: Option<ArcId>,
     /// Currently, it should only be possible to submit one of these at a time, i.e. this should always have a length of 1
@@ -47,17 +49,26 @@ impl RootData {
 
         self.currently_selected_tab_id = Some(ArcId::clone(&tab_id));
 
-        self.tabs.push_back(TabData {
+        self.tabs.insert(ArcId::clone(&tab_id), TabData {
             id: ArcId::clone(&tab_id),
             title: title.localized_str(),
             client_framebuffer: None,
         });
+        self.tabs_order.push_back(ArcId::clone(&tab_id));
 
         ArcId::clone(&tab_id)
     }
 
-    pub fn get_tab(&self, tab_id: &ArcId) -> Option<&TabData> {
-        self.tabs.iter().find(|tab_data| tab_data.id == *tab_id)
+    pub fn get_tab_by_id(&self, tab_id: &ArcId) -> Option<&TabData> {
+        self.tabs.get(tab_id)
+    }
+
+    pub fn get_tab_by_index(&self, index: usize) -> Option<&TabData> {
+        self.tabs_order.get(index).and_then(|tab_id| self.get_tab_by_id(tab_id))
+    }
+
+    pub fn get_tab_by_index_mut(&mut self, index: usize) -> Option<&mut TabData> {
+        self.tabs_order.get(index).and_then(|tab_id| self.tabs.get_mut(tab_id))
     }
 
     pub fn select_tab(&mut self, tab_id: &ArcId) {
@@ -86,17 +97,19 @@ impl RootData {
 
         let mut id_to_remove = None;
         let mut index_to_remove = None;
-        match self.tabs.iter().enumerate().find(|(_index, tab)| &tab.id == tab_id) {
-            Some((index, tab)) => {
-                id_to_remove = Some(ArcId::clone(&tab.id));
+        match self.tabs_order.iter().enumerate().find(|(_index, id)| *id == tab_id) {
+            Some((index, id)) => {
+                id_to_remove = Some(ArcId::clone(id));
                 index_to_remove = Some(index);
             }
             None => {},
         }
-        if let Some(index) = index_to_remove {
-            self.tabs.remove(index);
+        if let (Some(id), Some(index)) = (&id_to_remove, index_to_remove) {
+            self.tabs.remove(id);
+            self.tabs_order.remove(index);
         }
 
+        // Update currently selected ID
         match (&id_to_remove, &self.currently_selected_tab_id, index_to_remove) {
             // First tab was closed, is currently selected, and there are no tabs left
             (Some(id_to_remove), Some(currently_selected_tab_id), Some(0)) if id_to_remove == currently_selected_tab_id && self.tabs.is_empty() => {
@@ -104,12 +117,12 @@ impl RootData {
             },
             // First tab was closed, is currently selected, and there are still some tabs left
             (Some(id_to_remove), Some(currently_selected_tab_id), Some(0)) if id_to_remove == currently_selected_tab_id => {
-                let first_tab_id = ArcId::clone(&self.tabs[0].id);
+                let first_tab_id = ArcId::clone(&self.get_tab_by_index(0).expect("Must exist since there are still some tabs left").id);
                 self.currently_selected_tab_id = Some(first_tab_id);
             },
             // Other tab was closed, is currently selected
             (Some(id_to_remove), Some(currently_selected_tab_id), Some(index)) if id_to_remove == currently_selected_tab_id => {
-                let previous_tab_id = ArcId::clone(&self.tabs[index - 1].id);
+                let previous_tab_id = ArcId::clone(&self.get_tab_by_index(index - 1).expect("Must exist since index == 0 case was handled").id);
                 self.currently_selected_tab_id = Some(previous_tab_id);
             },
             // Closed tab is not the currently selected one, or nothing was closed
@@ -125,13 +138,14 @@ impl RootData {
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use druid::im::vector;
+    use druid::im::{vector, hashmap};
     use reusable_id_pool::ReusableIdPool;
 
     pub fn mock() -> RootData {
         let hypervisor = Arc::new(Mutex::new(Hypervisor::new(|_| Ok(()))));
         RootData {
-            tabs: vector![],
+            tabs: hashmap!{},
+            tabs_order: vector![],
             currently_selected_tab_id: None,
             close_tab_requests: vector![],
             scale_and_size: Some(ScaleAndSize { window_scale: vector![1.25, 1.25], client_area_size_dp: vector![1536.0, 864.0] }),
@@ -146,7 +160,7 @@ pub mod tests {
         let newly_added_tab_id = root_data.add_new_tab(&Env::empty());
 
         assert_eq!(1, root_data.tabs.len());
-        assert!(root_data.tabs[0].id == newly_added_tab_id);
+        assert!(root_data.get_tab_by_index(0).expect("Should exist").id == newly_added_tab_id);
         assert!(root_data.currently_selected_tab_id.is_some());
         assert!(root_data.currently_selected_tab_id.as_ref().unwrap() == &newly_added_tab_id);
     }

@@ -12,7 +12,7 @@ pub fn top_bar() -> impl Widget<RootData> {
     let main_title = Label::new(|root_data: &RootData, env: &Env| {
         match root_data.currently_selected_tab_id {
             Some(ref id) => {
-                root_data.tabs.iter().find(|tab_data| tab_data.id == *id)
+                root_data.get_tab_by_id(id)
                     .map(|tab_data| ArcStr::clone(&tab_data.title))
                     .unwrap_or_else(|| "".into())
             },

@@ -27,11 +27,11 @@ impl RootAndTabData {
     }
 
     pub fn tab_data(&self) -> &TabData {
-        self.root_data.tabs.get(self.tab_data_index).expect_tab()
+        self.root_data.get_tab_by_index(self.tab_data_index).expect_tab()
     }
 
     pub fn tab_data_mut(&mut self) -> &mut TabData {
-        self.root_data.tabs.get_mut(self.tab_data_index).expect_tab()
+        self.root_data.get_tab_by_index_mut(self.tab_data_index).expect_tab()
     }
 
     pub fn tab_data_cloned(&self) -> TabData {

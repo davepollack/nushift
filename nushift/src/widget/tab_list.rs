@@ -159,9 +159,12 @@ mod tests {
         let mock_tab_data_1 = crate::model::tab_data::tests::mock();
         let mock_tab_data_2 = crate::model::tab_data::tests::mock();
         let mock_tab_data_3 = crate::model::tab_data::tests::mock();
-        mock_root_data.tabs.push_back(mock_tab_data_1);
-        mock_root_data.tabs.push_back(mock_tab_data_2);
-        mock_root_data.tabs.push_back(mock_tab_data_3);
+        mock_root_data.tabs_order.push_back(ArcId::clone(&mock_tab_data_1.id));
+        mock_root_data.tabs_order.push_back(ArcId::clone(&mock_tab_data_2.id));
+        mock_root_data.tabs_order.push_back(ArcId::clone(&mock_tab_data_3.id));
+        mock_root_data.tabs.insert(ArcId::clone(&mock_tab_data_1.id), mock_tab_data_1);
+        mock_root_data.tabs.insert(ArcId::clone(&mock_tab_data_2.id), mock_tab_data_2);
+        mock_root_data.tabs.insert(ArcId::clone(&mock_tab_data_3.id), mock_tab_data_3);
         let env = Env::empty();
 
         // Call create_and_remove_widget_children.
@@ -178,15 +181,19 @@ mod tests {
         assert_eq!(3, tab_list.widget_children.len());
 
         // Remove one data element, the corresponding widget should be removed.
-        let removed_tab = mock_root_data.tabs.remove(1);
+        let removed_tab_id = mock_root_data.tabs_order.remove(1);
+        mock_root_data.tabs.remove(&removed_tab_id);
         is_changed = tab_list.create_and_remove_widget_children(&mock_root_data, &env);
         assert!(is_changed);
         assert_eq!(2, tab_list.widget_children.len());
-        assert!(!tab_list.widget_children.contains_key(&removed_tab.id));
+        assert!(!tab_list.widget_children.contains_key(&removed_tab_id));
 
         // Remove and add a different data element, the length should be the same, BUT it should report it has changed.
-        mock_root_data.tabs.remove(1);
-        mock_root_data.tabs.push_back(crate::model::tab_data::tests::mock());
+        let removed_tab_id = mock_root_data.tabs_order.remove(1);
+        mock_root_data.tabs.remove(&removed_tab_id);
+        let mock = crate::model::tab_data::tests::mock();
+        mock_root_data.tabs_order.push_back(ArcId::clone(&mock.id));
+        mock_root_data.tabs.insert(ArcId::clone(&mock.id), mock);
         is_changed = tab_list.create_and_remove_widget_children(&mock_root_data, &env);
         assert!(is_changed);
         assert_eq!(2, tab_list.widget_children.len());

@@ -2,7 +2,7 @@
 #![cfg_attr(not(test), windows_subsystem = "windows")]
 
 use druid::{AppLauncher, WindowDesc, LocalizedString, Widget, Target};
-use druid::im::vector;
+use druid::im::{vector, hashmap};
 use druid::{Color, widget::Flex};
 use std::sync::{Mutex, Arc};
 use nushift_core::{Hypervisor, HypervisorEventError};
@@ -40,7 +40,8 @@ fn main() {
     let hypervisor = Arc::new(Mutex::new(Hypervisor::new(hypervisor_event_handler)));
 
     let root_data = RootData {
-        tabs: vector![],
+        tabs: hashmap!{},
+        tabs_order: vector![],
         currently_selected_tab_id: None,
         close_tab_requests: vector![],
         scale_and_size: None,

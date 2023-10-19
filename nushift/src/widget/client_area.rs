@@ -24,7 +24,7 @@ impl ClientArea {
             let (width, height) = (output.size_px()[0].try_into(), output.size_px()[1].try_into());
 
             if let (Ok(width), Ok(height)) = (width, height) {
-                if let Some(tab_data) = data.currently_selected_tab_id.as_ref().and_then(|currently_selected_tab_id| data.get_tab(&currently_selected_tab_id)) {
+                if let Some(tab_data) = data.currently_selected_tab_id.as_ref().and_then(|currently_selected_tab_id| data.get_tab_by_id(&currently_selected_tab_id)) {
                     let img_buf = match tab_data.client_framebuffer {
                         Some(ref client_framebuffer) => ImageBuf::from_raw(
                             Arc::clone(&client_framebuffer.framebuffer),
@@ -95,11 +95,11 @@ impl Widget<RootData> for ClientArea {
 
     fn update(&mut self, ctx: &mut UpdateCtx, old_data: &RootData, data: &RootData, env: &Env) {
         let old_framebuffer_currently_selected_tab = data.currently_selected_tab_id.as_ref()
-            .and_then(|tab_id| old_data.get_tab(&tab_id))
+            .and_then(|tab_id| old_data.get_tab_by_id(&tab_id))
             .map(|tab_data| &tab_data.client_framebuffer);
 
         let new_framebuffer_currently_selected_tab = data.currently_selected_tab_id.as_ref()
-            .and_then(|tab_id| data.get_tab(&tab_id))
+            .and_then(|tab_id| data.get_tab_by_id(&tab_id))
             .map(|tab_data| &tab_data.client_framebuffer);
 
         let currently_selected_tab_framebuffer_same = match (old_framebuffer_currently_selected_tab, new_framebuffer_currently_selected_tab) {
