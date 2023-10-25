@@ -1,21 +1,20 @@
 const std = @import("std");
 
-pub fn build(b: *std.Build, appName: []const u8, mainPath: []const u8) void {
-    buildWithOptions(b, appName, mainPath, true);
-}
-
-/// Call with `strip`: false if you want to add back debug symbols.
-pub fn buildWithOptions(b: *std.Build, appName: []const u8, mainPath: []const u8, strip: bool) void {
+pub fn build(
+    b: *std.Build,
+    app_name: []const u8,
+    main_path: []const u8,
+    strip: bool,
+    exe_callback: ?*const fn (b: *std.Build, exe: *std.Build.Step.Compile) void,
+) void {
     // Standard target options allows the person running `zig build` to choose
     // what target to build for. Here we set a default target. Other options for
     // restricting supported target set are available.
-    const target = b.standardTargetOptions(.{
-        .default_target = .{
-            .cpu_arch = .riscv64,
-            .os_tag = .freestanding,
-            .abi = .none,
-        }
-    });
+    const target = b.standardTargetOptions(.{ .default_target = .{
+        .cpu_arch = .riscv64,
+        .os_tag = .freestanding,
+        .abi = .none,
+    } });
 
     // Standard optimize options allow the person running `zig build` to select
     // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall.
@@ -27,14 +26,14 @@ pub fn buildWithOptions(b: *std.Build, appName: []const u8, mainPath: []const u8
     });
 
     const main_module = b.createModule(.{
-        .source_file = .{ .path = mainPath },
+        .source_file = .{ .path = main_path },
         .dependencies = &.{
             .{ .name = "os_nushift", .module = os_nushift_module },
         },
     });
 
     const exe = b.addExecutable(.{
-        .name = appName,
+        .name = app_name,
         .root_source_file = .{ .path = "../../nulib/src/start_nushift.zig" },
         .target = target,
         .optimize = optimize,
@@ -42,6 +41,9 @@ pub fn buildWithOptions(b: *std.Build, appName: []const u8, mainPath: []const u8
     exe.addModule("main", main_module);
     exe.addModule("os_nushift", os_nushift_module);
     exe.strip = strip;
+    if (exe_callback) |present_exe_callback| {
+        present_exe_callback(b, exe);
+    }
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);
@@ -54,7 +56,7 @@ pub fn buildWithOptions(b: *std.Build, appName: []const u8, mainPath: []const u8
     run_step.dependOn(&run_cmd.step);
 
     const exe_tests = b.addTest(.{
-        .root_source_file = .{ .path = mainPath },
+        .root_source_file = .{ .path = main_path },
         .target = target,
         .optimize = optimize,
     });
