@@ -32,14 +32,14 @@ fn main_impl() (FBSWriteError || OsNushift.SyscallError)!usize {
     };
 
     const title_task_id = try tasks[0].title_publish();
-    const a11y_task_id = try tasks[1].accessibility_tree_publish();
+    const a11y_tree_task_id = try tasks[1].accessibility_tree_publish();
 
     // If an error occurs between publishing and the end of
     // block_on_deferred_tasks, you can't deinit the tasks because the resources
     // are in-flight. And we don't. But that does mean the task resources will
     // leak if that error occurs.
 
-    try block_on_deferred_tasks(&.{ title_task_id, a11y_task_id });
+    try block_on_deferred_tasks(&.{ title_task_id, a11y_tree_task_id });
 
     tasks[1].deinit();
     tasks[0].deinit();
