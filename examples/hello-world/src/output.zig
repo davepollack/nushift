@@ -3,13 +3,15 @@ const std = @import("std");
 const MAX_OUTPUTS: usize = 4;
 const MAX_DIMENSIONS: usize = 3;
 
+pub const Error = error{ UnsupportedOutputs, UnsupportedDimensions, EndOfStream, Overflow };
+
 pub const Output = struct {
     size_px: [MAX_DIMENSIONS]u64,
     scale: [MAX_DIMENSIONS]u64,
 
     const Self = @This();
 
-    fn read_output(self: *Self, reader: anytype) !void {
+    fn read_output(self: *Self, reader: anytype) Error!void {
         const size_px_length = try std.leb.readULEB128(usize, reader);
         if (size_px_length > MAX_DIMENSIONS) {
             return error.UnsupportedDimensions;
@@ -28,7 +30,7 @@ pub const Output = struct {
     }
 };
 
-pub fn read_outputs(reader: anytype) ![MAX_OUTPUTS]Output {
+pub fn read_outputs(reader: anytype) Error![MAX_OUTPUTS]Output {
     const outputs_length = try std.leb.readULEB128(usize, reader);
     if (outputs_length > MAX_OUTPUTS) {
         return error.UnsupportedOutputs;

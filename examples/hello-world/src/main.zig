@@ -2,6 +2,8 @@ const std = @import("std");
 const OsNushift = @import("os_nushift");
 const qoi = @import("qoi");
 
+const output = @import("./output.zig");
+
 const ron = @embedFile("./accessibility_tree.ron");
 const qoi_data = @embedFile("./hello-world.qoi");
 const title: []const u8 = "Hello World App";
@@ -9,6 +11,7 @@ const title: []const u8 = "Hello World App";
 const TITLE_INPUT_ACQUIRE_ADDRESS: usize = 0x90000000;
 const A11Y_INPUT_ACQUIRE_ADDRESS: usize = 0x90001000;
 const BODT_INPUT_ACQUIRE_ADDRESS: usize = 0x9000b000;
+const GGO_OUTPUT_ACQUIRE_ADDRESS: usize = 0x9000c000;
 
 const FBSWriteError = std.io.FixedBufferStream([]u8).WriteError;
 
@@ -22,7 +25,7 @@ pub fn main() usize {
     };
 }
 
-fn main_impl() (FBSWriteError || OsNushift.SyscallError)!usize {
+fn main_impl() (FBSWriteError || OsNushift.SyscallError || output.Error)!usize {
     const tasks = blk: {
         const title_task = try TitleTask.init();
         errdefer title_task.deinit();
@@ -30,23 +33,37 @@ fn main_impl() (FBSWriteError || OsNushift.SyscallError)!usize {
         const a11y_tree_task = try AccessibilityTreeTask.init();
         errdefer a11y_tree_task.deinit();
 
-        break :blk .{ title_task, a11y_tree_task };
+        const gfx_get_outputs_task = try GfxGetOutputsTask.init();
+        errdefer gfx_get_outputs_task.deinit();
+
+        break :blk .{ title_task, a11y_tree_task, gfx_get_outputs_task };
     };
 
     const title_task_id = try tasks[0].title_publish();
     const a11y_tree_task_id = try tasks[1].accessibility_tree_publish();
+    const gfx_get_outputs_task_id = try tasks[2].gfx_get_outputs();
 
     // If an error occurs between publishing and the end of
     // block_on_deferred_tasks, you can't deinit the tasks because the resources
     // are in-flight. And we don't. But that does mean the task resources will
     // leak if that error occurs.
 
-    try block_on_deferred_tasks(&.{ title_task_id, a11y_tree_task_id });
+    try block_on_deferred_tasks(&.{ title_task_id, a11y_tree_task_id, gfx_get_outputs_task_id });
 
     tasks[1].deinit();
     tasks[0].deinit();
 
-    return 1000;
+    _ = try OsNushift.syscall(.shm_acquire, .{ .shm_cap_id = tasks[2].output_shm_cap_id, .address = GGO_OUTPUT_ACQUIRE_ADDRESS });
+
+    const output_cap_buffer = @as([*]u8, @ptrFromInt(GGO_OUTPUT_ACQUIRE_ADDRESS))[0..4096];
+    var stream = std.io.fixedBufferStream(output_cap_buffer);
+    const reader = stream.reader();
+    const outputs = try output.read_outputs(reader);
+
+    _ = OsNushift.syscall_ignore_errors(.shm_release, .{ .shm_cap_id = tasks[2].output_shm_cap_id });
+    tasks[2].deinit();
+
+    return outputs[0].size_px[0];
 }
 
 const TitleTask = struct {
@@ -120,6 +137,35 @@ const AccessibilityTreeTask = struct {
 
     fn accessibility_tree_publish(self: *const Self) OsNushift.SyscallError!usize {
         return OsNushift.syscall(.accessibility_tree_publish, .{ .accessibility_tree_cap_id = self.a11y_tree_cap_id, .input_shm_cap_id = self.a11y_input_shm_cap_id, .output_shm_cap_id = self.a11y_output_shm_cap_id });
+    }
+};
+
+const GfxGetOutputsTask = struct {
+    gfx_cap_id: usize,
+    output_shm_cap_id: usize,
+
+    const Self = @This();
+
+    fn init() OsNushift.SyscallError!Self {
+        const gfx_cap_id = try OsNushift.syscall(.gfx_new, .{});
+        errdefer _ = OsNushift.syscall_ignore_errors(.gfx_destroy, .{ .gfx_cap_id = gfx_cap_id });
+
+        const output_shm_cap_id = try OsNushift.syscall(.shm_new, .{ .shm_type = OsNushift.ShmType.four_kib, .length = 1 });
+        errdefer _ = OsNushift.syscall_ignore_errors(.shm_destroy, .{ .shm_cap_id = output_shm_cap_id });
+
+        return Self{
+            .gfx_cap_id = gfx_cap_id,
+            .output_shm_cap_id = output_shm_cap_id,
+        };
+    }
+
+    fn deinit(self: Self) void {
+        _ = OsNushift.syscall_ignore_errors(.shm_destroy, .{ .shm_cap_id = self.output_shm_cap_id });
+        _ = OsNushift.syscall_ignore_errors(.gfx_destroy, .{ .gfx_cap_id = self.gfx_cap_id });
+    }
+
+    fn gfx_get_outputs(self: *const Self) OsNushift.SyscallError!usize {
+        return OsNushift.syscall(.gfx_get_outputs, .{ .gfx_cap_id = self.gfx_cap_id, .output_shm_cap_id = self.output_shm_cap_id });
     }
 };
 
