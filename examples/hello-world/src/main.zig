@@ -1,7 +1,9 @@
 const std = @import("std");
 const OsNushift = @import("os_nushift");
-const ron = @embedFile("./accessibility_tree.ron");
+const qoi = @import("qoi");
 
+const ron = @embedFile("./accessibility_tree.ron");
+const qoi_data = @embedFile("./hello-world.qoi");
 const title: []const u8 = "Hello World App";
 
 const TITLE_INPUT_ACQUIRE_ADDRESS: usize = 0x90000000;
@@ -146,4 +148,12 @@ fn write_task_ids_to_input_cap(input_cap_buffer: []u8, task_ids: []const u64) FB
     for (task_ids) |task_id| {
         try std.leb.writeULEB128(writer, task_id);
     }
+}
+
+fn write_wrapped_image_to_input_cap(input_cap_buffer: []u8, decoder: qoi.Decoder, output_width: u64) FBSWriteError!void {
+    _ = output_width;
+    _ = decoder;
+    _ = input_cap_buffer;
+    const MARGIN_TOP: u32 = 100;
+    _ = MARGIN_TOP;
 }
