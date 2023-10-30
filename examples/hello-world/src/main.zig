@@ -53,18 +53,12 @@ fn main_impl() (FBSWriteError || os_nushift.SyscallError || gfx_output.Error)!us
     tasks[1].deinit();
     tasks[0].deinit();
 
-    // Read output from the gfx_get_outputs task, and return Output 0's width
-    _ = try os_nushift.syscall(.shm_acquire, .{ .shm_cap_id = tasks[2].output_shm_cap_id, .address = GGO_OUTPUT_ACQUIRE_ADDRESS });
-
-    const output_cap_buffer = @as([*]u8, @ptrFromInt(GGO_OUTPUT_ACQUIRE_ADDRESS))[0..4096];
-    var stream = std.io.fixedBufferStream(output_cap_buffer);
-    const reader = stream.reader();
-    const outputs = try gfx_output.read_outputs(reader);
-
-    _ = os_nushift.syscall_ignore_errors(.shm_release, .{ .shm_cap_id = tasks[2].output_shm_cap_id });
+    // For some reason extracting this logic before specifying .always_inline
+    // caused the binary size to blow up by 70% :'(
+    const output_0_width_px = @call(.always_inline, get_output_0_width_px, .{&tasks[2]});
     tasks[2].deinit();
 
-    return outputs[0].size_px[0];
+    return output_0_width_px;
 }
 
 const TitleTask = struct {
@@ -177,6 +171,19 @@ fn block_on_deferred_tasks(task_ids: []const u64) (FBSWriteError || os_nushift.S
     try write_task_ids_to_input_cap(@as([*]u8, @ptrFromInt(BODT_INPUT_ACQUIRE_ADDRESS))[0..4096], task_ids);
 
     _ = try os_nushift.syscall(.block_on_deferred_tasks, .{ .input_shm_cap_id = block_on_deferred_tasks_input_cap_id });
+}
+
+fn get_output_0_width_px(gfx_get_outputs_task: *const GfxGetOutputsTask) (os_nushift.SyscallError || gfx_output.Error)!u64 {
+    _ = try os_nushift.syscall(.shm_acquire, .{ .shm_cap_id = gfx_get_outputs_task.output_shm_cap_id, .address = GGO_OUTPUT_ACQUIRE_ADDRESS });
+
+    const output_cap_buffer = @as([*]u8, @ptrFromInt(GGO_OUTPUT_ACQUIRE_ADDRESS))[0..4096];
+    var stream = std.io.fixedBufferStream(output_cap_buffer);
+    const reader = stream.reader();
+    const outputs = try gfx_output.read_outputs(reader);
+
+    _ = os_nushift.syscall_ignore_errors(.shm_release, .{ .shm_cap_id = gfx_get_outputs_task.output_shm_cap_id });
+
+    return outputs[0].size_px[0];
 }
 
 fn write_str_to_input_cap(input_cap_buffer: []u8, str: []const u8) FBSWriteError!void {
