@@ -53,6 +53,7 @@ fn main_impl() (FBSWriteError || os_nushift.SyscallError || gfx_output.Error)!us
     tasks[1].deinit();
     tasks[0].deinit();
 
+    // Read output from the gfx_get_outputs task, and return Output 0's width
     _ = try os_nushift.syscall(.shm_acquire, .{ .shm_cap_id = tasks[2].output_shm_cap_id, .address = GGO_OUTPUT_ACQUIRE_ADDRESS });
 
     const output_cap_buffer = @as([*]u8, @ptrFromInt(GGO_OUTPUT_ACQUIRE_ADDRESS))[0..4096];
