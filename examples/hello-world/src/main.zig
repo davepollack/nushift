@@ -5,13 +5,14 @@ const qoi = @import("qoi");
 const gfx_output = @import("./gfx_output.zig");
 
 const ron = @embedFile("./accessibility_tree.ron");
-const qoi_data = @embedFile("./hello_world.qoi");
+const hello_world_qoi_data = @embedFile("./hello_world.qoi");
 const title: []const u8 = "Hello World App";
 
 const TITLE_INPUT_ACQUIRE_ADDRESS: usize = 0x90000000;
 const A11Y_INPUT_ACQUIRE_ADDRESS: usize = 0x90001000;
 const BODT_INPUT_ACQUIRE_ADDRESS: usize = 0x9000b000;
 const GGO_OUTPUT_ACQUIRE_ADDRESS: usize = 0x9000c000;
+const PRESENT_BUFFER_ACQUIRE_ADDRESS: usize = 0x9000d000;
 
 const FBSWriteError = std.io.FixedBufferStream([]u8).WriteError;
 
@@ -25,7 +26,7 @@ pub fn main() usize {
     };
 }
 
-fn main_impl() (FBSWriteError || os_nushift.SyscallError || gfx_output.Error)!usize {
+fn main_impl() (FBSWriteError || os_nushift.SyscallError || gfx_output.Error || error{NotQOI})!usize {
     const tasks = blk: {
         const title_task = try TitleTask.init();
         errdefer title_task.deinit();
@@ -53,12 +54,19 @@ fn main_impl() (FBSWriteError || os_nushift.SyscallError || gfx_output.Error)!us
     tasks[1].deinit();
     tasks[0].deinit();
 
-    // For some reason extracting this logic before specifying .always_inline
-    // caused the binary size to blow up by 70% :'(
-    const output_0_width_px = @call(.always_inline, get_output_0_width_px, .{&tasks[2]});
+    // For some reason specifying .always_inline for this extracted logic is
+    // needed, otherwise the binary size blows up by 70% :'(
+    const output_0_width_px = try @call(.always_inline, get_output_0_width_px, .{&tasks[2]});
+
+    // Present
+    const gfx_cpu_present_task = try GfxCpuPresentTask.init(tasks[2].gfx_cap_id, output_0_width_px);
+    const gfx_cpu_present_task_id = try gfx_cpu_present_task.gfx_cpu_present();
+    try block_on_deferred_tasks(&.{gfx_cpu_present_task_id});
+    gfx_cpu_present_task.deinit();
+
     tasks[2].deinit();
 
-    return output_0_width_px;
+    return 0;
 }
 
 const TitleTask = struct {
@@ -164,6 +172,46 @@ const GfxGetOutputsTask = struct {
     }
 };
 
+const GfxCpuPresentTask = struct {
+    gfx_cap_id: usize,
+    present_buffer_shm_cap_id: usize,
+    gfx_cpu_present_buffer_cap_id: usize,
+    output_shm_cap_id: usize,
+
+    const Self = @This();
+
+    fn init(gfx_cap_id: usize, output_width: u64) (os_nushift.SyscallError || FBSWriteError || error{NotQOI})!Self {
+        // 1 MiB buffer
+        const present_buffer_shm_cap_id = try os_nushift.syscall(.shm_new_and_acquire, .{ .shm_type = os_nushift.ShmType.four_kib, .length = 256, .address = PRESENT_BUFFER_ACQUIRE_ADDRESS });
+        errdefer _ = os_nushift.syscall_ignore_errors(.shm_release_and_destroy, .{ .shm_cap_id = present_buffer_shm_cap_id });
+
+        try write_wrapped_image_to_input_cap(@as([*]u8, @ptrFromInt(PRESENT_BUFFER_ACQUIRE_ADDRESS))[0..1048576], hello_world_qoi_data, output_width);
+
+        const gfx_cpu_present_buffer_cap_id = try os_nushift.syscall(.gfx_cpu_present_buffer_new, .{ .gfx_cap_id = gfx_cap_id, .present_buffer_format = os_nushift.PresentBufferFormat.r8g8b8_uint_srgb, .present_buffer_shm_cap_id = present_buffer_shm_cap_id });
+        errdefer _ = os_nushift.syscall_ignore_errors(.gfx_cpu_present_buffer_destroy, .{ .gfx_cpu_present_buffer_cap_id = gfx_cpu_present_buffer_cap_id });
+
+        const output_shm_cap_id = try os_nushift.syscall(.shm_new, .{ .shm_type = os_nushift.ShmType.four_kib, .length = 1 });
+        errdefer _ = os_nushift.syscall_ignore_errors(.shm_destroy, .{ .shm_cap_id = output_shm_cap_id });
+
+        return Self{
+            .gfx_cap_id = gfx_cap_id,
+            .present_buffer_shm_cap_id = present_buffer_shm_cap_id,
+            .gfx_cpu_present_buffer_cap_id = gfx_cpu_present_buffer_cap_id,
+            .output_shm_cap_id = output_shm_cap_id,
+        };
+    }
+
+    fn deinit(self: Self) void {
+        _ = os_nushift.syscall_ignore_errors(.shm_destroy, .{ .shm_cap_id = self.output_shm_cap_id });
+        _ = os_nushift.syscall_ignore_errors(.gfx_cpu_present_buffer_destroy, .{ .gfx_cpu_present_buffer_cap_id = self.gfx_cpu_present_buffer_cap_id });
+        _ = os_nushift.syscall_ignore_errors(.shm_release_and_destroy, .{ .shm_cap_id = self.present_buffer_shm_cap_id });
+    }
+
+    fn gfx_cpu_present(self: *const Self) os_nushift.SyscallError!usize {
+        return os_nushift.syscall(.gfx_cpu_present, .{ .gfx_cpu_present_buffer_cap_id = self.gfx_cpu_present_buffer_cap_id, .wait_for_vblank = std.math.maxInt(usize), .output_shm_cap_id = self.output_shm_cap_id });
+    }
+};
+
 fn block_on_deferred_tasks(task_ids: []const u64) (FBSWriteError || os_nushift.SyscallError)!void {
     const block_on_deferred_tasks_input_cap_id = try os_nushift.syscall(.shm_new_and_acquire, .{ .shm_type = os_nushift.ShmType.four_kib, .length = 1, .address = BODT_INPUT_ACQUIRE_ADDRESS });
     defer _ = os_nushift.syscall_ignore_errors(.shm_release_and_destroy, .{ .shm_cap_id = block_on_deferred_tasks_input_cap_id });
@@ -204,10 +252,18 @@ fn write_task_ids_to_input_cap(input_cap_buffer: []u8, task_ids: []const u64) FB
     }
 }
 
-fn write_wrapped_image_to_input_cap(input_cap_buffer: []u8, decoder: qoi.Decoder, output_width: u64) FBSWriteError!void {
+fn write_wrapped_image_to_input_cap(input_cap_buffer: []u8, qoi_data: []const u8, output_width: u64) (FBSWriteError || error{NotQOI})!void {
     _ = output_width;
-    _ = decoder;
     _ = input_cap_buffer;
     const MARGIN_TOP: u32 = 100;
     _ = MARGIN_TOP;
+
+    if (qoi_data.len < 8) {
+        return error.NotQOI;
+    }
+    if (!std.mem.eql(u8, "qoif", qoi_data[0..4])) {
+        return error.NotQOI;
+    }
+
+    // TODO
 }
