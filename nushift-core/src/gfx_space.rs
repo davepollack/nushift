@@ -53,7 +53,7 @@ pub enum PresentBufferFormat {
 
 struct CpuPresentBufferInfo {
     present_buffer_format: PresentBufferFormat,
-    buffer_shm_cap_id: ShmCapId,
+    present_buffer_shm_cap_id: ShmCapId,
 }
 
 struct CpuPresent {
@@ -87,8 +87,8 @@ impl CpuPresent {
         Self { tab_context, space: HashMap::new() }
     }
 
-    fn add_info(&mut self, cap_id: DefaultDeferredSpaceCapId, present_buffer_format: PresentBufferFormat, buffer_shm_cap_id: ShmCapId) {
-        self.space.insert(cap_id, CpuPresentBufferInfo { present_buffer_format, buffer_shm_cap_id });
+    fn add_info(&mut self, cap_id: DefaultDeferredSpaceCapId, present_buffer_format: PresentBufferFormat, present_buffer_shm_cap_id: ShmCapId) {
+        self.space.insert(cap_id, CpuPresentBufferInfo { present_buffer_format, present_buffer_shm_cap_id });
     }
 
     fn get_info(&self, cap_id: DefaultDeferredSpaceCapId) -> Option<&CpuPresentBufferInfo> {
@@ -122,7 +122,7 @@ impl GfxSpace {
         self.root_deferred_space.get_deferred(&mut self.get_outputs, gfx_cap_id, shm_space)
     }
 
-    pub fn new_gfx_cpu_present_buffer_cap(&mut self, gfx_cap_id: GfxCapId, present_buffer_format: PresentBufferFormat, buffer_shm_cap_id: ShmCapId) -> Result<GfxCpuPresentBufferCapId, DeferredSpaceError> {
+    pub fn new_gfx_cpu_present_buffer_cap(&mut self, gfx_cap_id: GfxCapId, present_buffer_format: PresentBufferFormat, present_buffer_shm_cap_id: ShmCapId) -> Result<GfxCpuPresentBufferCapId, DeferredSpaceError> {
         // Check that gfx_cap_id is a valid cap
         self.root_deferred_space.contains_key(gfx_cap_id).then_some(()).ok_or_else(|| DeferredSpaceError::CapNotFound { context: GFX_CONTEXT.into(), id: gfx_cap_id })?;
 
@@ -137,7 +137,7 @@ impl GfxSpace {
         });
 
         // Store the additional info
-        self.cpu_present.add_info(gfx_cpu_present_buffer_cap_id, present_buffer_format, buffer_shm_cap_id);
+        self.cpu_present.add_info(gfx_cpu_present_buffer_cap_id, present_buffer_format, present_buffer_shm_cap_id);
 
         *all_succeeded = true;
         Ok(gfx_cpu_present_buffer_cap_id)
@@ -147,7 +147,7 @@ impl GfxSpace {
         let cpu_present_buffer_info = self.cpu_present.get_info(gfx_cpu_present_buffer_cap_id)
             .ok_or_else(|| DeferredSpaceError::CapNotFound { context: GFX_CPU_PRESENT_CONTEXT.into(), id: gfx_cpu_present_buffer_cap_id })?;
 
-        self.cpu_present_buffer_deferred_space.publish_blocking(GFX_CPU_PRESENT_CONTEXT, gfx_cpu_present_buffer_cap_id, cpu_present_buffer_info.buffer_shm_cap_id, output_shm_cap_id, shm_space)
+        self.cpu_present_buffer_deferred_space.publish_blocking(GFX_CPU_PRESENT_CONTEXT, gfx_cpu_present_buffer_cap_id, cpu_present_buffer_info.present_buffer_shm_cap_id, output_shm_cap_id, shm_space)
     }
 
     pub fn cpu_present_deferred(&mut self, gfx_cpu_present_buffer_cap_id: GfxCpuPresentBufferCapId, shm_space: &mut ShmSpace) -> Result<(), ()> {
@@ -158,7 +158,7 @@ impl GfxSpace {
         let cpu_present_buffer_info = self.cpu_present.remove_info(gfx_cpu_present_buffer_cap_id).ok_or_else(|| DeferredSpaceError::CapNotFound { context: GFX_CPU_PRESENT_CONTEXT.into(), id: gfx_cpu_present_buffer_cap_id })?;
         let mut all_succeeded = drop_guard::guard(false, |all_succeeded| {
             if !all_succeeded {
-                self.cpu_present.add_info(gfx_cpu_present_buffer_cap_id, cpu_present_buffer_info.present_buffer_format, cpu_present_buffer_info.buffer_shm_cap_id);
+                self.cpu_present.add_info(gfx_cpu_present_buffer_cap_id, cpu_present_buffer_info.present_buffer_format, cpu_present_buffer_info.present_buffer_shm_cap_id);
             }
         });
 

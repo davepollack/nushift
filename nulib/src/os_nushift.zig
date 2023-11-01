@@ -115,47 +115,47 @@ pub const PresentBufferFormat = enum(usize) {
 };
 
 pub fn syscall(comptime sys: Syscall, sys_args: SyscallArgs(sys)) SyscallError!usize {
-    return syscall_internal(sys, sys_args, false);
+    return syscallInternal(sys, sys_args, false);
 }
 
-pub fn syscall_ignore_errors(comptime sys: Syscall, sys_args: SyscallArgs(sys)) usize {
-    return syscall_internal(sys, sys_args, true);
+pub fn syscallIgnoreErrors(comptime sys: Syscall, sys_args: SyscallArgs(sys)) usize {
+    return syscallInternal(sys, sys_args, true);
 }
 
 fn SyscallInternalReturnType(comptime ignore_errors: bool) type {
     return if (ignore_errors) usize else SyscallError!usize;
 }
 
-fn syscall_internal(comptime sys: Syscall, sys_args: SyscallArgs(sys), comptime ignore_errors: bool) SyscallInternalReturnType(ignore_errors) {
+fn syscallInternal(comptime sys: Syscall, sys_args: SyscallArgs(sys), comptime ignore_errors: bool) SyscallInternalReturnType(ignore_errors) {
     return switch (sys) {
-        .exit => syscall_internal_args(sys, .{sys_args.exit_reason}, ignore_errors),
+        .exit => syscallInternalArgs(sys, .{sys_args.exit_reason}, ignore_errors),
 
-        .shm_new => syscall_internal_args(sys, .{ @intFromEnum(sys_args.shm_type), sys_args.length }, ignore_errors),
-        .shm_acquire => syscall_internal_args(sys, .{ sys_args.shm_cap_id, sys_args.address }, ignore_errors),
-        .shm_new_and_acquire => syscall_internal_args(sys, .{ @intFromEnum(sys_args.shm_type), sys_args.length, sys_args.address }, ignore_errors),
-        .shm_release, .shm_destroy, .shm_release_and_destroy => syscall_internal_args(sys, .{sys_args.shm_cap_id}, ignore_errors),
+        .shm_new => syscallInternalArgs(sys, .{ @intFromEnum(sys_args.shm_type), sys_args.length }, ignore_errors),
+        .shm_acquire => syscallInternalArgs(sys, .{ sys_args.shm_cap_id, sys_args.address }, ignore_errors),
+        .shm_new_and_acquire => syscallInternalArgs(sys, .{ @intFromEnum(sys_args.shm_type), sys_args.length, sys_args.address }, ignore_errors),
+        .shm_release, .shm_destroy, .shm_release_and_destroy => syscallInternalArgs(sys, .{sys_args.shm_cap_id}, ignore_errors),
 
         // Send maxInt(usize) as the first argument. The first argument is not used yet, but may be in the future.
-        .accessibility_tree_new => syscall_internal_args(sys, .{std.math.maxInt(usize)}, ignore_errors),
-        .accessibility_tree_publish => syscall_internal_args(sys, .{ sys_args.accessibility_tree_cap_id, sys_args.input_shm_cap_id, sys_args.output_shm_cap_id }, ignore_errors),
-        .accessibility_tree_destroy => syscall_internal_args(sys, .{sys_args.accessibility_tree_cap_id}, ignore_errors),
+        .accessibility_tree_new => syscallInternalArgs(sys, .{std.math.maxInt(usize)}, ignore_errors),
+        .accessibility_tree_publish => syscallInternalArgs(sys, .{ sys_args.accessibility_tree_cap_id, sys_args.input_shm_cap_id, sys_args.output_shm_cap_id }, ignore_errors),
+        .accessibility_tree_destroy => syscallInternalArgs(sys, .{sys_args.accessibility_tree_cap_id}, ignore_errors),
 
-        .title_new => syscall_internal_args(sys, .{}, ignore_errors),
-        .title_publish => syscall_internal_args(sys, .{ sys_args.title_cap_id, sys_args.input_shm_cap_id, sys_args.output_shm_cap_id }, ignore_errors),
-        .title_destroy => syscall_internal_args(sys, .{sys_args.title_cap_id}, ignore_errors),
+        .title_new => syscallInternalArgs(sys, .{}, ignore_errors),
+        .title_publish => syscallInternalArgs(sys, .{ sys_args.title_cap_id, sys_args.input_shm_cap_id, sys_args.output_shm_cap_id }, ignore_errors),
+        .title_destroy => syscallInternalArgs(sys, .{sys_args.title_cap_id}, ignore_errors),
 
-        .block_on_deferred_tasks => syscall_internal_args(sys, .{sys_args.input_shm_cap_id}, ignore_errors),
+        .block_on_deferred_tasks => syscallInternalArgs(sys, .{sys_args.input_shm_cap_id}, ignore_errors),
 
-        .gfx_new => syscall_internal_args(sys, .{}, ignore_errors),
-        .gfx_get_outputs => syscall_internal_args(sys, .{ sys_args.gfx_cap_id, sys_args.output_shm_cap_id }, ignore_errors),
-        .gfx_cpu_present_buffer_new => syscall_internal_args(sys, .{ sys_args.gfx_cap_id, @intFromEnum(sys_args.present_buffer_format), sys_args.present_buffer_shm_cap_id }, ignore_errors),
-        .gfx_cpu_present => syscall_internal_args(sys, .{ sys_args.gfx_cpu_present_buffer_cap_id, sys_args.wait_for_vblank, sys_args.output_shm_cap_id }, ignore_errors),
-        .gfx_cpu_present_buffer_destroy => syscall_internal_args(sys, .{sys_args.gfx_cpu_present_buffer_cap_id}, ignore_errors),
-        .gfx_destroy => syscall_internal_args(sys, .{sys_args.gfx_cap_id}, ignore_errors),
+        .gfx_new => syscallInternalArgs(sys, .{}, ignore_errors),
+        .gfx_get_outputs => syscallInternalArgs(sys, .{ sys_args.gfx_cap_id, sys_args.output_shm_cap_id }, ignore_errors),
+        .gfx_cpu_present_buffer_new => syscallInternalArgs(sys, .{ sys_args.gfx_cap_id, @intFromEnum(sys_args.present_buffer_format), sys_args.present_buffer_shm_cap_id }, ignore_errors),
+        .gfx_cpu_present => syscallInternalArgs(sys, .{ sys_args.gfx_cpu_present_buffer_cap_id, sys_args.wait_for_vblank, sys_args.output_shm_cap_id }, ignore_errors),
+        .gfx_cpu_present_buffer_destroy => syscallInternalArgs(sys, .{sys_args.gfx_cpu_present_buffer_cap_id}, ignore_errors),
+        .gfx_destroy => syscallInternalArgs(sys, .{sys_args.gfx_cap_id}, ignore_errors),
     };
 }
 
-fn syscall_internal_args(comptime sys: Syscall, args: anytype, comptime ignore_errors: bool) SyscallInternalReturnType(ignore_errors) {
+fn syscallInternalArgs(comptime sys: Syscall, args: anytype, comptime ignore_errors: bool) SyscallInternalReturnType(ignore_errors) {
     comptime std.debug.assert(@typeInfo(@TypeOf(args)) == .Struct);
     comptime std.debug.assert(@typeInfo(@TypeOf(args)).Struct.is_tuple);
 

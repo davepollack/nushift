@@ -393,9 +393,9 @@ impl NushiftSubsystem {
                     Ok(present_buffer_format) => present_buffer_format,
                     Err(_) => return set_error(SyscallError::GfxUnknownPresentBufferFormat),
                 };
-                let buffer_shm_cap_id = registers[THIRD_ARG_REGISTER_INDEX].to_u64();
+                let present_buffer_shm_cap_id = registers[THIRD_ARG_REGISTER_INDEX].to_u64();
 
-                let gfx_cpu_present_buffer_cap_id = match self.gfx_space.new_gfx_cpu_present_buffer_cap(gfx_cap_id, present_buffer_format, buffer_shm_cap_id) {
+                let gfx_cpu_present_buffer_cap_id = match self.gfx_space.new_gfx_cpu_present_buffer_cap(gfx_cap_id, present_buffer_format, present_buffer_shm_cap_id) {
                     Ok(gfx_cpu_present_buffer_cap_id) => gfx_cpu_present_buffer_cap_id,
                     Err(deferred_space_error) => return marshall_deferred_space_error(deferred_space_error),
                 };

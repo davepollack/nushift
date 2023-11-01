@@ -11,7 +11,7 @@ pub const Output = struct {
 
     const Self = @This();
 
-    fn read_output(self: *Self, reader: anytype) Error!void {
+    fn readOutput(self: *Self, reader: anytype) Error!void {
         const size_px_length = try std.leb.readULEB128(usize, reader);
         if (size_px_length > MAX_DIMENSIONS) {
             return error.UnsupportedDimensions;
@@ -30,7 +30,7 @@ pub const Output = struct {
     }
 };
 
-pub fn read_outputs(reader: anytype) Error![MAX_OUTPUTS]Output {
+pub fn readOutputs(reader: anytype) Error![MAX_OUTPUTS]Output {
     const outputs_length = try std.leb.readULEB128(usize, reader);
     if (outputs_length > MAX_OUTPUTS) {
         return error.UnsupportedOutputs;
@@ -39,7 +39,7 @@ pub fn read_outputs(reader: anytype) Error![MAX_OUTPUTS]Output {
     var outputs: [MAX_OUTPUTS]Output = undefined;
 
     for (0..outputs_length) |i| {
-        try outputs[i].read_output(reader);
+        try outputs[i].readOutput(reader);
     }
 
     return outputs;

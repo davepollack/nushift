@@ -26,6 +26,7 @@ impl ClientArea {
             if let (Ok(width), Ok(height)) = (width, height) {
                 if let Some(tab_data) = data.currently_selected_tab_id.as_ref().and_then(|currently_selected_tab_id| data.get_tab_by_id(&currently_selected_tab_id)) {
                     let img_buf = match tab_data.client_framebuffer {
+                        // TODO: "Wrap" buffer? If not, then don't crash here
                         Some(ref client_framebuffer) => ImageBuf::from_raw(
                             Arc::clone(&client_framebuffer.framebuffer),
                             match client_framebuffer.present_buffer_format {
