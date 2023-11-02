@@ -13,6 +13,7 @@ const A11Y_INPUT_ACQUIRE_ADDRESS: usize = 0x90001000;
 const BODT_INPUT_ACQUIRE_ADDRESS: usize = 0x9000b000;
 const GGO_OUTPUT_ACQUIRE_ADDRESS: usize = 0x9000c000;
 const PRESENT_BUFFER_ACQUIRE_ADDRESS: usize = 0x9000d000;
+const ALLOCATOR_BUFFER_ACQUIRE_ADDRESS: usize = 0x9010d000;
 
 const FBSWriteError = std.io.FixedBufferStream([]u8).WriteError;
 
@@ -26,15 +27,15 @@ pub fn main() usize {
     };
 }
 
-fn mainImpl() (FBSWriteError || os_nushift.SyscallError || gfx_output.Error || error{ NotQOI, EndOfStream })!usize {
-    const tasks = blk: {
-        const title_task = try TitleTask.init();
+fn mainImpl() (FBSWriteError || os_nushift.SyscallError || gfx_output.Error || qoi.DecodeError)!usize {
+    var tasks = blk: {
+        var title_task = try TitleTask.init();
         errdefer title_task.deinit();
 
-        const a11y_tree_task = try AccessibilityTreeTask.init();
+        var a11y_tree_task = try AccessibilityTreeTask.init();
         errdefer a11y_tree_task.deinit();
 
-        const gfx_get_outputs_task = try GfxGetOutputsTask.init();
+        var gfx_get_outputs_task = try GfxGetOutputsTask.init();
         errdefer gfx_get_outputs_task.deinit();
 
         break :blk .{ title_task, a11y_tree_task, gfx_get_outputs_task };
@@ -59,7 +60,7 @@ fn mainImpl() (FBSWriteError || os_nushift.SyscallError || gfx_output.Error || e
     const output_0_width_px = try @call(.always_inline, getOutput0WidthPx, .{&tasks[2]});
 
     // Present
-    const gfx_cpu_present_task = try GfxCpuPresentTask.init(tasks[2].gfx_cap_id, output_0_width_px);
+    var gfx_cpu_present_task = try GfxCpuPresentTask.init(tasks[2].gfx_cap_id, output_0_width_px);
     const gfx_cpu_present_task_id = try gfx_cpu_present_task.gfxCpuPresent();
     try blockOnDeferredTasks(&.{gfx_cpu_present_task_id});
     gfx_cpu_present_task.deinit();
@@ -95,10 +96,12 @@ const TitleTask = struct {
         };
     }
 
-    fn deinit(self: Self) void {
+    fn deinit(self: *Self) void {
         _ = os_nushift.syscallIgnoreErrors(.shm_destroy, .{ .shm_cap_id = self.title_output_shm_cap_id });
         _ = os_nushift.syscallIgnoreErrors(.shm_release_and_destroy, .{ .shm_cap_id = self.title_input_shm_cap_id });
         _ = os_nushift.syscallIgnoreErrors(.title_destroy, .{ .title_cap_id = self.title_cap_id });
+
+        self.* = undefined;
     }
 
     fn titlePublish(self: *const Self) os_nushift.SyscallError!usize {
@@ -132,10 +135,12 @@ const AccessibilityTreeTask = struct {
         };
     }
 
-    fn deinit(self: Self) void {
+    fn deinit(self: *Self) void {
         _ = os_nushift.syscallIgnoreErrors(.shm_destroy, .{ .shm_cap_id = self.a11y_output_shm_cap_id });
         _ = os_nushift.syscallIgnoreErrors(.shm_release_and_destroy, .{ .shm_cap_id = self.a11y_input_shm_cap_id });
         _ = os_nushift.syscallIgnoreErrors(.accessibility_tree_destroy, .{ .accessibility_tree_cap_id = self.a11y_tree_cap_id });
+
+        self.* = undefined;
     }
 
     fn accessibilityTreePublish(self: *const Self) os_nushift.SyscallError!usize {
@@ -162,9 +167,11 @@ const GfxGetOutputsTask = struct {
         };
     }
 
-    fn deinit(self: Self) void {
+    fn deinit(self: *Self) void {
         _ = os_nushift.syscallIgnoreErrors(.shm_destroy, .{ .shm_cap_id = self.output_shm_cap_id });
         _ = os_nushift.syscallIgnoreErrors(.gfx_destroy, .{ .gfx_cap_id = self.gfx_cap_id });
+
+        self.* = undefined;
     }
 
     fn gfxGetOutputs(self: *const Self) os_nushift.SyscallError!usize {
@@ -180,12 +187,22 @@ const GfxCpuPresentTask = struct {
 
     const Self = @This();
 
-    fn init(gfx_cap_id: usize, output_width: u64) (os_nushift.SyscallError || FBSWriteError || error{ NotQOI, EndOfStream })!Self {
-        // 1 MiB buffer
+    fn init(gfx_cap_id: usize, output_width: u64) (os_nushift.SyscallError || FBSWriteError || qoi.DecodeError)!Self {
+        _ = output_width; // TODO
+        // 1 MiB present buffer
         const present_buffer_shm_cap_id = try os_nushift.syscall(.shm_new_and_acquire, .{ .shm_type = os_nushift.ShmType.four_kib, .length = 256, .address = PRESENT_BUFFER_ACQUIRE_ADDRESS });
         errdefer _ = os_nushift.syscallIgnoreErrors(.shm_release_and_destroy, .{ .shm_cap_id = present_buffer_shm_cap_id });
 
-        try writeWrappedImageToInputCap(@as([*]u8, @ptrFromInt(PRESENT_BUFFER_ACQUIRE_ADDRESS))[0..1048576], hello_world_qoi_data, output_width);
+        // 1 MiB buffer for allocator
+        const allocator_buffer_shm_cap_id = try os_nushift.syscall(.shm_new_and_acquire, .{ .shm_type = os_nushift.ShmType.four_kib, .length = 256, .address = ALLOCATOR_BUFFER_ACQUIRE_ADDRESS });
+        defer _ = os_nushift.syscallIgnoreErrors(.shm_release_and_destroy, .{ .shm_cap_id = allocator_buffer_shm_cap_id });
+        var fixed_buffer_allocator = std.heap.FixedBufferAllocator.init(@as([*]u8, @ptrFromInt(ALLOCATOR_BUFFER_ACQUIRE_ADDRESS))[0..1048576]);
+        const allocator = fixed_buffer_allocator.allocator();
+
+        var image = try qoi.decodeBuffer(allocator, hello_world_qoi_data);
+        try writeImageToInputCap(@as([*]u8, @ptrFromInt(PRESENT_BUFFER_ACQUIRE_ADDRESS))[0..1048576], image);
+        image.deinit(allocator);
+        fixed_buffer_allocator.reset();
 
         const gfx_cpu_present_buffer_cap_id = try os_nushift.syscall(.gfx_cpu_present_buffer_new, .{ .gfx_cap_id = gfx_cap_id, .present_buffer_format = os_nushift.PresentBufferFormat.r8g8b8_uint_srgb, .present_buffer_shm_cap_id = present_buffer_shm_cap_id });
         errdefer _ = os_nushift.syscallIgnoreErrors(.gfx_cpu_present_buffer_destroy, .{ .gfx_cpu_present_buffer_cap_id = gfx_cpu_present_buffer_cap_id });
@@ -201,10 +218,12 @@ const GfxCpuPresentTask = struct {
         };
     }
 
-    fn deinit(self: Self) void {
+    fn deinit(self: *Self) void {
         _ = os_nushift.syscallIgnoreErrors(.shm_destroy, .{ .shm_cap_id = self.output_shm_cap_id });
         _ = os_nushift.syscallIgnoreErrors(.gfx_cpu_present_buffer_destroy, .{ .gfx_cpu_present_buffer_cap_id = self.gfx_cpu_present_buffer_cap_id });
         _ = os_nushift.syscallIgnoreErrors(.shm_release_and_destroy, .{ .shm_cap_id = self.present_buffer_shm_cap_id });
+
+        self.* = undefined;
     }
 
     fn gfxCpuPresent(self: *const Self) os_nushift.SyscallError!usize {
@@ -239,6 +258,7 @@ fn writeStrToInputCap(input_cap_buffer: []u8, str: []const u8) FBSWriteError!voi
     const writer = stream.writer();
 
     try std.leb.writeULEB128(writer, str.len);
+
     _ = try writer.write(str);
 }
 
@@ -247,121 +267,21 @@ fn writeTaskIdsToInputCap(input_cap_buffer: []u8, task_ids: []const u64) FBSWrit
     const writer = stream.writer();
 
     try std.leb.writeULEB128(writer, task_ids.len);
+
     for (task_ids) |task_id| {
         try std.leb.writeULEB128(writer, task_id);
     }
 }
 
-fn writeWrappedImageToInputCap(input_cap_buffer: []u8, qoi_data: []const u8, output_width: u64) (FBSWriteError || error{ NotQOI, EndOfStream })!void {
-    const MARGIN_TOP: u32 = 100;
-    const QOI_HEADER_SIZE: u4 = 14;
-
-    if (qoi_data.len < QOI_HEADER_SIZE) {
-        return error.NotQOI;
-    }
-    if (!std.mem.eql(u8, "qoif", qoi_data[0..4])) {
-        return error.NotQOI;
-    }
-
-    const img_width = std.mem.readIntBig(u32, qoi_data[4..8]);
-    const img_height = std.mem.readIntBig(u32, qoi_data[8..12]);
-
-    var qoi_read_stream = std.io.fixedBufferStream(qoi_data[14..]);
-    const qoi_reader = qoi_read_stream.reader();
-    var decoder = qoi.decoder(qoi_reader);
-
+fn writeImageToInputCap(input_cap_buffer: []u8, image: qoi.Image) FBSWriteError!void {
     var stream = std.io.fixedBufferStream(input_cap_buffer);
     const writer = stream.writer();
 
-    const margin_top_bytes_len = MARGIN_TOP * output_width * 3;
-    const decoded_bytes_len = margin_top_bytes_len + (img_height * output_width * 3);
+    try std.leb.writeULEB128(writer, image.pixels.len * 3);
 
-    try std.leb.writeULEB128(writer, decoded_bytes_len);
-
-    // Write top margin
-    try writer.writeByteNTimes(0xFF, margin_top_bytes_len);
-
-    // Calculate left margin and right margin for centering image
-    const margin_left = @divTrunc(output_width - @min(output_width, img_width), 2);
-    // Can be negative, indicating we are going to cut off the right-hand side of the image
-    const margin_right: i64 = @as(i64, @intCast(output_width)) - @as(i64, @intCast(img_width)) - @as(i64, @intCast(margin_left));
-
-    // Variable to store remaining pixels from the last color_run that can be continued on the next row.
-    var overflow: ?qoi.ColorRun = null;
-
-    for (0..img_height) |_| {
-        // Write left margin
-        try writer.writeByteNTimes(0xFF, margin_left * 3);
-
-        // Calculate the number of pixels to write for the current row.
-        var row_remaining: u64 = img_width;
-
-        if (overflow) |of| {
-            // Continue from a previous row's run.
-            const of_remain = try writeColorRun(writer, of, row_remaining, @max(0, img_width + @min(0, margin_right) - @as(i64, @intCast(row_remaining))));
-            if (of_remain == 0) {
-                overflow = null;
-            } else {
-                overflow = qoi.ColorRun{
-                    .color = of.color,
-                    .length = of_remain,
-                };
-                row_remaining -= (of.length - of_remain);
-            }
-        }
-
-        while (row_remaining > 0) {
-            const color_run = try decoder.fetch();
-            const remaining = try writeColorRun(writer, color_run, row_remaining, @max(0, img_width + @min(0, margin_right) - @as(i64, @intCast(row_remaining))));
-
-            if (remaining == 0) {
-                row_remaining -= color_run.length;
-            } else {
-                overflow = qoi.ColorRun{
-                    .color = color_run.color,
-                    .length = remaining,
-                };
-                row_remaining = 0;
-            }
-        }
-
-        if (margin_right > 0) {
-            // Write right margin only if it's positive.
-            try writer.writeByteNTimes(0xFF, @as(u64, @intCast(margin_right)) * 3);
-        } else if (margin_right < 0) {
-            // Skip the runs from the right margin that should be cut off.
-            var skip = -margin_right;
-            while (skip > 0) {
-                const color_run = try decoder.fetch();
-                if (color_run.length <= skip) {
-                    skip -= @as(i64, @intCast(color_run.length));
-                } else {
-                    overflow = qoi.ColorRun{
-                        .color = color_run.color,
-                        .length = color_run.length - @as(u64, @intCast(skip)),
-                    };
-                    skip = 0;
-                }
-            }
-        }
+    for (image.pixels) |pixel| {
+        try writer.writeByte(pixel.r);
+        try writer.writeByte(pixel.g);
+        try writer.writeByte(pixel.b);
     }
-}
-
-fn writeColorRun(writer: anytype, color_run: qoi.ColorRun, remaining: u64, remaining_before_cutoff: u64) FBSWriteError!u64 {
-    // Determine the number of pixels to write from the current run.
-    const write_count = @min(remaining, color_run.length);
-
-    for (0..write_count) |i| {
-        // If this is in the area being cut off by the right margin, actually
-        // don't write it.
-        if (i >= remaining_before_cutoff) {
-            break;
-        }
-        try writer.writeByte(color_run.color.r);
-        try writer.writeByte(color_run.color.g);
-        try writer.writeByte(color_run.color.b);
-    }
-
-    // Return the number of pixels still remaining in the current run after writing.
-    return color_run.length - write_count;
 }
