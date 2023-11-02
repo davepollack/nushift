@@ -2,7 +2,7 @@ const std = @import("std");
 const os_nushift = @import("os_nushift");
 const qoi = @import("qoi");
 
-const gfx_output = @import("./gfx_output.zig");
+const GfxOutput = @import("./GfxOutput.zig");
 
 const ron = @embedFile("./accessibility_tree.ron");
 const hello_world_qoi_data = @embedFile("./hello_world.qoi");
@@ -27,7 +27,7 @@ pub fn main() usize {
     };
 }
 
-fn mainImpl() (FBSWriteError || os_nushift.SyscallError || gfx_output.Error || qoi.DecodeError)!usize {
+fn mainImpl() (FBSWriteError || os_nushift.SyscallError || GfxOutput.Error || qoi.DecodeError)!usize {
     var tasks = blk: {
         var title_task = try TitleTask.init();
         errdefer title_task.deinit();
@@ -57,10 +57,10 @@ fn mainImpl() (FBSWriteError || os_nushift.SyscallError || gfx_output.Error || q
 
     // For some reason specifying .always_inline for this extracted logic is
     // needed, otherwise the binary size blows up by 70% :'(
-    const output_0_width_px = try @call(.always_inline, getOutput0WidthPx, .{&tasks[2]});
+    const gfx_output_0_width_px = try @call(.always_inline, getGfxOutput0WidthPx, .{&tasks[2]});
 
     // Present
-    var gfx_cpu_present_task = try GfxCpuPresentTask.init(tasks[2].gfx_cap_id, output_0_width_px);
+    var gfx_cpu_present_task = try GfxCpuPresentTask.init(tasks[2].gfx_cap_id, gfx_output_0_width_px);
     const gfx_cpu_present_task_id = try gfx_cpu_present_task.gfxCpuPresent();
     try blockOnDeferredTasks(&.{gfx_cpu_present_task_id});
     gfx_cpu_present_task.deinit();
@@ -187,8 +187,8 @@ const GfxCpuPresentTask = struct {
 
     const Self = @This();
 
-    fn init(gfx_cap_id: usize, output_width: u64) (os_nushift.SyscallError || FBSWriteError || qoi.DecodeError)!Self {
-        _ = output_width; // TODO
+    fn init(gfx_cap_id: usize, gfx_output_width: u64) (os_nushift.SyscallError || FBSWriteError || qoi.DecodeError)!Self {
+        _ = gfx_output_width; // TODO
         // 1 MiB present buffer
         const present_buffer_shm_cap_id = try os_nushift.syscall(.shm_new_and_acquire, .{ .shm_type = os_nushift.ShmType.four_kib, .length = 256, .address = PRESENT_BUFFER_ACQUIRE_ADDRESS });
         errdefer _ = os_nushift.syscallIgnoreErrors(.shm_release_and_destroy, .{ .shm_cap_id = present_buffer_shm_cap_id });
@@ -240,17 +240,17 @@ fn blockOnDeferredTasks(task_ids: []const u64) (FBSWriteError || os_nushift.Sysc
     _ = try os_nushift.syscall(.block_on_deferred_tasks, .{ .input_shm_cap_id = block_on_deferred_tasks_input_cap_id });
 }
 
-fn getOutput0WidthPx(gfx_get_outputs_task: *const GfxGetOutputsTask) (os_nushift.SyscallError || gfx_output.Error)!u64 {
+fn getGfxOutput0WidthPx(gfx_get_outputs_task: *const GfxGetOutputsTask) (os_nushift.SyscallError || GfxOutput.Error)!u64 {
     _ = try os_nushift.syscall(.shm_acquire, .{ .shm_cap_id = gfx_get_outputs_task.output_shm_cap_id, .address = GGO_OUTPUT_ACQUIRE_ADDRESS });
 
     const output_cap_buffer = @as([*]u8, @ptrFromInt(GGO_OUTPUT_ACQUIRE_ADDRESS))[0..4096];
     var stream = std.io.fixedBufferStream(output_cap_buffer);
     const reader = stream.reader();
-    const outputs = try gfx_output.readOutputs(reader);
+    const gfx_outputs = try GfxOutput.readGfxOutputs(reader);
 
     _ = os_nushift.syscallIgnoreErrors(.shm_release, .{ .shm_cap_id = gfx_get_outputs_task.output_shm_cap_id });
 
-    return outputs[0].size_px[0];
+    return gfx_outputs[0].size_px[0];
 }
 
 fn writeStrToInputCap(input_cap_buffer: []u8, str: []const u8) FBSWriteError!void {
