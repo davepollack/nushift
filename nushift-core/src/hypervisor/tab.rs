@@ -4,9 +4,9 @@ use std::sync::{mpsc, Arc, Mutex, Condvar};
 use std::thread;
 
 use reusable_id_pool::ArcId;
-use serde::Serialize;
 
 use crate::deferred_space::app_global_deferred_space::Task;
+use crate::gfx_space::GfxOutput;
 use crate::nushift_subsystem::NushiftSubsystem;
 use crate::process_control_block::ProcessControlBlock;
 
@@ -16,45 +16,25 @@ use super::tab_context::DefaultTabContext;
 pub struct Tab {
     id: ArcId,
     machine_nushift_subsystem: Arc<Mutex<NushiftSubsystem>>,
-    output: Arc<Mutex<Output>>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct Output {
-    size_px: Vec<u64>,
-    scale: Vec<f64>,
-}
-
-impl Output {
-    pub fn new(size_px: Vec<u64>, scale: Vec<f64>) -> Self {
-        Self { size_px, scale }
-    }
-
-    pub fn size_px(&self) -> &Vec<u64> {
-        &self.size_px
-    }
-
-    pub fn scale(&self) -> &Vec<f64> {
-        &self.scale
-    }
+    gfx_output: Arc<Mutex<GfxOutput>>,
 }
 
 impl Tab {
-    pub fn new(id: ArcId, hypervisor_event_handler: HypervisorEventHandler, initial_output: Output) -> Self {
-        let output = Arc::new(Mutex::new(initial_output));
-        let tab_context = Arc::new(DefaultTabContext::new(ArcId::clone(&id), hypervisor_event_handler, Arc::clone(&output)));
+    pub fn new(id: ArcId, hypervisor_event_handler: HypervisorEventHandler, initial_gfx_output: GfxOutput) -> Self {
+        let gfx_output = Arc::new(Mutex::new(initial_gfx_output));
+        let tab_context = Arc::new(DefaultTabContext::new(ArcId::clone(&id), hypervisor_event_handler, Arc::clone(&gfx_output)));
 
         let blocking_on_tasks = Arc::new((Mutex::new(HashSet::new()), Condvar::new()));
 
         Self {
             id,
             machine_nushift_subsystem: Arc::new(Mutex::new(NushiftSubsystem::new(tab_context, blocking_on_tasks))),
-            output,
+            gfx_output,
         }
     }
 
-    pub fn update_output(&mut self, output: Output) {
-        *self.output.lock().unwrap() = output;
+    pub fn update_gfx_output(&mut self, gfx_output: GfxOutput) {
+        *self.gfx_output.lock().unwrap() = gfx_output;
     }
 
     pub fn load_and_run(&mut self, image: Vec<u8>) {

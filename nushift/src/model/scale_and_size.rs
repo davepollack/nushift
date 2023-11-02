@@ -3,7 +3,7 @@ use std::fmt::Debug;
 
 use druid::{Data, Scale, Size};
 use druid::im::{Vector, vector};
-use nushift_core::Output;
+use nushift_core::GfxOutput;
 
 #[derive(Debug, Clone, Data)]
 pub struct ScaleAndSize {
@@ -12,12 +12,12 @@ pub struct ScaleAndSize {
 }
 
 impl ScaleAndSize {
-    pub fn output(&self) -> Output {
+    pub fn gfx_output(&self) -> GfxOutput {
         let size_px: Vec<u64> = iter::zip(&self.window_scale, &self.client_area_size_dp)
             .map(|(scale_dimension, dp_dimension)| (scale_dimension * dp_dimension).round() as u64)
             .collect();
 
-        Output::new(size_px, self.window_scale.iter().cloned().collect())
+        GfxOutput::new(size_px, self.window_scale.iter().cloned().collect())
     }
 }
 

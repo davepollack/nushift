@@ -2,10 +2,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use num_enum::TryFromPrimitive;
+use serde::Serialize;
 
 use crate::deferred_space::{self, DefaultDeferredSpace, DeferredSpace, DeferredSpaceError, DeferredSpaceGet, DefaultDeferredSpaceCapId, DeferredSpacePublish, DeferredError};
 use crate::hypervisor::hypervisor_event::{UnboundHypervisorEvent, HypervisorEventError};
-use crate::hypervisor::tab::Output;
 use crate::hypervisor::tab_context::TabContext;
 use crate::shm_space::{ShmCap, ShmCapId, ShmSpace};
 
@@ -21,6 +21,26 @@ pub struct GfxSpace {
     cpu_present: CpuPresent,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct GfxOutput {
+    size_px: Vec<u64>,
+    scale: Vec<f64>,
+}
+
+impl GfxOutput {
+    pub fn new(size_px: Vec<u64>, scale: Vec<f64>) -> Self {
+        Self { size_px, scale }
+    }
+
+    pub fn size_px(&self) -> &Vec<u64> {
+        &self.size_px
+    }
+
+    pub fn scale(&self) -> &Vec<f64> {
+        &self.scale
+    }
+}
+
 struct GetOutputs {
     tab_context: Arc<dyn TabContext>,
 }
@@ -31,11 +51,11 @@ impl DeferredSpaceGet for GetOutputs {
         // error or the success result. Not this where you can't discriminate
         // between either.
 
-        let outputs = self.tab_context.get_outputs();
-        let outputs_dereferenced: Vec<&Output> = outputs.iter().map(|guard| &**guard).collect();
+        let gfx_outputs = self.tab_context.get_gfx_outputs();
+        let gfx_outputs_dereferenced: Vec<&GfxOutput> = gfx_outputs.iter().map(|guard| &**guard).collect();
         // TODO: Serialise an error for the serialise buffer being full! When in
         // the future we are serialising a unified structure.
-        let _ = postcard::to_slice(&outputs_dereferenced, output_shm_cap.backing_mut());
+        let _ = postcard::to_slice(&gfx_outputs_dereferenced, output_shm_cap.backing_mut());
     }
 }
 

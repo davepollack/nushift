@@ -45,7 +45,7 @@ impl RootData {
         let mut hypervisor = self.hypervisor.lock().unwrap();
         let mut title = LocalizedString::new("nushift-new-tab");
         title.resolve(self, env);
-        let tab_id = hypervisor.add_new_tab(self.scale_and_size.as_ref().expect("scale_and_size should be present at this point").output());
+        let tab_id = hypervisor.add_new_tab(self.scale_and_size.as_ref().expect("scale_and_size should be present at this point").gfx_output());
 
         self.currently_selected_tab_id = Some(ArcId::clone(&tab_id));
 

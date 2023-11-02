@@ -20,8 +20,8 @@ impl ClientArea {
 
     fn update_image(&mut self, data: &RootData) {
         if let Some(ref scale_and_size) = data.scale_and_size {
-            let output = scale_and_size.output();
-            let (width, height) = (output.size_px()[0].try_into(), output.size_px()[1].try_into());
+            let gfx_output = scale_and_size.gfx_output();
+            let (width, height) = (gfx_output.size_px()[0].try_into(), gfx_output.size_px()[1].try_into());
 
             if let (Ok(width), Ok(height)) = (width, height) {
                 if let Some(tab_data) = data.currently_selected_tab_id.as_ref().and_then(|currently_selected_tab_id| data.get_tab_by_id(&currently_selected_tab_id)) {
@@ -62,7 +62,7 @@ impl Widget<RootData> for ClientArea {
                 // Unwrap both that the command matched and that the SingleUse container contains a value.
                 if let Some(scale_and_size) = scale_and_size.and_then(SingleUse::take) {
                     // Update all existing tabs.
-                    data.hypervisor.lock().unwrap().update_all_tab_outputs(scale_and_size.output());
+                    data.hypervisor.lock().unwrap().update_all_tab_gfx_outputs(scale_and_size.gfx_output());
 
                     // Update RootData (for new tabs).
                     data.scale_and_size = Some(scale_and_size);
