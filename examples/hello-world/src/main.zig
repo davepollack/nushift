@@ -14,18 +14,31 @@ const BODT_INPUT_ACQUIRE_ADDRESS: usize = 0x9000b000;
 const GGO_OUTPUT_ACQUIRE_ADDRESS: usize = 0x9000c000;
 const PRESENT_BUFFER_ACQUIRE_ADDRESS: usize = 0x90200000;
 const ALLOCATOR_BUFFER_ACQUIRE_ADDRESS: usize = 0x96600000;
+const DEBUG_PRINT_INPUT_ACQUIRE_ADDRESS: usize = 0x96700000;
 
 const FBSWriteError = std.io.FixedBufferStream([]u8).WriteError;
 
 pub fn main() usize {
-    @setEvalBranchQuota(10000);
+    return mainImpl() catch |err| blk: {
+        const error_message = switch (err) {
+            inline else => |any_err| std.fmt.comptimePrint("Error: {s}", .{@errorName(any_err)}),
+        };
 
-    return mainImpl() catch |err| switch (err) {
-        // When https://github.com/ziglang/zig/issues/2473 is complete, we can
-        // do that instead of inline else.
-        inline else => |any_err| if (std.meta.fieldIndex(os_nushift.SyscallError, @errorName(any_err))) |_| blk: {
-            break :blk os_nushift.errorCodeFromSyscallError(@field(os_nushift.SyscallError, @errorName(any_err)));
-        } else 1,
+        // Debug print the error message
+        {
+            const debug_print_input_cap_id = os_nushift.syscall(.shm_new_and_acquire, .{ .shm_type = os_nushift.ShmType.four_kib, .length = 1, .address = DEBUG_PRINT_INPUT_ACQUIRE_ADDRESS }) catch break :blk 1;
+            defer _ = os_nushift.syscallIgnoreErrors(.shm_release_and_destroy, .{ .shm_cap_id = debug_print_input_cap_id });
+
+            const debug_print_buffer = @as([*]u8, @ptrFromInt(DEBUG_PRINT_INPUT_ACQUIRE_ADDRESS))[0..4096];
+            var stream = std.io.fixedBufferStream(debug_print_buffer);
+            const writer = stream.writer();
+            std.leb.writeULEB128(writer, error_message.len) catch break :blk 1;
+            _ = writer.write(error_message) catch break :blk 1;
+
+            _ = os_nushift.syscall(.debug_print, .{ .input_shm_cap_id = debug_print_input_cap_id }) catch break :blk 1;
+        }
+
+        break :blk 1;
     };
 }
 
