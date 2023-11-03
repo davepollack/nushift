@@ -12,8 +12,8 @@ const TITLE_INPUT_ACQUIRE_ADDRESS: usize = 0x90000000;
 const A11Y_INPUT_ACQUIRE_ADDRESS: usize = 0x90001000;
 const BODT_INPUT_ACQUIRE_ADDRESS: usize = 0x9000b000;
 const GGO_OUTPUT_ACQUIRE_ADDRESS: usize = 0x9000c000;
-const PRESENT_BUFFER_ACQUIRE_ADDRESS: usize = 0x9000d000;
-const ALLOCATOR_BUFFER_ACQUIRE_ADDRESS: usize = 0x9010d000;
+const PRESENT_BUFFER_ACQUIRE_ADDRESS: usize = 0x90200000;
+const ALLOCATOR_BUFFER_ACQUIRE_ADDRESS: usize = 0x96600000;
 
 const FBSWriteError = std.io.FixedBufferStream([]u8).WriteError;
 
@@ -57,10 +57,10 @@ fn mainImpl() (FBSWriteError || os_nushift.SyscallError || GfxOutput.Error || qo
 
     // For some reason specifying .always_inline for this extracted logic is
     // needed, otherwise the binary size blows up by 70% :'(
-    const gfx_output_0_width_px = try @call(.always_inline, getGfxOutput0WidthPx, .{&tasks[2]});
+    const gfx_output_0 = try @call(.always_inline, getGfxOutput0, .{&tasks[2]});
 
     // Present
-    var gfx_cpu_present_task = try GfxCpuPresentTask.init(tasks[2].gfx_cap_id, gfx_output_0_width_px);
+    var gfx_cpu_present_task = try GfxCpuPresentTask.init(tasks[2].gfx_cap_id, gfx_output_0.size_px[0], gfx_output_0.size_px[1]);
     const gfx_cpu_present_task_id = try gfx_cpu_present_task.gfxCpuPresent();
     try blockOnDeferredTasks(&.{gfx_cpu_present_task_id});
     gfx_cpu_present_task.deinit();
@@ -187,10 +187,9 @@ const GfxCpuPresentTask = struct {
 
     const Self = @This();
 
-    fn init(gfx_cap_id: usize, gfx_output_width: u64) (os_nushift.SyscallError || FBSWriteError || qoi.DecodeError)!Self {
-        _ = gfx_output_width; // TODO
-        // 1 MiB present buffer
-        const present_buffer_shm_cap_id = try os_nushift.syscall(.shm_new_and_acquire, .{ .shm_type = os_nushift.ShmType.four_kib, .length = 256, .address = PRESENT_BUFFER_ACQUIRE_ADDRESS });
+    fn init(gfx_cap_id: usize, gfx_output_width_px: u64, gfx_output_height_px: u64) (os_nushift.SyscallError || FBSWriteError || qoi.DecodeError)!Self {
+        // 100 MiB present buffer
+        const present_buffer_shm_cap_id = try os_nushift.syscall(.shm_new_and_acquire, .{ .shm_type = os_nushift.ShmType.two_mib, .length = 50, .address = PRESENT_BUFFER_ACQUIRE_ADDRESS });
         errdefer _ = os_nushift.syscallIgnoreErrors(.shm_release_and_destroy, .{ .shm_cap_id = present_buffer_shm_cap_id });
 
         // 1 MiB buffer for allocator
@@ -200,7 +199,7 @@ const GfxCpuPresentTask = struct {
         const allocator = fixed_buffer_allocator.allocator();
 
         var image = try qoi.decodeBuffer(allocator, hello_world_qoi_data);
-        try writeImageToInputCap(@as([*]u8, @ptrFromInt(PRESENT_BUFFER_ACQUIRE_ADDRESS))[0..1048576], image);
+        try writeWrappedImageToInputCap(@as([*]u8, @ptrFromInt(PRESENT_BUFFER_ACQUIRE_ADDRESS))[0..1048576], image, gfx_output_width_px, gfx_output_height_px);
         image.deinit(allocator);
         fixed_buffer_allocator.reset();
 
@@ -240,7 +239,7 @@ fn blockOnDeferredTasks(task_ids: []const u64) (FBSWriteError || os_nushift.Sysc
     _ = try os_nushift.syscall(.block_on_deferred_tasks, .{ .input_shm_cap_id = block_on_deferred_tasks_input_cap_id });
 }
 
-fn getGfxOutput0WidthPx(gfx_get_outputs_task: *const GfxGetOutputsTask) (os_nushift.SyscallError || GfxOutput.Error)!u64 {
+fn getGfxOutput0(gfx_get_outputs_task: *const GfxGetOutputsTask) (os_nushift.SyscallError || GfxOutput.Error)!GfxOutput {
     _ = try os_nushift.syscall(.shm_acquire, .{ .shm_cap_id = gfx_get_outputs_task.output_shm_cap_id, .address = GGO_OUTPUT_ACQUIRE_ADDRESS });
 
     const output_cap_buffer = @as([*]u8, @ptrFromInt(GGO_OUTPUT_ACQUIRE_ADDRESS))[0..4096];
@@ -250,7 +249,7 @@ fn getGfxOutput0WidthPx(gfx_get_outputs_task: *const GfxGetOutputsTask) (os_nush
 
     _ = os_nushift.syscallIgnoreErrors(.shm_release, .{ .shm_cap_id = gfx_get_outputs_task.output_shm_cap_id });
 
-    return gfx_outputs[0].size_px[0];
+    return gfx_outputs[0];
 }
 
 fn writeStrToInputCap(input_cap_buffer: []u8, str: []const u8) FBSWriteError!void {
@@ -273,15 +272,46 @@ fn writeTaskIdsToInputCap(input_cap_buffer: []u8, task_ids: []const u64) FBSWrit
     }
 }
 
-fn writeImageToInputCap(input_cap_buffer: []u8, image: qoi.Image) FBSWriteError!void {
+fn writeWrappedImageToInputCap(input_cap_buffer: []u8, image: qoi.Image, gfx_output_width_px: u64, gfx_output_height_px: u64) FBSWriteError!void {
     var stream = std.io.fixedBufferStream(input_cap_buffer);
     const writer = stream.writer();
 
-    try std.leb.writeULEB128(writer, image.pixels.len * 3);
+    try std.leb.writeULEB128(writer, gfx_output_width_px * gfx_output_height_px * 3);
 
-    for (image.pixels) |pixel| {
-        try writer.writeByte(pixel.r);
-        try writer.writeByte(pixel.g);
-        try writer.writeByte(pixel.b);
+    const MARGIN_TOP: u32 = 100;
+
+    // Calculate left margin and right margin for centering image
+    const margin_left = @divTrunc(gfx_output_width_px - @min(gfx_output_width_px, image.width), 2);
+    // Can be negative, indicating we are going to cut off the right-hand side of the image
+    const margin_right: i64 = @as(i64, @intCast(gfx_output_width_px)) - @as(i64, @intCast(image.width)) - @as(i64, @intCast(margin_left));
+
+    // Write top margin
+    try writer.writeByteNTimes(0xFF, gfx_output_width_px * MARGIN_TOP * 3);
+
+    var current_pixel_pos: usize = 0;
+
+    for (0..@min(image.height, gfx_output_height_px - MARGIN_TOP)) |_| {
+        // Write left margin
+        try writer.writeByteNTimes(0xFF, margin_left * 3);
+
+        // Write either all of the row, or some of the row if the image is being cut off on the right-hand side
+        const pixels_to_write = @max(0, @min(image.width, image.width + margin_right));
+
+        for (image.pixels[current_pixel_pos .. current_pixel_pos + pixels_to_write]) |pixel| {
+            try writer.writeByte(pixel.r);
+            try writer.writeByte(pixel.g);
+            try writer.writeByte(pixel.b);
+        }
+
+        current_pixel_pos += image.width;
+
+        // Write right margin
+        if (margin_right > 0) {
+            const margin_right_usize: usize = @intCast(margin_right);
+            try writer.writeByteNTimes(0xFF, margin_right_usize * 3);
+        }
     }
+
+    // Write bottom margin
+    try writer.writeByteNTimes(0xFF, @max(0, gfx_output_height_px - MARGIN_TOP - image.height) * gfx_output_width_px * 3);
 }
