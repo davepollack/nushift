@@ -1,4 +1,5 @@
 mod accessibility_tree_space;
+mod debug_print;
 mod deferred_space;
 mod elf_loader;
 mod gfx_space;

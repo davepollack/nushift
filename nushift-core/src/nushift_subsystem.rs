@@ -4,14 +4,15 @@ use std::sync::{Arc, Mutex, Condvar};
 use ckb_vm::Register;
 use num_enum::{TryFromPrimitive, IntoPrimitive};
 
+use crate::debug_print::{DebugPrint, DebugPrintError};
 use crate::hypervisor::tab_context::TabContext;
-use super::accessibility_tree_space::AccessibilityTreeSpace;
-use super::deferred_space::app_global_deferred_space::{AppGlobalDeferredSpace, AppGlobalDeferredSpaceError, Task, TaskId};
-use super::deferred_space::DeferredSpaceError;
-use super::gfx_space::{GfxSpace, PresentBufferFormat};
-use super::register_ipc::{SyscallEnter, SyscallReturn, SYSCALL_NUM_REGISTER_INDEX, FIRST_ARG_REGISTER_INDEX, SECOND_ARG_REGISTER_INDEX, THIRD_ARG_REGISTER_INDEX};
-use super::shm_space::{CapType, ShmType, ShmSpace, ShmSpaceError};
-use super::title_space::TitleSpace;
+use crate::accessibility_tree_space::AccessibilityTreeSpace;
+use crate::deferred_space::app_global_deferred_space::{AppGlobalDeferredSpace, AppGlobalDeferredSpaceError, Task, TaskId};
+use crate::deferred_space::DeferredSpaceError;
+use crate::gfx_space::{GfxSpace, PresentBufferFormat};
+use crate::register_ipc::{SyscallEnter, SyscallReturn, SYSCALL_NUM_REGISTER_INDEX, FIRST_ARG_REGISTER_INDEX, SECOND_ARG_REGISTER_INDEX, THIRD_ARG_REGISTER_INDEX};
+use crate::shm_space::{CapType, ShmType, ShmSpace, ShmSpaceError};
+use crate::title_space::TitleSpace;
 
 // Regarding the use of `u64`s in this file:
 //
@@ -53,6 +54,8 @@ enum Syscall {
     GfxCpuPresent = 17,
     GfxCpuPresentBufferDestroy = 18,
     GfxDestroy = 19,
+
+    DebugPrint = 20,
 }
 
 #[derive(IntoPrimitive)]
@@ -79,6 +82,8 @@ pub enum SyscallError {
     DeferredTaskIdNotFound = 15,
 
     GfxUnknownPresentBufferFormat = 16,
+
+    DebugPrintDeserializeError = 17,
 }
 
 fn set_error<R: Register>(error: SyscallError) -> SyscallReturn<R> {
@@ -138,6 +143,15 @@ fn marshall_app_global_deferred_space_error<R: Register>(app_global_deferred_spa
     }
 }
 
+fn marshall_debug_print_error<R: Register>(debug_print_error: DebugPrintError) -> SyscallReturn<R> {
+    match debug_print_error {
+        DebugPrintError::DeserializeStringError { .. } => set_error(SyscallError::DebugPrintDeserializeError),
+        DebugPrintError::ShmCapNotFound { .. } => set_error(SyscallError::CapNotFound),
+        DebugPrintError::ShmPermissionDenied { .. } => set_error(SyscallError::PermissionDenied),
+        DebugPrintError::ShmUnexpectedError => set_error(SyscallError::InternalError),
+    }
+}
+
 pub type BlockingOnTasksCondvar = Arc<(Mutex<HashSet<TaskId>>, Condvar)>;
 
 pub struct NushiftSubsystem {
@@ -147,6 +161,7 @@ pub struct NushiftSubsystem {
     pub(crate) accessibility_tree_space: AccessibilityTreeSpace,
     pub(crate) title_space: TitleSpace,
     pub(crate) gfx_space: GfxSpace,
+    pub(crate) debug_print: DebugPrint,
 }
 
 impl NushiftSubsystem {
@@ -158,6 +173,7 @@ impl NushiftSubsystem {
             accessibility_tree_space: AccessibilityTreeSpace::new(),
             title_space: TitleSpace::new(Arc::clone(&tab_context)),
             gfx_space: GfxSpace::new(Arc::clone(&tab_context)),
+            debug_print: DebugPrint::new(),
         }
     }
 
@@ -353,7 +369,7 @@ impl NushiftSubsystem {
             Ok(Syscall::BlockOnDeferredTasks) => {
                 let input_shm_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
 
-                match self.app_global_deferred_space.block_on_deferred_tasks(input_shm_cap_id, &mut self.shm_space, &self.blocking_on_tasks) {
+                match self.app_global_deferred_space.block_on_deferred_tasks(input_shm_cap_id, &self.shm_space, &self.blocking_on_tasks) {
                     Ok(_) => {},
                     Err(app_global_deferred_space_error) => return marshall_app_global_deferred_space_error(app_global_deferred_space_error),
                 };
@@ -444,6 +460,17 @@ impl NushiftSubsystem {
                     Ok(_) => {},
                     Err(deferred_space_error) => return marshall_deferred_space_error(deferred_space_error),
                 };
+
+                set_success(0)
+            },
+
+            Ok(Syscall::DebugPrint) => {
+                let input_shm_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
+
+                match self.debug_print.debug_print(input_shm_cap_id, &self.shm_space) {
+                    Ok(_) => {},
+                    Err(debug_print_error) => return marshall_debug_print_error(debug_print_error),
+                }
 
                 set_success(0)
             },

@@ -26,6 +26,8 @@ pub const Syscall = enum(usize) {
     gfx_cpu_present = 17,
     gfx_cpu_present_buffer_destroy = 18,
     gfx_destroy = 19,
+
+    debug_print = 20,
 };
 
 pub fn SyscallArgs(comptime sys: Syscall) type {
@@ -53,6 +55,8 @@ pub fn SyscallArgs(comptime sys: Syscall) type {
         .gfx_cpu_present => struct { gfx_cpu_present_buffer_cap_id: usize, wait_for_vblank: usize, output_shm_cap_id: usize },
         .gfx_cpu_present_buffer_destroy => struct { gfx_cpu_present_buffer_cap_id: usize },
         .gfx_destroy => struct { gfx_cap_id: usize },
+
+        .debug_print => struct { input_shm_cap_id: usize },
     };
 }
 
@@ -78,6 +82,8 @@ pub const SyscallErrorEnum = enum(usize) {
     deferred_task_id_not_found = 15,
 
     gfx_unknown_present_buffer_format = 16,
+
+    debug_print_deserialize_error = 17,
 };
 
 pub const SyscallError = error{
@@ -102,6 +108,8 @@ pub const SyscallError = error{
     DeferredTaskIdNotFound,
 
     GfxUnknownPresentBufferFormat,
+
+    DebugPrintDeserializeError,
 };
 
 pub const ShmType = enum(usize) {
@@ -152,6 +160,8 @@ fn syscallInternal(comptime sys: Syscall, sys_args: SyscallArgs(sys), comptime i
         .gfx_cpu_present => syscallInternalArgs(sys, .{ sys_args.gfx_cpu_present_buffer_cap_id, sys_args.wait_for_vblank, sys_args.output_shm_cap_id }, ignore_errors),
         .gfx_cpu_present_buffer_destroy => syscallInternalArgs(sys, .{sys_args.gfx_cpu_present_buffer_cap_id}, ignore_errors),
         .gfx_destroy => syscallInternalArgs(sys, .{sys_args.gfx_cap_id}, ignore_errors),
+
+        .debug_print => syscallInternalArgs(sys, .{sys_args.input_shm_cap_id}, ignore_errors),
     };
 }
 

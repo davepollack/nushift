@@ -18,6 +18,8 @@ const ALLOCATOR_BUFFER_ACQUIRE_ADDRESS: usize = 0x96600000;
 const FBSWriteError = std.io.FixedBufferStream([]u8).WriteError;
 
 pub fn main() usize {
+    @setEvalBranchQuota(10000);
+
     return mainImpl() catch |err| switch (err) {
         // When https://github.com/ziglang/zig/issues/2473 is complete, we can
         // do that instead of inline else.
