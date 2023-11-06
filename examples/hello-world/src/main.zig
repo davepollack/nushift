@@ -23,21 +23,7 @@ pub fn main() usize {
         const error_message = switch (err) {
             inline else => |any_err| std.fmt.comptimePrint("Error: {s}", .{@errorName(any_err)}),
         };
-
-        // Debug print the error message
-        {
-            const debug_print_input_cap_id = os_nushift.syscall(.shm_new_and_acquire, .{ .shm_type = os_nushift.ShmType.four_kib, .length = 1, .address = DEBUG_PRINT_INPUT_ACQUIRE_ADDRESS }) catch break :blk 1;
-            defer _ = os_nushift.syscallIgnoreErrors(.shm_release_and_destroy, .{ .shm_cap_id = debug_print_input_cap_id });
-
-            const debug_print_buffer = @as([*]u8, @ptrFromInt(DEBUG_PRINT_INPUT_ACQUIRE_ADDRESS))[0..4096];
-            var stream = std.io.fixedBufferStream(debug_print_buffer);
-            const writer = stream.writer();
-            std.leb.writeULEB128(writer, error_message.len) catch break :blk 1;
-            _ = writer.write(error_message) catch break :blk 1;
-
-            _ = os_nushift.syscall(.debug_print, .{ .input_shm_cap_id = debug_print_input_cap_id }) catch break :blk 1;
-        }
-
+        debugPrint(error_message) catch break :blk 1;
         break :blk 1;
     };
 }
@@ -214,7 +200,7 @@ const GfxCpuPresentTask = struct {
         const allocator = fixed_buffer_allocator.allocator();
 
         var image = try qoi.decodeBuffer(allocator, hello_world_qoi_data);
-        try writeWrappedImageToInputCap(@as([*]u8, @ptrFromInt(PRESENT_BUFFER_ACQUIRE_ADDRESS))[0..1048576], image, gfx_output_width_px, gfx_output_height_px);
+        try writeWrappedImageToInputCap(@as([*]u8, @ptrFromInt(PRESENT_BUFFER_ACQUIRE_ADDRESS))[0..104857600], image, gfx_output_width_px, gfx_output_height_px, allocator);
         image.deinit(allocator);
         fixed_buffer_allocator.reset();
 
@@ -287,11 +273,13 @@ fn writeTaskIdsToInputCap(input_cap_buffer: []u8, task_ids: []const u64) FBSWrit
     }
 }
 
-fn writeWrappedImageToInputCap(input_cap_buffer: []u8, image: qoi.Image, gfx_output_width_px: u64, gfx_output_height_px: u64) FBSWriteError!void {
+fn writeWrappedImageToInputCap(input_cap_buffer: []u8, image: qoi.Image, gfx_output_width_px: u64, gfx_output_height_px: u64, allocator: std.mem.Allocator) FBSWriteError!void {
     var stream = std.io.fixedBufferStream(input_cap_buffer);
     const writer = stream.writer();
 
+    debugPrint(std.fmt.allocPrint(allocator, "Got here 1, {d}", .{stream.pos}) catch "Fmt error") catch {};
     try std.leb.writeULEB128(writer, gfx_output_width_px * gfx_output_height_px * 3);
+    debugPrint(std.fmt.allocPrint(allocator, "Got here 2, {d}", .{stream.pos}) catch "Fmt error") catch {};
 
     const MARGIN_TOP: u32 = 100;
 
@@ -300,11 +288,13 @@ fn writeWrappedImageToInputCap(input_cap_buffer: []u8, image: qoi.Image, gfx_out
     // Can be negative, indicating we are going to cut off the right-hand side of the image
     const margin_right: i64 = @as(i64, @intCast(gfx_output_width_px)) - @as(i64, @intCast(image.width)) - @as(i64, @intCast(margin_left));
 
+    debugPrint(std.fmt.allocPrint(allocator, "Got here 3, {d}", .{stream.pos}) catch "Fmt error") catch {};
     // Write top margin
     try writer.writeByteNTimes(0xFF, gfx_output_width_px * MARGIN_TOP * 3);
 
     var current_pixel_pos: usize = 0;
 
+    debugPrint(std.fmt.allocPrint(allocator, "Got here 4, {d}", .{stream.pos}) catch "Fmt error") catch {};
     for (0..@min(image.height, gfx_output_height_px - MARGIN_TOP)) |_| {
         // Write left margin
         try writer.writeByteNTimes(0xFF, margin_left * 3);
@@ -327,6 +317,21 @@ fn writeWrappedImageToInputCap(input_cap_buffer: []u8, image: qoi.Image, gfx_out
         }
     }
 
+    debugPrint(std.fmt.allocPrint(allocator, "Got here 5, {d}", .{stream.pos}) catch "Fmt error") catch {};
     // Write bottom margin
     try writer.writeByteNTimes(0xFF, @max(0, gfx_output_height_px - MARGIN_TOP - image.height) * gfx_output_width_px * 3);
+    debugPrint(std.fmt.allocPrint(allocator, "Got here 6, {d}", .{stream.pos}) catch "Fmt error") catch {};
+}
+
+fn debugPrint(str: []const u8) (FBSWriteError || os_nushift.SyscallError)!void {
+    const debug_print_input_cap_id = try os_nushift.syscall(.shm_new_and_acquire, .{ .shm_type = os_nushift.ShmType.four_kib, .length = 1, .address = DEBUG_PRINT_INPUT_ACQUIRE_ADDRESS });
+    defer _ = os_nushift.syscallIgnoreErrors(.shm_release_and_destroy, .{ .shm_cap_id = debug_print_input_cap_id });
+
+    const debug_print_buffer = @as([*]u8, @ptrFromInt(DEBUG_PRINT_INPUT_ACQUIRE_ADDRESS))[0..4096];
+    var stream = std.io.fixedBufferStream(debug_print_buffer);
+    const writer = stream.writer();
+    try std.leb.writeULEB128(writer, str.len);
+    _ = try writer.write(str);
+
+    _ = try os_nushift.syscall(.debug_print, .{ .input_shm_cap_id = debug_print_input_cap_id });
 }
