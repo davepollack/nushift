@@ -20,7 +20,7 @@ pub struct TitleSpace {
 struct TitleSpacePayload<'payload> {
     /// I would like the wire encoding of the length to be a u64, not usize as
     /// is entailed by the &str type and Postcard. I don't know if that's
-    /// possible though.
+    /// possible though. Do the Indexical/index_vec crates allow you to do this?
     title: &'payload str,
 }
 
