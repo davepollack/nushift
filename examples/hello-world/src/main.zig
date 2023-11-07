@@ -274,12 +274,12 @@ fn writeTaskIdsToInputCap(input_cap_buffer: []u8, task_ids: []const u64) FBSWrit
 }
 
 fn writeWrappedImageToInputCap(input_cap_buffer: []u8, image: qoi.Image, gfx_output_width_px: u64, gfx_output_height_px: u64, allocator: std.mem.Allocator) FBSWriteError!void {
+    debugPrint("Copying image, will take a while...") catch {};
+
     var stream = std.io.fixedBufferStream(input_cap_buffer);
     const writer = stream.writer();
 
-    debugPrint(std.fmt.allocPrint(allocator, "Got here 1, {d}", .{stream.pos}) catch "Fmt error") catch {};
     try std.leb.writeULEB128(writer, gfx_output_width_px * gfx_output_height_px * 3);
-    debugPrint(std.fmt.allocPrint(allocator, "Got here 2, {d}", .{stream.pos}) catch "Fmt error") catch {};
 
     const MARGIN_TOP: u32 = 100;
 
@@ -288,13 +288,11 @@ fn writeWrappedImageToInputCap(input_cap_buffer: []u8, image: qoi.Image, gfx_out
     // Can be negative, indicating we are going to cut off the right-hand side of the image
     const margin_right: i64 = @as(i64, @intCast(gfx_output_width_px)) - @as(i64, @intCast(image.width)) - @as(i64, @intCast(margin_left));
 
-    debugPrint(std.fmt.allocPrint(allocator, "Got here 3, {d}", .{stream.pos}) catch "Fmt error") catch {};
     // Write top margin
     try writer.writeByteNTimes(0xFF, gfx_output_width_px * MARGIN_TOP * 3);
 
     var current_pixel_pos: usize = 0;
 
-    debugPrint(std.fmt.allocPrint(allocator, "Got here 4, {d}", .{stream.pos}) catch "Fmt error") catch {};
     for (0..@min(image.height, gfx_output_height_px - MARGIN_TOP)) |_| {
         // Write left margin
         try writer.writeByteNTimes(0xFF, margin_left * 3);
@@ -317,10 +315,10 @@ fn writeWrappedImageToInputCap(input_cap_buffer: []u8, image: qoi.Image, gfx_out
         }
     }
 
-    debugPrint(std.fmt.allocPrint(allocator, "Got here 5, {d}", .{stream.pos}) catch "Fmt error") catch {};
     // Write bottom margin
     try writer.writeByteNTimes(0xFF, @max(0, gfx_output_height_px - MARGIN_TOP - image.height) * gfx_output_width_px * 3);
-    debugPrint(std.fmt.allocPrint(allocator, "Got here 6, {d}", .{stream.pos}) catch "Fmt error") catch {};
+
+    debugPrint(std.fmt.allocPrint(allocator, "Done. {d} bytes written", .{stream.pos}) catch "Fmt error") catch {};
 }
 
 fn debugPrint(str: []const u8) (FBSWriteError || os_nushift.SyscallError)!void {
