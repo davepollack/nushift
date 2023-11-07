@@ -15,20 +15,15 @@ use super::tab_context::DefaultTabContext;
 
 pub struct Tab {
     id: ArcId,
-    machine_nushift_subsystem: Arc<Mutex<NushiftSubsystem>>,
     gfx_output: Arc<Mutex<GfxOutput>>,
 }
 
 impl Tab {
-    pub fn new(id: ArcId, hypervisor_event_handler: HypervisorEventHandler, initial_gfx_output: GfxOutput) -> Self {
+    pub fn new(id: ArcId, initial_gfx_output: GfxOutput) -> Self {
         let gfx_output = Arc::new(Mutex::new(initial_gfx_output));
-        let tab_context = Arc::new(DefaultTabContext::new(ArcId::clone(&id), hypervisor_event_handler, Arc::clone(&gfx_output)));
-
-        let blocking_on_tasks = Arc::new((Mutex::new(HashSet::new()), Condvar::new()));
 
         Self {
             id,
-            machine_nushift_subsystem: Arc::new(Mutex::new(NushiftSubsystem::new(tab_context, blocking_on_tasks))),
             gfx_output,
         }
     }
@@ -37,10 +32,14 @@ impl Tab {
         *self.gfx_output.lock().unwrap() = gfx_output;
     }
 
-    pub fn load_and_run(&mut self, image: Vec<u8>) {
+    pub fn load_and_run(&mut self, image: Vec<u8>, hypervisor_event_handler: HypervisorEventHandler) {
+        let tab_context = Arc::new(DefaultTabContext::new(ArcId::clone(&self.id), hypervisor_event_handler, Arc::clone(&self.gfx_output)));
+        let blocking_on_tasks = Arc::new((Mutex::new(HashSet::new()), Condvar::new()));
+        let machine_nushift_subsystem = Arc::new(Mutex::new(NushiftSubsystem::new(tab_context, blocking_on_tasks)));
+
         let (syscall_enter_send, syscall_enter_receive) = mpsc::channel();
         let (syscall_return_send, syscall_return_receive) = mpsc::channel();
-        let subsystem_cloned_for_machine = Arc::clone(&self.machine_nushift_subsystem);
+        let subsystem_cloned_for_machine = Arc::clone(&machine_nushift_subsystem);
         let mut machine = ProcessControlBlock::<u64>::new(syscall_enter_send, syscall_return_receive, subsystem_cloned_for_machine);
 
         let result = machine.load_machine(image);
@@ -70,7 +69,7 @@ impl Tab {
         // message.
         while let Ok(receive) = syscall_enter_receive.recv() {
             let syscall_return = {
-                let mut subsystem = self.machine_nushift_subsystem.lock().unwrap();
+                let mut subsystem = machine_nushift_subsystem.lock().unwrap();
                 subsystem.ecall(receive)
             };
             syscall_return_send.send(syscall_return).expect("Since we just received, other thread should be waiting on our send");
@@ -87,7 +86,7 @@ impl Tab {
             // the relevant space have both been done before dispatching tasks.
             // In other words, when we make the locking more fine-grained later,
             // those two things must still be locked together.
-            let mut guard = self.machine_nushift_subsystem.lock().unwrap();
+            let mut guard = machine_nushift_subsystem.lock().unwrap();
             let subsystem = guard.deref_mut();
             let tasks = subsystem.app_global_deferred_space.finish_tasks();
             for (task_id, task) in tasks {

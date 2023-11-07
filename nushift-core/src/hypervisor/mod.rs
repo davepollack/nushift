@@ -40,11 +40,11 @@ impl Hypervisor {
         let new_tab_id_cloned_for_tab = ArcId::clone(&new_tab_id);
         let new_tab_id_cloned_for_key = ArcId::clone(&new_tab_id);
 
-        let mut new_tab = Tab::new(new_tab_id_cloned_for_tab, Arc::clone(&self.hypervisor_event_handler), initial_gfx_output);
+        let mut new_tab = Tab::new(new_tab_id_cloned_for_tab, initial_gfx_output);
 
         let binary_blob_result = fs::read("../examples/hello-world/zig-out/bin/hello-world");
         match binary_blob_result {
-            Ok(binary_blob) => new_tab.load_and_run(binary_blob),
+            Ok(binary_blob) => new_tab.load_and_run(binary_blob, Arc::clone(&self.hypervisor_event_handler)),
             Err(err) => tracing::error!("Hardcoded binary blob path error: {err:?}"),
         }
 
