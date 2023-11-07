@@ -1,7 +1,7 @@
 use core::ops::DerefMut;
 use std::collections::HashSet;
 use std::sync::{mpsc, Arc, Mutex, Condvar};
-use std::thread;
+use std::thread::{Builder, JoinHandle};
 
 use reusable_id_pool::ArcId;
 
@@ -16,6 +16,7 @@ use super::tab_context::DefaultTabContext;
 pub struct Tab {
     id: ArcId,
     gfx_output: Arc<Mutex<GfxOutput>>,
+    hypervisor_thread: Option<JoinHandle<()>>,
 }
 
 impl Tab {
@@ -25,6 +26,7 @@ impl Tab {
         Self {
             id,
             gfx_output,
+            hypervisor_thread: None,
         }
     }
 
@@ -33,7 +35,26 @@ impl Tab {
     }
 
     pub fn load_and_run(&mut self, image: Vec<u8>, hypervisor_event_handler: HypervisorEventHandler) {
-        let tab_context = Arc::new(DefaultTabContext::new(ArcId::clone(&self.id), hypervisor_event_handler, Arc::clone(&self.gfx_output)));
+        let tab_id = ArcId::clone(&self.id);
+        let gfx_output = Arc::clone(&self.gfx_output);
+
+        let thread_builder = Builder::new();
+        let hypervisor_thread = thread_builder.spawn(move || Self::load_and_run_impl(tab_id, gfx_output, image, hypervisor_event_handler));
+
+        // If an error occurred, log the error and return.
+        let hypervisor_thread = match hypervisor_thread {
+            Err(os_error) => {
+                tracing::error!("Failed to create OS hypervisor thread: {:?}, tab ID {:?}", os_error, self.id);
+                return;
+            },
+            Ok(hypervisor_thread) => hypervisor_thread,
+        };
+
+        self.hypervisor_thread = Some(hypervisor_thread);
+    }
+
+    fn load_and_run_impl(tab_id: ArcId, gfx_output: Arc<Mutex<GfxOutput>>, image: Vec<u8>, hypervisor_event_handler: HypervisorEventHandler) {
+        let tab_context = Arc::new(DefaultTabContext::new(ArcId::clone(&tab_id), hypervisor_event_handler, gfx_output));
         let blocking_on_tasks = Arc::new((Mutex::new(HashSet::new()), Condvar::new()));
         let machine_nushift_subsystem = Arc::new(Mutex::new(NushiftSubsystem::new(tab_context, blocking_on_tasks)));
 
@@ -47,17 +68,17 @@ impl Tab {
         // If an error occurred, log the error and return.
         match result {
             Err(wrapper_error) => {
-                tracing::error!("Failed to load machine: {:?}, tab ID: {:?}", wrapper_error, self.id);
+                tracing::error!("Failed to load machine: {:?}, tab ID: {:?}", wrapper_error, tab_id);
                 return;
             },
             Ok(_) => {},
         }
 
-        let builder = thread::Builder::new();
-        let machine_thread = builder.spawn(move || machine.run());
+        let thread_builder = Builder::new();
+        let machine_thread = thread_builder.spawn(move || machine.run());
         let machine_thread = match machine_thread {
             Err(os_error) => {
-                tracing::error!("Failed to create OS thread: {:?}, tab ID {:?}", os_error, self.id);
+                tracing::error!("Failed to create OS tab thread: {:?}, tab ID {:?}", os_error, tab_id);
                 return;
             },
             Ok(machine_thread) => machine_thread,
@@ -126,7 +147,7 @@ impl Tab {
 
         let run_result = match machine_thread.join() {
             Err(join_error) => {
-                tracing::error!("Thread panicked: {:?}, tab ID {:?}", join_error, self.id);
+                tracing::error!("Thread panicked: {:?}, tab ID {:?}", join_error, tab_id);
                 return;
             },
             Ok(run_result) => run_result,
@@ -134,7 +155,14 @@ impl Tab {
 
         match run_result {
             Ok(exit_reason) => tracing::info!("Exit reason: {exit_reason:?}"),
-            Err(run_error) => tracing::error!("Run error: {:?}, tab ID {:?}", run_error, self.id),
+            Err(run_error) => tracing::error!("Run error: {:?}, tab ID {:?}", run_error, tab_id),
         }
+    }
+
+    pub fn close_tab(&mut self) {
+        // TODO: Cooperatively terminate the thread. The cooperation will
+        // probably need to be in the interpreter loop if the app is in a
+        // CPU-bound loop with no yielding and no memory accesses (which yield).
+        self.hypervisor_thread = None;
     }
 }

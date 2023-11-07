@@ -1,3 +1,4 @@
+use std::collections::hash_map::Entry;
 use std::sync::Arc;
 use std::{fs, collections::HashMap};
 
@@ -57,7 +58,13 @@ impl Hypervisor {
     ///
     /// If the passed-in `tab_id` does not exist, this method does nothing.
     pub fn close_tab(&mut self, tab_id: &ArcId) {
-        self.tabs.remove(tab_id);
+        match self.tabs.entry(ArcId::clone(tab_id)) {
+            Entry::Occupied(mut occupied_entry) => {
+                occupied_entry.get_mut().close_tab();
+                occupied_entry.remove();
+            },
+            _ => {},
+        }
     }
 
     /// Update all tab gfx outputs, e.g. when the window scale or size changes.
