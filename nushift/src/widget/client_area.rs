@@ -8,30 +8,13 @@ use nushift_core::PresentBufferFormat;
 use crate::model::RootData;
 use crate::selector::{INITIAL_SCALE_AND_SIZE, SCALE_OR_SIZE_CHANGED};
 
-// TODO: Remove
-fn create_black_image_buf(width: usize, height: usize) -> ImageBuf {
-    // Each pixel in an RGB image consists of 4 bytes.
-    let pixel_size = 3;
-
-    // The total number of bytes needed for the image buffer.
-    let buf_size = width * height * pixel_size;
-
-    // Create a buffer filled with zeros, which represents black pixels in RGB.
-    let buffer = vec![0u8; buf_size];
-
-    // Create an ImageBuf from the raw pixels.
-    ImageBuf::from_raw(buffer, ImageFormat::Rgb, width, height)
-}
-
 pub struct ClientArea {
     image_widget: WidgetPod<RootData, Image>,
 }
 
 impl ClientArea {
     pub fn new() -> Self {
-        let image_widget = WidgetPod::new(
-            Image::new(create_black_image_buf(100, 100)).fill_mode(FillStrat::None)
-        );
+        let image_widget = WidgetPod::new(Image::new(ImageBuf::empty()).fill_mode(FillStrat::None));
         Self { image_widget }
     }
 
