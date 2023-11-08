@@ -111,7 +111,7 @@ impl Widget<RootData> for ClientArea {
             || !currently_selected_tab_framebuffer_same
         {
             self.update_image(data);
-            ctx.request_paint();
+            ctx.request_layout();
         }
 
         self.image_widget.update(ctx, data, env)
