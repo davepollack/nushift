@@ -36,7 +36,7 @@ impl Debug for RootData {
     }
 }
 
-trait HypervisorImpl {
+trait HypervisorDependency {
     fn add_new_tab(&mut self, hypervisor: &mut Hypervisor, initial_gfx_output: GfxOutput) -> ArcId;
     fn close_tab(&mut self, hypervisor: &mut Hypervisor, tab_id: &ArcId);
 }
@@ -46,7 +46,7 @@ struct MockImpl {
     pool: ReusableIdPool,
 }
 
-impl HypervisorImpl for RealImpl {
+impl HypervisorDependency for RealImpl {
     fn add_new_tab(&mut self, hypervisor: &mut Hypervisor, initial_gfx_output: GfxOutput) -> ArcId {
         hypervisor.add_new_tab(initial_gfx_output)
     }
@@ -56,7 +56,7 @@ impl HypervisorImpl for RealImpl {
     }
 }
 
-impl HypervisorImpl for MockImpl {
+impl HypervisorDependency for MockImpl {
     fn add_new_tab(&mut self, _hypervisor: &mut Hypervisor, _initial_gfx_output: GfxOutput) -> ArcId {
         self.pool.allocate()
     }
@@ -75,11 +75,11 @@ impl RootData {
         self.add_new_tab_impl(&mut RealImpl, env)
     }
 
-    fn add_new_tab_impl<I: HypervisorImpl>(&mut self, hy_impl: &mut I, env: &Env) -> ArcId {
+    fn add_new_tab_impl<H: HypervisorDependency>(&mut self, hy_dep: &mut H, env: &Env) -> ArcId {
         let mut hypervisor = self.hypervisor.lock().unwrap();
         let mut title = LocalizedString::new("nushift-new-tab");
         title.resolve(self, env);
-        let tab_id = hy_impl.add_new_tab(&mut hypervisor, self.scale_and_size.as_ref().expect("scale_and_size should be present at this point").gfx_output());
+        let tab_id = hy_dep.add_new_tab(&mut hypervisor, self.scale_and_size.as_ref().expect("scale_and_size should be present at this point").gfx_output());
 
         self.currently_selected_tab_id = Some(ArcId::clone(&tab_id));
 
@@ -126,7 +126,7 @@ impl RootData {
         }
     }
 
-    fn close_tab_impl<I: HypervisorImpl>(&mut self, hy_impl: &mut I, tab_id: &ArcId) {
+    fn close_tab_impl<H: HypervisorDependency>(&mut self, hy_dep: &mut H, tab_id: &ArcId) {
         let mut hypervisor = self.hypervisor.lock().unwrap();
 
         let mut id_to_remove = None;
@@ -164,7 +164,7 @@ impl RootData {
         }
 
         if let Some(ref id) = id_to_remove {
-            hy_impl.close_tab(&mut hypervisor, id);
+            hy_dep.close_tab(&mut hypervisor, id);
         }
     }
 }
