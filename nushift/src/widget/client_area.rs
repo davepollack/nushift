@@ -8,24 +8,39 @@ use nushift_core::PresentBufferFormat;
 use crate::model::RootData;
 use crate::selector::{INITIAL_SCALE_AND_SIZE, SCALE_OR_SIZE_CHANGED};
 
+// TODO: Remove
+fn create_black_image_buf(width: usize, height: usize) -> ImageBuf {
+    // Each pixel in an RGB image consists of 4 bytes.
+    let pixel_size = 3;
+
+    // The total number of bytes needed for the image buffer.
+    let buf_size = width * height * pixel_size;
+
+    // Create a buffer filled with zeros, which represents black pixels in RGB.
+    let buffer = vec![0u8; buf_size];
+
+    // Create an ImageBuf from the raw pixels.
+    ImageBuf::from_raw(buffer, ImageFormat::Rgb, width, height)
+}
+
 pub struct ClientArea {
     image_widget: WidgetPod<RootData, Image>,
 }
 
 impl ClientArea {
     pub fn new() -> Self {
-        let image_widget = WidgetPod::new(Image::new(ImageBuf::empty()));
+        let image_widget = WidgetPod::new(Image::new(create_black_image_buf(100, 100)));
         Self { image_widget }
     }
 
     fn update_image(&mut self, data: &RootData) {
-        if let Some(ref scale_and_size) = data.scale_and_size {
-            let gfx_output = scale_and_size.gfx_output();
-            let (width, height) = (gfx_output.size_px()[0].try_into(), gfx_output.size_px()[1].try_into());
+        let img_buf = match data.scale_and_size {
+            Some(ref scale_and_size) => {
+                let gfx_output = scale_and_size.gfx_output();
+                let (width, height) = (gfx_output.size_px()[0].try_into(), gfx_output.size_px()[1].try_into());
 
-            if let (Ok(width), Ok(height)) = (width, height) {
-                if let Some(tab_data) = data.currently_selected_tab_id.as_ref().and_then(|currently_selected_tab_id| data.get_tab_by_id(&currently_selected_tab_id)) {
-                    let img_buf = match tab_data.client_framebuffer {
+                match (width, height, data.currently_selected_tab_id.as_ref().and_then(|currently_selected_tab_id| data.get_tab_by_id(&currently_selected_tab_id))) {
+                    (Ok(width), Ok(height), Some(tab_data)) => match tab_data.client_framebuffer {
                         // TODO: "Wrap" buffer? If not, then don't crash here
                         Some(ref client_framebuffer) => ImageBuf::from_raw(
                             Arc::clone(&client_framebuffer.framebuffer),
@@ -36,12 +51,14 @@ impl ClientArea {
                             height,
                         ),
                         None => ImageBuf::empty(),
-                    };
-
-                    self.image_widget.widget_mut().set_image_data(img_buf);
+                    },
+                    _ => ImageBuf::empty(),
                 }
-            }
-        }
+            },
+            _ => ImageBuf::empty(),
+        };
+
+        self.image_widget.widget_mut().set_image_data(img_buf);
     }
 }
 
