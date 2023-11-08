@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use druid::piet::ImageFormat;
-use druid::widget::{prelude::*, Image};
+use druid::widget::{prelude::*, Image, FillStrat};
 use druid::{SingleUse, WidgetPod, ImageBuf, Point};
 use nushift_core::PresentBufferFormat;
 
@@ -29,7 +29,9 @@ pub struct ClientArea {
 
 impl ClientArea {
     pub fn new() -> Self {
-        let image_widget = WidgetPod::new(Image::new(create_black_image_buf(100, 100)));
+        let image_widget = WidgetPod::new(
+            Image::new(create_black_image_buf(100, 100)).fill_mode(FillStrat::None)
+        );
         Self { image_widget }
     }
 
