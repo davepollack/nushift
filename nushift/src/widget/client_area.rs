@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use druid::piet::ImageFormat;
+use druid::piet::{ImageFormat, InterpolationMode};
 use druid::widget::{prelude::*, Image, FillStrat};
 use druid::{SingleUse, WidgetPod, ImageBuf, Point};
 use nushift_core::PresentBufferFormat;
@@ -14,7 +14,10 @@ pub struct ClientArea {
 
 impl ClientArea {
     pub fn new() -> Self {
-        let image_widget = WidgetPod::new(Image::new(ImageBuf::empty()).fill_mode(FillStrat::None));
+        // TODO: `FillStrat::ScaleDown` is a terrible workaround for not being able to draw a non-scaled image :(
+        let image_widget = WidgetPod::new(Image::new(ImageBuf::empty())
+            .fill_mode(FillStrat::ScaleDown)
+            .interpolation_mode(InterpolationMode::NearestNeighbor));
         Self { image_widget }
     }
 
