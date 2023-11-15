@@ -1,7 +1,7 @@
 // On Windows, don't show a console when opening the app.
 #![cfg_attr(not(test), windows_subsystem = "windows")]
 
-use druid::{AppLauncher, WindowDesc, LocalizedString, Widget, Target, WidgetExt};
+use druid::{AppLauncher, WindowDesc, LocalizedString, Widget, Target};
 use druid::im::{vector, hashmap};
 use druid::{Color, widget::Flex};
 use std::sync::{Mutex, Arc};
@@ -14,10 +14,9 @@ mod theme;
 mod selector;
 mod global_key_command_handler;
 
-use self::controller::WindowScaleChangeHandler;
-use self::global_key_command_handler::GlobalKeyCommandHandler;
 use self::model::RootData;
 use self::selector::{HYPERVISOR_EVENT, InspectBeforeSingleUse};
+use self::global_key_command_handler::GlobalKeyCommandHandler;
 
 fn main() {
     let main_window = WindowDesc::new(build_root_widget())
@@ -58,5 +57,4 @@ fn build_root_widget() -> impl Widget<RootData> {
     Flex::column()
         .with_child(widget::top_bar())
         .with_flex_child(widget::client_area::ClientArea::new(), 1.0)
-        .controller(WindowScaleChangeHandler::new())
 }

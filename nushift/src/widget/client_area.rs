@@ -53,16 +53,18 @@ impl ClientArea {
 impl Widget<RootData> for ClientArea {
     fn event(&mut self, ctx: &mut EventCtx, event: &Event, data: &mut RootData, env: &Env) {
         match event {
-            // Handler for commands both from scale changes detected from the
-            // root widget, and from initialisation and size changes from
+            // Handler for commands both from scale changes in this same `event`
+            // method, and from initialisation and size changes from
             // `lifecycle`.
             Event::Command(cmd) => {
+                // Coalesce both cases into the same handling logic.
                 let scale_and_size = match (cmd.get(INITIAL_SCALE_AND_SIZE), cmd.get(SCALE_OR_SIZE_CHANGED)) {
                     (Some(initial), _) => Some(initial),
                     (_, Some(changed)) => Some(changed),
                     _ => None,
                 };
 
+                // Unwrap both that the command matched and that the SingleUse container contains a value.
                 if let Some(scale_and_size) = scale_and_size.and_then(SingleUse::take) {
                     // Update all existing tabs.
                     data.hypervisor.lock().unwrap().update_all_tab_gfx_outputs(scale_and_size.gfx_output());
@@ -71,6 +73,16 @@ impl Widget<RootData> for ClientArea {
                     data.scale_and_size = Some(scale_and_size);
                 }
             },
+
+            // Detect and submit command for scale changes.
+            //
+            // TODO: This doesn't work :( This event is not received here, on Windows.
+            Event::WindowScale(scale) => {
+                tracing::debug!("Client area size: {:?}", ctx.size());
+                tracing::debug!("Window scale: {:?}", scale);
+                ctx.submit_command(SCALE_OR_SIZE_CHANGED.with(SingleUse::new((*scale, ctx.size()).into())));
+            },
+
             _ => {},
         }
 
