@@ -128,6 +128,34 @@ Currently, it is not possible to queue/otherwise process a second deferred opera
 
 An SHM cap ID was provided that is not of the expected SHM cap type. For example, a system-created SHM cap used for storing the program ELF data was provided where an application-created SHM cap was expected.
 
+`ShmUnknownShmType` = 3,
+
+The value provided for the `ShmType` enum was unrecognised.
+
+`ShmInvalidLength` = 4,
+
+The `length` provided in the SHM API call was invalid, for example 0 is invalid.
+
+`ShmCapacityNotAvailable` = 5,
+
+There is not enough available capacity to support this length of this SHM type. Or, there is not enough available backing capacity, currently using mmap, to support this length of this SHM type. Or, the requested capacity in bytes overflows either u64 or usize on this host platform. Note that length in the system call arguments is number of this SHM type's pages, not number of bytes.
+
+`ShmCapCurrentlyAcquired` = 7,
+
+The requested SHM cap is currently acquired. Therefore, it cannot be acquired again, nor destroyed. Please release it first.
+
+`ShmAddressOutOfBounds` = 8,
+
+The requested acquisition address is not within Sv39 (39-bit virtual addressing) bounds.
+
+`ShmAddressNotAligned` = 9,
+
+The requested acquisition address is not aligned at the SHM cap's type (e.g. 4 KiB-aligned, 2 MiB-aligned or 1 GiB-aligned).
+
+`ShmOverlapsExistingAcquisition` = 10,
+
+The requested acquisition address combined with the `length` in the SHM cap forms a range that overlaps an existing acquisition. Please choose a different address.
+
 ## Storage
 
 TODO. The planned storage system will not be a filesystem API, which has been the cause of many security vulnerabilities. The storage concepts will interact with each other in a more secure and better way than filesystem APIs.
