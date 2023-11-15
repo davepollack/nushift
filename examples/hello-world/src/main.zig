@@ -281,7 +281,7 @@ fn writeWrappedImageToInputCap(input_cap_buffer: []u8, image: qoi.Image, gfx_out
 
     try std.leb.writeULEB128(writer, gfx_output_width_px * gfx_output_height_px * 3);
 
-    const MARGIN_TOP: u32 = 100;
+    const MARGIN_TOP: u32 = 70;
 
     // Calculate left margin and right margin for centering image
     const margin_left = @divTrunc(gfx_output_width_px - @min(gfx_output_width_px, image.width), 2);
