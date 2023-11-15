@@ -207,7 +207,7 @@ impl NushiftSubsystem {
                 };
                 let length = registers[SECOND_ARG_REGISTER_INDEX].to_u64();
 
-                let shm_cap_id = match self.shm_space_mut().new_shm_cap(shm_type, length, CapType::UserCap) {
+                let shm_cap_id = match self.shm_space_mut().new_shm_cap(shm_type, length, CapType::AppCap) {
                     Ok((shm_cap_id, _)) => shm_cap_id,
                     Err(shm_space_error) => return marshall_shm_space_error(shm_space_error),
                 };
@@ -218,7 +218,7 @@ impl NushiftSubsystem {
                 let shm_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
                 let address = registers[SECOND_ARG_REGISTER_INDEX].to_u64();
 
-                match self.shm_space_mut().acquire_shm_cap_user(shm_cap_id, address) {
+                match self.shm_space_mut().acquire_shm_cap_app(shm_cap_id, address) {
                     Ok(_) => {},
                     Err(shm_space_error) => return marshall_shm_space_error(shm_space_error),
                 };
@@ -233,16 +233,16 @@ impl NushiftSubsystem {
                 let length = registers[SECOND_ARG_REGISTER_INDEX].to_u64();
                 let address = registers[THIRD_ARG_REGISTER_INDEX].to_u64();
 
-                let shm_cap_id = match self.shm_space_mut().new_shm_cap(shm_type, length, CapType::UserCap) {
+                let shm_cap_id = match self.shm_space_mut().new_shm_cap(shm_type, length, CapType::AppCap) {
                     Ok((shm_cap_id, _)) => shm_cap_id,
                     Err(shm_space_error) => return marshall_shm_space_error(shm_space_error),
                 };
 
-                match self.shm_space_mut().acquire_shm_cap_user(shm_cap_id, address) {
+                match self.shm_space_mut().acquire_shm_cap_app(shm_cap_id, address) {
                     Ok(_) => {},
                     Err(shm_space_error) => {
                         // If an acquire error occurs, roll back the just-created cap.
-                        let shm_space_error = self.shm_space_mut().destroy_shm_cap(shm_cap_id, CapType::UserCap)
+                        let shm_space_error = self.shm_space_mut().destroy_shm_cap(shm_cap_id, CapType::AppCap)
                             .map_err(|_| ShmSpaceError::AcquireReleaseInternalError)
                             // If error occurred in destroy, use that (now mapped to internal) error. Otherwise, use the original shm_space_error.
                             .map_or_else(|err| err, |_| shm_space_error);
@@ -256,7 +256,7 @@ impl NushiftSubsystem {
             Ok(Syscall::ShmRelease) => {
                 let shm_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
 
-                match self.shm_space_mut().release_shm_cap_user(shm_cap_id) {
+                match self.shm_space_mut().release_shm_cap_app(shm_cap_id) {
                     Ok(_) => {},
                     Err(shm_space_error) => return marshall_shm_space_error(shm_space_error),
                 };
@@ -266,7 +266,7 @@ impl NushiftSubsystem {
             Ok(Syscall::ShmDestroy) => {
                 let shm_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
 
-                match self.shm_space_mut().destroy_shm_cap(shm_cap_id, CapType::UserCap) {
+                match self.shm_space_mut().destroy_shm_cap(shm_cap_id, CapType::AppCap) {
                     Ok(_) => {},
                     Err(shm_space_error) => return marshall_shm_space_error(shm_space_error),
                 };
@@ -276,13 +276,13 @@ impl NushiftSubsystem {
             Ok(Syscall::ShmReleaseAndDestroy) => {
                 let shm_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
 
-                match self.shm_space_mut().release_shm_cap_user(shm_cap_id) {
+                match self.shm_space_mut().release_shm_cap_app(shm_cap_id) {
                     Ok(_) => {},
                     Err(shm_space_error) => return marshall_shm_space_error(shm_space_error),
                 };
 
                 // If the release succeeded, destroy should never fail, thus do not rollback (re-acquire).
-                match self.shm_space_mut().destroy_shm_cap(shm_cap_id, CapType::UserCap) {
+                match self.shm_space_mut().destroy_shm_cap(shm_cap_id, CapType::AppCap) {
                     Ok(_) => {},
                     Err(shm_space_error) => return marshall_shm_space_error(shm_space_error),
                 };

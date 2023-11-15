@@ -659,7 +659,7 @@ mod tests {
             let address = 400u64 << PageTableLevel2::ENTRIES_BITS << PageTableLeaf::ENTRIES_BITS << 12;
             let flags = Sv39Flags::RW;
             assert!(matches!(
-                page_table.insert(1, &ShmCap::new(shm_type, length, backing, CapType::UserCap), address, flags),
+                page_table.insert(1, &ShmCap::new(shm_type, length, backing, CapType::AppCap), address, flags),
                 Err(PageTableError::PageInsertOutOfBounds { shm_type: m_shm_type, length: m_length, address: m_address }) if m_shm_type == shm_type && m_length == length && m_address == address,
             ));
             // Assert that nothing was inserted
@@ -672,7 +672,7 @@ mod tests {
 
             // A 1 GiB type cap starting at 0 with length 512: fits
             assert!(matches!(
-                page_table.insert(1, &ShmCap::new(ShmType::OneGiB, non_zero(512), &[0u8; 0], CapType::UserCap), 0, Sv39Flags::RW),
+                page_table.insert(1, &ShmCap::new(ShmType::OneGiB, non_zero(512), &[0u8; 0], CapType::AppCap), 0, Sv39Flags::RW),
                 Ok(()),
             ));
             assert!(page_table.entries.iter().enumerate().all(|(i, entry)| {
@@ -683,7 +683,7 @@ mod tests {
             // A 1 GiB type cap starting at 400 with length 112: fits
             let mut page_table = PageTableLevel1::new();
             assert!(matches!(
-                page_table.insert(1, &ShmCap::new(ShmType::OneGiB, non_zero(112), &[0u8; 0], CapType::UserCap), 400u64 << PageTableLevel2::ENTRIES_BITS << PageTableLeaf::ENTRIES_BITS << 12, Sv39Flags::RW),
+                page_table.insert(1, &ShmCap::new(ShmType::OneGiB, non_zero(112), &[0u8; 0], CapType::AppCap), 400u64 << PageTableLevel2::ENTRIES_BITS << PageTableLeaf::ENTRIES_BITS << 12, Sv39Flags::RW),
                 Ok(()),
             ));
             assert!(page_table.entries[0..400].iter().all(|entry| matches!(entry, None)));
@@ -698,7 +698,7 @@ mod tests {
             let mut page_table = PageTableLevel1::new();
 
             assert!(matches!(
-                page_table.insert(1, &ShmCap::new(ShmType::OneGiB, non_zero(1), &[0u8; 0], CapType::UserCap), 100u64 << PageTableLevel2::ENTRIES_BITS << PageTableLeaf::ENTRIES_BITS << 12, Sv39Flags::RW),
+                page_table.insert(1, &ShmCap::new(ShmType::OneGiB, non_zero(1), &[0u8; 0], CapType::AppCap), 100u64 << PageTableLevel2::ENTRIES_BITS << PageTableLeaf::ENTRIES_BITS << 12, Sv39Flags::RW),
                 Ok(()),
             ));
             assert!(page_table.entries.iter().enumerate().all(|(i, entry)| {
@@ -719,7 +719,7 @@ mod tests {
             let address = (509 * ONE_ONE_GIB_PAGE) + (510u64 << PageTableLeaf::ENTRIES_BITS << 12);
             let flags = Sv39Flags::RW;
             assert!(matches!(
-                page_table.insert(1, &ShmCap::new(ShmType::TwoMiB, non_zero(1027), &[0u8; 0], CapType::UserCap), address, flags),
+                page_table.insert(1, &ShmCap::new(ShmType::TwoMiB, non_zero(1027), &[0u8; 0], CapType::AppCap), address, flags),
                 Err(PageTableError::PageInsertOutOfBounds { shm_type: ShmType::TwoMiB, length: m_length, address: m_address }) if m_length == non_zero(1027) && m_address == address
             ));
             assert!(page_table.entries.iter().all(|entry| matches!(entry, None))); // Expect all 1 GiB pages to not be populated
@@ -728,7 +728,7 @@ mod tests {
             let mut page_table = PageTableLevel1::new();
             let address = (509 * ONE_ONE_GIB_PAGE) + (510u64 << PageTableLeaf::ENTRIES_BITS << 12);
             assert!(matches!(
-                page_table.insert(1, &ShmCap::new(ShmType::TwoMiB, non_zero(1026), &[0u8; 0], CapType::UserCap), address, flags),
+                page_table.insert(1, &ShmCap::new(ShmType::TwoMiB, non_zero(1026), &[0u8; 0], CapType::AppCap), address, flags),
                 Ok(()),
             ));
         }
@@ -738,7 +738,7 @@ mod tests {
             let mut page_table = PageTableLevel1::new();
 
             assert!(matches!(
-                page_table.insert(1, &ShmCap::new(ShmType::TwoMiB, non_zero(50), &[0u8; 0], CapType::UserCap), ONE_ONE_GIB_PAGE + (100u64 << PageTableLeaf::ENTRIES_BITS << 12), Sv39Flags::RW),
+                page_table.insert(1, &ShmCap::new(ShmType::TwoMiB, non_zero(50), &[0u8; 0], CapType::AppCap), ONE_ONE_GIB_PAGE + (100u64 << PageTableLeaf::ENTRIES_BITS << 12), Sv39Flags::RW),
                 Ok(()),
             ));
 
@@ -762,7 +762,7 @@ mod tests {
             let mut page_table = PageTableLevel1::new();
 
             assert!(matches!(
-                page_table.insert(1, &ShmCap::new(ShmType::TwoMiB, non_zero(1000), &[0u8; 0], CapType::UserCap), ONE_ONE_GIB_PAGE + (510u64 << PageTableLeaf::ENTRIES_BITS << 12), Sv39Flags::RW),
+                page_table.insert(1, &ShmCap::new(ShmType::TwoMiB, non_zero(1000), &[0u8; 0], CapType::AppCap), ONE_ONE_GIB_PAGE + (510u64 << PageTableLeaf::ENTRIES_BITS << 12), Sv39Flags::RW),
                 Ok(()),
             ));
 
@@ -804,14 +804,14 @@ mod tests {
             let mut page_table = PageTableLevel1::new();
 
             assert!(matches!(
-                page_table.insert(1, &ShmCap::new(ShmType::TwoMiB, non_zero(1), &[0u8; 0], CapType::UserCap), ONE_ONE_GIB_PAGE + (100u64 << PageTableLeaf::ENTRIES_BITS << 12), Sv39Flags::RW),
+                page_table.insert(1, &ShmCap::new(ShmType::TwoMiB, non_zero(1), &[0u8; 0], CapType::AppCap), ONE_ONE_GIB_PAGE + (100u64 << PageTableLeaf::ENTRIES_BITS << 12), Sv39Flags::RW),
                 Ok(()),
             ));
 
             // Insert another one at 101. This should trigger the get case of
             // get_or_insert_with, reusing the existing level 2 table.
             assert!(matches!(
-                page_table.insert(2, &ShmCap::new(ShmType::TwoMiB, non_zero(1), &[0u8; 0], CapType::UserCap), ONE_ONE_GIB_PAGE + (101u64 << PageTableLeaf::ENTRIES_BITS << 12), Sv39Flags::RW),
+                page_table.insert(2, &ShmCap::new(ShmType::TwoMiB, non_zero(1), &[0u8; 0], CapType::AppCap), ONE_ONE_GIB_PAGE + (101u64 << PageTableLeaf::ENTRIES_BITS << 12), Sv39Flags::RW),
                 Ok(()),
             ));
 
@@ -841,7 +841,7 @@ mod tests {
             // third-last 1 GiB region, with length 524291: overflows
             let address = (509 * ONE_ONE_GIB_PAGE) + (511u64 << PageTableLeaf::ENTRIES_BITS << 12) + (510u64 << 12);
             assert!(matches!(
-                page_table.insert(1, &ShmCap::new(ShmType::FourKiB, non_zero(524291), &[0u8; 0], CapType::UserCap), address, Sv39Flags::RW),
+                page_table.insert(1, &ShmCap::new(ShmType::FourKiB, non_zero(524291), &[0u8; 0], CapType::AppCap), address, Sv39Flags::RW),
                 Err(PageTableError::PageInsertOutOfBounds { shm_type: ShmType::FourKiB, length: m_length, address: m_address }) if m_length == non_zero(524291) && m_address == address
             ));
             assert!(page_table.entries.iter().all(|entry| matches!(entry, None))); // Expect all 1 GiB pages to not be populated
@@ -851,7 +851,7 @@ mod tests {
             let mut page_table = PageTableLevel1::new();
             let address = (509 * ONE_ONE_GIB_PAGE) + (511u64 << PageTableLeaf::ENTRIES_BITS << 12) + (510u64 << 12);
             assert!(matches!(
-                page_table.insert(1, &ShmCap::new(ShmType::FourKiB, non_zero(524290), &[0u8; 0], CapType::UserCap), address, Sv39Flags::RW),
+                page_table.insert(1, &ShmCap::new(ShmType::FourKiB, non_zero(524290), &[0u8; 0], CapType::AppCap), address, Sv39Flags::RW),
                 Ok(()),
             ));
         }
@@ -868,7 +868,7 @@ mod tests {
             // MiB region (512 4 KiB equivalent), then fills 88 more 4 KiB slots.
             let address = (509 * ONE_ONE_GIB_PAGE) + (511u64 << PageTableLeaf::ENTRIES_BITS << 12) + (510u64 << 12);
             assert!(matches!(
-                page_table.insert(1, &ShmCap::new(ShmType::FourKiB, non_zero(262746), &[0u8; 0], CapType::UserCap), address, Sv39Flags::RW),
+                page_table.insert(1, &ShmCap::new(ShmType::FourKiB, non_zero(262746), &[0u8; 0], CapType::AppCap), address, Sv39Flags::RW),
                 Ok(()),
             ));
 
@@ -930,12 +930,12 @@ mod tests {
 
             // A 1 GiB type cap starting at 400 with length 112: fits
             assert!(matches!(
-                page_table.insert(1, &ShmCap::new(ShmType::OneGiB, non_zero(112), &[0u8; 0], CapType::UserCap), 400u64 << PageTableLevel2::ENTRIES_BITS << PageTableLeaf::ENTRIES_BITS << 12, Sv39Flags::RW),
+                page_table.insert(1, &ShmCap::new(ShmType::OneGiB, non_zero(112), &[0u8; 0], CapType::AppCap), 400u64 << PageTableLevel2::ENTRIES_BITS << PageTableLeaf::ENTRIES_BITS << 12, Sv39Flags::RW),
                 Ok(()),
             ));
             // Remove: succeeds
             assert!(matches!(
-                page_table.remove(1, &ShmCap::new(ShmType::OneGiB, non_zero(112), &[0u8; 0], CapType::UserCap), 400u64 << PageTableLevel2::ENTRIES_BITS << PageTableLeaf::ENTRIES_BITS << 12),
+                page_table.remove(1, &ShmCap::new(ShmType::OneGiB, non_zero(112), &[0u8; 0], CapType::AppCap), 400u64 << PageTableLevel2::ENTRIES_BITS << PageTableLeaf::ENTRIES_BITS << 12),
                 Ok(()),
             ));
             // Check it was removed
@@ -947,11 +947,11 @@ mod tests {
             let mut page_table = PageTableLevel1::new();
 
             assert!(matches!(
-                page_table.insert(1, &ShmCap::new(ShmType::TwoMiB, non_zero(1000), &[0u8; 0], CapType::UserCap), ONE_ONE_GIB_PAGE + (510u64 << PageTableLeaf::ENTRIES_BITS << 12), Sv39Flags::RW),
+                page_table.insert(1, &ShmCap::new(ShmType::TwoMiB, non_zero(1000), &[0u8; 0], CapType::AppCap), ONE_ONE_GIB_PAGE + (510u64 << PageTableLeaf::ENTRIES_BITS << 12), Sv39Flags::RW),
                 Ok(()),
             ));
             assert!(matches!(
-                page_table.remove(1, &ShmCap::new(ShmType::TwoMiB, non_zero(1000), &[0u8; 0], CapType::UserCap), ONE_ONE_GIB_PAGE + (510u64 << PageTableLeaf::ENTRIES_BITS << 12)),
+                page_table.remove(1, &ShmCap::new(ShmType::TwoMiB, non_zero(1000), &[0u8; 0], CapType::AppCap), ONE_ONE_GIB_PAGE + (510u64 << PageTableLeaf::ENTRIES_BITS << 12)),
                 Ok(()),
             ));
 
@@ -983,11 +983,11 @@ mod tests {
             // MiB region (512 4 KiB equivalent), then fills 88 more 4 KiB slots.
             let address = (509 * ONE_ONE_GIB_PAGE) + (511u64 << PageTableLeaf::ENTRIES_BITS << 12) + (510u64 << 12);
             assert!(matches!(
-                page_table.insert(1, &ShmCap::new(ShmType::FourKiB, non_zero(262746), &[0u8; 0], CapType::UserCap), address, Sv39Flags::RW),
+                page_table.insert(1, &ShmCap::new(ShmType::FourKiB, non_zero(262746), &[0u8; 0], CapType::AppCap), address, Sv39Flags::RW),
                 Ok(()),
             ));
             assert!(matches!(
-                page_table.remove(1, &ShmCap::new(ShmType::FourKiB, non_zero(262746), &[0u8; 0], CapType::UserCap), address),
+                page_table.remove(1, &ShmCap::new(ShmType::FourKiB, non_zero(262746), &[0u8; 0], CapType::AppCap), address),
                 Ok(()),
             ));
 

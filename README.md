@@ -100,6 +100,34 @@ Errors: `InternalError`, `CapNotFound`, `PermissionDenied`
 
 Calls `ShmRelease` and `ShmDestroy` in one system call.
 
+## Errors (API)
+
+### SyscallError (enum)
+
+`UnknownSyscall` = 0,
+
+The syscall number was not recognised.
+
+`InternalError` = 1,
+
+Should never happen, and indicates a bug in Nushift's code.
+
+`Exhausted` = 2,
+
+The maximum amount of capabilities in this particular capability space have been used. Please destroy some capabilities.
+
+`CapNotFound` = 6,
+
+A capability in this particular capability space with the requested capability ID could not be found.
+
+`InProgress` = 11,
+
+Currently, it is not possible to queue/otherwise process a second deferred operation in a deferred-capable space while one is being processed in that space. This limitation should be removed in the future.
+
+`PermissionDenied` = 12,
+
+An SHM cap ID was provided that is not of the expected SHM cap type. For example, a system-created SHM cap used for storing the program ELF data was provided where an application-created SHM cap was expected.
+
 ## Storage
 
 TODO. The planned storage system will not be a filesystem API, which has been the cause of many security vulnerabilities. The storage concepts will interact with each other in a more secure and better way than filesystem APIs.

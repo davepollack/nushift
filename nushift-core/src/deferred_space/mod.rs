@@ -178,7 +178,7 @@ impl DefaultDeferredSpace {
     /// Releases SHM cap, but does not do further processing yet.
     ///
     /// TODO: Rollback logic needs to be added to this function.
-    /// release_shm_cap_user, the first move_shm_cap_to_other_space, and
+    /// release_shm_cap_app, the first move_shm_cap_to_other_space, and
     /// new_shm_cap all need to be rolled back if an error is returned by a
     /// subsequent line. They should NOT be rolled back if the function
     /// completes normally with no error.
@@ -190,14 +190,14 @@ impl DefaultDeferredSpace {
         matches!(default_deferred_cap.in_progress_cap, None).then_some(()).ok_or_else(|| InProgressSnafu { context }.build())?;
 
         if let Some(input_shm_cap_id) = input_shm_cap_id {
-            shm_space.release_shm_cap_user(input_shm_cap_id).map_err(|shm_space_error| match shm_space_error {
+            shm_space.release_shm_cap_app(input_shm_cap_id).map_err(|shm_space_error| match shm_space_error {
                 ShmSpaceError::CapNotFound => ShmCapNotFoundSnafu { id: input_shm_cap_id }.build(),
                 ShmSpaceError::PermissionDenied => ShmPermissionDeniedSnafu { id: input_shm_cap_id }.build(),
                 err => DeferredSpaceError::ShmSpaceInternalError { source: err },
             })?;
         }
 
-        shm_space.release_shm_cap_user(output_shm_cap_id).map_err(|shm_space_error| match shm_space_error {
+        shm_space.release_shm_cap_app(output_shm_cap_id).map_err(|shm_space_error| match shm_space_error {
             ShmSpaceError::CapNotFound => ShmCapNotFoundSnafu { id: output_shm_cap_id }.build(),
             ShmSpaceError::PermissionDenied => ShmPermissionDeniedSnafu { id: output_shm_cap_id }.build(),
             err => DeferredSpaceError::ShmSpaceInternalError { source: err },

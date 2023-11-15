@@ -12,7 +12,7 @@ impl DebugPrint {
     }
 
     pub fn debug_print(&self, input_shm_cap_id: ShmCapId, shm_space: &ShmSpace) -> Result<(), DebugPrintError> {
-        let input_shm_cap = shm_space.get_shm_cap_user(input_shm_cap_id).map_err(|shm_space_error| match shm_space_error {
+        let input_shm_cap = shm_space.get_shm_cap_app(input_shm_cap_id).map_err(|shm_space_error| match shm_space_error {
             ShmSpaceError::CapNotFound => ShmCapNotFoundSnafu { id: input_shm_cap_id }.build(),
             ShmSpaceError::PermissionDenied => ShmPermissionDeniedSnafu { id: input_shm_cap_id }.build(),
             _ => ShmUnexpectedSnafu.build(),

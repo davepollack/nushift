@@ -42,7 +42,9 @@ impl ShmType {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CapType {
-    UserCap,
+    /// An app-created SHM cap.
+    AppCap,
+    /// A system-created SHM cap that stores program ELF data.
     ElfCap,
 }
 
@@ -148,9 +150,9 @@ impl ShmSpace {
         Ok((id, shm_cap))
     }
 
-    pub fn acquire_shm_cap_user(&mut self, shm_cap_id: ShmCapId, address: u64) -> Result<(), ShmSpaceError> {
+    pub fn acquire_shm_cap_app(&mut self, shm_cap_id: ShmCapId, address: u64) -> Result<(), ShmSpaceError> {
         let shm_cap = self.space.get(&shm_cap_id).ok_or_else(|| CapNotFoundSnafu.build())?;
-        matches!(shm_cap.cap_type(), CapType::UserCap).then_some(()).ok_or_else(|| PermissionDeniedSnafu.build())?;
+        matches!(shm_cap.cap_type(), CapType::AppCap).then_some(()).ok_or_else(|| PermissionDeniedSnafu.build())?;
 
         Self::acquire_shm_cap_impl(&mut self.acquisitions, shm_cap_id, shm_cap, address, Sv39Flags::RW)
     }
@@ -174,8 +176,8 @@ impl ShmSpace {
             })
     }
 
-    pub fn release_shm_cap_user(&mut self, shm_cap_id: ShmCapId) -> Result<(), ShmSpaceError> {
-        self.release_shm_cap_impl(shm_cap_id, CapType::UserCap)
+    pub fn release_shm_cap_app(&mut self, shm_cap_id: ShmCapId) -> Result<(), ShmSpaceError> {
+        self.release_shm_cap_impl(shm_cap_id, CapType::AppCap)
     }
 
     pub fn release_shm_cap_elf(&mut self, shm_cap_id: ShmCapId) -> Result<(), ShmSpaceError> {
@@ -232,9 +234,9 @@ impl ShmSpace {
         self.acquisitions.walk_execute(vaddr, &self.space)
     }
 
-    pub fn get_shm_cap_user(&self, shm_cap_id: ShmCapId) -> Result<&ShmCap, ShmSpaceError> {
+    pub fn get_shm_cap_app(&self, shm_cap_id: ShmCapId) -> Result<&ShmCap, ShmSpaceError> {
         let shm_cap = self.space.get(&shm_cap_id).ok_or_else(|| CapNotFoundSnafu.build())?;
-        matches!(shm_cap.cap_type(), CapType::UserCap).then_some(()).ok_or_else(|| PermissionDeniedSnafu.build())?;
+        matches!(shm_cap.cap_type(), CapType::AppCap).then_some(()).ok_or_else(|| PermissionDeniedSnafu.build())?;
 
         Ok(shm_cap)
     }
