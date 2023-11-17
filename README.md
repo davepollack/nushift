@@ -135,6 +135,41 @@ Errors: `CapNotFound`
 
 Destroys an accessibility tree capability. This does not destroy any published accessibility trees.
 
+## Title API
+
+### TitleNew
+
+Arguments: None.\
+Returns: title_cap_id (`u64`).\
+Errors: `InternalError`, `Exhausted`
+
+Creates a new title capability, that can be used to publish a title of the app.
+
+### TitlePublish
+
+Arguments: title_cap_id (`u64`), input_shm_cap_id (`u64`), output_shm_cap_id (`u64`).
+Returns: task_id (`u64`).\
+Errors: `InternalError`, `Exhausted`, `CapNotFound`, `InProgress`, `PermissionDenied`
+
+Starts a task to publish the title contained in `input_shm_cap_id`, to the hypervisor.
+
+The format of the data in the cap represented by `input_shm_cap_id` is the title string in Postcard format.
+
+As with other deferred-style calls:
+* This releases `input_shm_cap_id` and `output_shm_cap_id` and then you can't access them anymore
+* It accepts `input_shm_cap_id` and `output_shm_cap_id` that are already released
+* The `output_shm_cap_id` cap is created by you, and the hypervisor will write the output of the deferred call to it
+
+An error will be written to the `output_shm_cap_id` cap if the Postcard data cannot be deserialised, or the title submission to the Nushift GUI shell failed. In the latter case, this probably means that the Nushift GUI shell has gone away. Nothing is written if the call is a success. The lack of a discriminant between success and error values is a serious deficiency in the output format that should be addressed by the Nushift team. The output format is itself in the Postcard format.
+
+### TitleDestroy
+
+Arguments: title_cap_id (`u64`).\
+Returns: `0u64`.\
+Errors: `CapNotFound`
+
+Destroys a title capability. This does not unset any published titles.
+
 ## Errors (API)
 
 ### SyscallError (enum)

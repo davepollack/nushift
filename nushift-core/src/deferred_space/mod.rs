@@ -87,7 +87,7 @@ impl DeferredSpace for DefaultDeferredSpace {
         }
     }
 
-    fn new_cap(&mut self, context: &str) -> Result<u64, DeferredSpaceError> {
+    fn new_cap(&mut self, context: &str) -> Result<u64, Self::SpaceError> {
         let id = self.id_pool.try_allocate()
             .map_err(|rip_err| match rip_err { ReusableIdPoolError::TooManyLiveIDs => ExhaustedSnafu { context }.build() })?;
 
