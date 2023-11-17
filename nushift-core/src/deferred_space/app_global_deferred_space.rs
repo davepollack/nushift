@@ -131,6 +131,9 @@ impl AppGlobalDeferredSpace {
     }
 }
 
+/// A temporary view into a (vacant) entry of the AppGlobalDeferredSpace. If an
+/// error in some other subsystem occurs before the task is committed, the
+/// temporary ID allocation is rolled back.
 pub struct TaskAllocation<'space> {
     task_id: TaskId,
     vacant_entry_and_task: Option<(VacantEntry<'space, TaskId, ScheduledTask>, Task)>,
@@ -142,6 +145,8 @@ impl<'space> TaskAllocation<'space> {
         Self { task_id, vacant_entry_and_task: Some((vacant_entry, task)), id_pool }
     }
 
+    /// Commits the task.
+    ///
     /// This is not intended to be called more than once. It does nothing if it
     /// is. We can't make the signature `mut self` to enforce this because this
     /// has a Drop impl.

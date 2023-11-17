@@ -100,6 +100,41 @@ Errors: `InternalError`, `CapNotFound`, `PermissionDenied`
 
 Calls `ShmRelease` and `ShmDestroy` in one system call.
 
+## Accessibility Tree API
+
+### AccessibilityTreeNew
+
+Arguments: None.\
+Returns: accessibility_tree_cap_id (`u64`).\
+Errors: `InternalError`, `Exhausted`
+
+Creates a new accessibility tree capability, that can be used to publish an accessibility tree.
+
+### AccessibilityTreePublish
+
+Arguments: accessibility_tree_cap_id (`u64`), input_shm_cap_id (`u64`), output_shm_cap_id (`u64`).\
+Returns: task_id (`u64`).\
+Errors: `InternalError`, `Exhausted`, `CapNotFound`, `InProgress`, `PermissionDenied`
+
+Starts a task to publish the RON-based accessibility tree contained in `input_shm_cap_id`, to the hypervisor.
+
+The format of the data in the cap represented by `input_shm_cap_id` is in [Postcard](https://postcard.jamesmunns.com/wire-format) format, but is a simple string. Hence, it will be a varint-encoded length followed by the string data, as per the Postcard format. An API call that publishes the accessibility tree in full Postcard format should be added in the future, and then this existing call may be renamed to `AccessibilityTreePublishRON`.
+
+As with other deferred-style calls:
+* This releases `input_shm_cap_id` and `output_shm_cap_id` and then you can't access them anymore
+* It accepts `input_shm_cap_id` and `output_shm_cap_id` that are already released
+* The `output_shm_cap_id` cap is created by you, and the hypervisor will write the output of the deferred call to it
+
+An error will be written to the `output_shm_cap_id` cap if the Postcard data cannot be deserialised, or the RON string itself cannot be deserialised. Nothing is written if the call is a success. The lack of a discriminant between success and error values is a serious deficiency in the output format that should be addressed by the Nushift team. The output format is itself in the Postcard format.
+
+### AccessibilityTreeDestroy
+
+Arguments: accessibility_tree_cap_id (`u64`).\
+Returns: `0u64`.\
+Errors: `CapNotFound`
+
+Destroys an accessibility tree capability. This does not destroy any published accessibility trees.
+
 ## Errors (API)
 
 ### SyscallError (enum)
