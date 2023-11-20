@@ -53,6 +53,9 @@ impl AppGlobalDeferredSpace {
         Ok(TaskAllocation::new(task_id, task, vacant_entry, &mut self.id_pool))
     }
 
+    /// Sets all tasks to finished.
+    ///
+    /// Returns only tasks that were previously waiting and are now finished.
     pub fn finish_tasks(&mut self) -> Vec<(TaskId, Task)> {
         let mut tasks = vec![];
         for (task_id, scheduled_task) in self.space.iter_mut() {

@@ -79,7 +79,7 @@ pub enum SyscallError {
 
     DeferredDeserializeTaskIdsError = 13,
     DeferredDuplicateTaskIds = 14,
-    DeferredTaskIdNotFound = 15,
+    DeferredTaskIdsNotFound = 15,
 
     GfxUnknownPresentBufferFormat = 16,
 
@@ -137,7 +137,7 @@ fn marshall_app_global_deferred_space_error<R: Register>(app_global_deferred_spa
         AppGlobalDeferredSpaceError::Exhausted => set_error(SyscallError::Exhausted),
         AppGlobalDeferredSpaceError::DeserializeTaskIdsError { .. } => set_error(SyscallError::DeferredDeserializeTaskIdsError),
         AppGlobalDeferredSpaceError::Duplicates { .. } => set_error(SyscallError::DeferredDuplicateTaskIds),
-        AppGlobalDeferredSpaceError::NotFound { .. } => set_error(SyscallError::DeferredTaskIdNotFound),
+        AppGlobalDeferredSpaceError::NotFound { .. } => set_error(SyscallError::DeferredTaskIdsNotFound),
         AppGlobalDeferredSpaceError::ShmCapNotFound { .. } => set_error(SyscallError::CapNotFound),
         AppGlobalDeferredSpaceError::ShmPermissionDenied { .. } => set_error(SyscallError::PermissionDenied),
     }

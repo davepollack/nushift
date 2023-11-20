@@ -170,6 +170,24 @@ Errors: `CapNotFound`
 
 Destroys a title capability. This does not unset any published titles.
 
+## Block On Deferred Tasks API
+
+### BlockOnDeferredTasks
+
+Arguments: input_shm_cap_id (`u64`).\
+Returns: `0u64`.\
+Errors: `InternalError`, `DeferredDeserializeTaskIdsError`, `DeferredDuplicateTaskIds`, `DeferredTaskIdsNotFound`, `CapNotFound`, `PermissionDenied`
+
+Blocks the app until the tasks represented by the task IDs in `input_shm_cap_id` are completed, and destroys those task IDs so they can't be referenced anymore (until they are reused by a future allocation).
+
+The `input_shm_cap_id` cap contains a Postcard `seq` (array) of task IDs.
+
+The `input_shm_cap_id` cap is *not* released by this call. A cap either in the released or non-released state is accepted.
+
+After a task is completed, its `input_shm_cap_id` and `output_shm_cap_id` become accessible again to the app (for acquisition, destruction, etc).
+
+A call `BlockOnDeferredTasksRace` may be added in the future, which unblocks when one of the tasks in the input is completed.
+
 ## Errors (API)
 
 ### SyscallError (enum)
@@ -225,6 +243,18 @@ The requested acquisition address is not aligned at the SHM cap's type (e.g. 4 K
 `ShmOverlapsExistingAcquisition` = 10,
 
 The requested acquisition address combined with the `length` in the SHM cap forms a range that overlaps an existing acquisition. Please choose a different address.
+
+`DeferredDeserializeTaskIdsError` = 13,
+
+The list of task IDs in the `input_shm_cap_id` to `BlockOnDeferredTasks` could not be deserialised.
+
+`DeferredDuplicateTaskIds` = 14,
+
+A task ID occurred multiple times in the input to `BlockOnDeferredTasks`. This validation was implemented for an earlier version of `BlockOnDeferredTasks` that required it, which was more complicated than the current version and caused more problems and has been shelved. However, the validation remains for strictness.
+
+`DeferredTaskIdsNotFound` = 15,
+
+One or more task IDs in the input to `BlockOnDeferredTasks` do not exist, either because they never existed or because they were consumed in a previous call to `BlockOnDeferredTasks`.
 
 ## Storage
 

@@ -141,7 +141,7 @@ impl Tab {
                 let (lock, cvar) = &*subsystem.blocking_on_tasks;
                 let mut guard = lock.lock().unwrap();
                 guard.remove(&task_id);
-                cvar.notify_one();
+                cvar.notify_one(); // TODO: Should this change to `notify_all` when an app can have multiple threads? Is that even how the hypervisor architecture is going to work?
             }
         }
 

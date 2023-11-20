@@ -79,7 +79,7 @@ pub const SyscallErrorEnum = enum(usize) {
 
     deferred_deserialize_task_ids_error = 13,
     deferred_duplicate_task_ids = 14,
-    deferred_task_id_not_found = 15,
+    deferred_task_ids_not_found = 15,
 
     gfx_unknown_present_buffer_format = 16,
 
@@ -105,7 +105,7 @@ pub const SyscallError = error{
 
     DeferredDeserializeTaskIdsError,
     DeferredDuplicateTaskIds,
-    DeferredTaskIdNotFound,
+    DeferredTaskIdsNotFound,
 
     GfxUnknownPresentBufferFormat,
 
