@@ -24,12 +24,7 @@ fn readGfxOutput(self: *GfxOutput, reader: anytype) Error!void {
         return error.UnsupportedDimensions;
     }
     for (0..scale_length) |i| {
-        _ = i;
-        // TODO: The below code if uncommented, crashes the hypervisor due to
-        // emitting floating point instructions. Uncomment when floating point
-        // ISA support is added.
-        //
-        // self.scale[i] = @bitCast(try reader.readIntLittle(u64));
+        self.scale[i] = @bitCast(try reader.readIntLittle(u64));
     }
 }
 

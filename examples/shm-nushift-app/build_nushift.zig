@@ -10,11 +10,17 @@ pub fn build(
     // Standard target options allows the person running `zig build` to choose
     // what target to build for. Here we set a default target. Other options for
     // restricting supported target set are available.
-    const target = b.standardTargetOptions(.{ .default_target = .{
-        .cpu_arch = .riscv64,
-        .os_tag = .freestanding,
-        .abi = .none,
-    } });
+    const target = b.standardTargetOptions(.{
+        .default_target = .{
+            .cpu_arch = .riscv64,
+            // For now, use a CPU that doesn't support floating point
+            // extensions. In the future, hypervisor support for this should be
+            // added.
+            .cpu_features_sub = std.Target.riscv.featureSet(&.{.d}),
+            .os_tag = .freestanding,
+            .abi = .none,
+        },
+    });
 
     // Standard optimize options allow the person running `zig build` to select
     // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall.
