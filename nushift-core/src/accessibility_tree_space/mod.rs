@@ -39,6 +39,7 @@ impl DeferredSpacePublish for AccessibilityTreeSpaceSpecific {
         };
         tracing::debug!("{accessibility_tree:?}");
         self.app_accessibility_tree = Some(accessibility_tree);
+        deferred_space::print_success(output_shm_cap, ());
     }
 }
 

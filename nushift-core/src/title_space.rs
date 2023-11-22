@@ -32,13 +32,16 @@ impl DeferredSpacePublish for TitleSpaceSpecific {
     type Payload<'de> = TitleSpacePayload<'de>;
 
     fn publish_cap_payload(&mut self, payload: Self::Payload<'_>, output_shm_cap: &mut ShmCap, _cap_id: u64) {
-        self.tab_context.send_hypervisor_event(UnboundHypervisorEvent::TitleChange(payload.title.into()))
-            .unwrap_or_else(|hypervisor_event_error| match hypervisor_event_error {
+        match self.tab_context.send_hypervisor_event(UnboundHypervisorEvent::TitleChange(payload.title.into())) {
+            Ok(_) => deferred_space::print_success(output_shm_cap, ()),
+
+            Err(hypervisor_event_error) => match hypervisor_event_error {
                 HypervisorEventError::SubmitCommandError => {
                     tracing::debug!("Submit failed: {hypervisor_event_error}");
                     deferred_space::print_error(output_shm_cap, DeferredError::SubmitFailed, &hypervisor_event_error);
                 },
-            });
+            },
+        }
     }
 }
 

@@ -47,15 +47,10 @@ struct GetOutputs {
 
 impl DeferredSpaceGet for GetOutputs {
     fn get(&mut self, output_shm_cap: &mut ShmCap) {
-        // TODO: Need to serialise a unified structure that could contain an
-        // error or the success result. Not this where you can't discriminate
-        // between either.
-
         let gfx_outputs = self.tab_context.get_gfx_outputs();
         let gfx_outputs_dereferenced: Vec<&GfxOutput> = gfx_outputs.iter().map(|guard| &**guard).collect();
-        // TODO: Serialise an error for the serialise buffer being full! When in
-        // the future we are serialising a unified structure.
-        let _ = postcard::to_slice(&gfx_outputs_dereferenced, output_shm_cap.backing_mut());
+
+        deferred_space::print_success(output_shm_cap, gfx_outputs_dereferenced);
     }
 }
 
@@ -92,13 +87,16 @@ impl DeferredSpacePublish for CpuPresent {
             return;
         };
 
-        self.tab_context.send_hypervisor_event(UnboundHypervisorEvent::GfxCpuPresent(cpu_present_buffer_info.present_buffer_format, payload.into()))
-            .unwrap_or_else(|hypervisor_event_error| match hypervisor_event_error {
+        match self.tab_context.send_hypervisor_event(UnboundHypervisorEvent::GfxCpuPresent(cpu_present_buffer_info.present_buffer_format, payload.into())) {
+            Ok(_) => deferred_space::print_success(output_shm_cap, ()),
+
+            Err(hypervisor_event_error) => match hypervisor_event_error {
                 HypervisorEventError::SubmitCommandError => {
                     tracing::debug!("Submit failed: {hypervisor_event_error}");
                     deferred_space::print_error(output_shm_cap, DeferredError::SubmitFailed, &hypervisor_event_error);
                 },
-            });
+            },
+        }
     }
 }
 

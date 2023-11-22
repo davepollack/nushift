@@ -268,12 +268,24 @@ impl DefaultDeferredSpace {
     }
 }
 
+pub fn print_success<T: Serialize>(output_shm_cap: &mut ShmCap, payload: T) {
+    let output = DeferredOutput::Success(payload);
+
+    match postcard::to_slice(&output, output_shm_cap.backing_mut()) {
+        Ok(_) => {},
+        Err(postcard_error) => {
+            tracing::debug!("Postcard serialise error: {postcard_error}");
+            print_error(output_shm_cap, DeferredError::SerializeError, &postcard_error);
+        },
+    }
+}
+
 pub fn print_error(output_shm_cap: &mut ShmCap, deferred_error: DeferredError, error: &dyn core::fmt::Display) {
-    let error = DeferredErrorWithMessage::new(deferred_error, error.to_string());
+    let output = DeferredOutput::Error::<()>(DeferredErrorWithMessage::new(deferred_error, error.to_string()));
 
     // The below might fail if, for example, the serialize buffer is full. Just
     // do nothing in this case.
-    let _ = postcard::to_slice(&error, output_shm_cap.backing_mut());
+    let _ = postcard::to_slice(&output, output_shm_cap.backing_mut());
 }
 
 #[derive(Snafu, SnafuCliDebug)]
@@ -294,16 +306,13 @@ pub enum DeferredSpaceError {
     GetOrPublishInternalError, // Should never occur, indicates a bug in Nushift's code
 }
 
-#[derive(IntoPrimitive, Debug, Serialize)]
-#[repr(u64)]
-pub enum DeferredError {
-    DeserializeError = 0,
-    DeserializeRonError = 1,
-    SubmitFailed = 2,
-    ExtraInfoNoLongerPresent = 3,
+#[derive(Debug, Serialize)]
+enum DeferredOutput<T> {
+    Success(T),
+    Error(DeferredErrorWithMessage),
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 struct DeferredErrorWithMessage {
     deferred_error: DeferredError,
     message: String,
@@ -313,4 +322,14 @@ impl DeferredErrorWithMessage {
     fn new(deferred_error: DeferredError, message: String) -> Self {
         Self { deferred_error, message }
     }
+}
+
+#[derive(IntoPrimitive, Debug, Serialize)]
+#[repr(u64)]
+pub enum DeferredError {
+    DeserializeError = 0,
+    DeserializeRonError = 1,
+    SubmitFailed = 2,
+    ExtraInfoNoLongerPresent = 3,
+    SerializeError = 4,
 }

@@ -125,7 +125,7 @@ As with other deferred-style calls:
 * It accepts `input_shm_cap_id` and `output_shm_cap_id` that are already released
 * The `output_shm_cap_id` cap is created by you, and the hypervisor will write the output of the deferred call to it
 
-An error will be written to the `output_shm_cap_id` cap if the Postcard data cannot be deserialised, or the RON string itself cannot be deserialised. Nothing is written if the call is a success. The lack of a discriminant between success and error values is a serious deficiency in the output format that should be addressed by the Nushift team. The output format is itself in the Postcard format.
+An error will be written to the `output_shm_cap_id` cap if the Postcard data cannot be deserialised, or the RON string itself cannot be deserialised. The error begins with the varint-encoded discriminant 1, followed by error details. On success, the varint-encoded discriminant 0 is written. The output format is itself in the Postcard format.
 
 ### AccessibilityTreeDestroy
 
@@ -160,7 +160,7 @@ As with other deferred-style calls:
 * It accepts `input_shm_cap_id` and `output_shm_cap_id` that are already released
 * The `output_shm_cap_id` cap is created by you, and the hypervisor will write the output of the deferred call to it
 
-An error will be written to the `output_shm_cap_id` cap if the Postcard data cannot be deserialised, or the title submission to the Nushift GUI shell failed. In the latter case, this probably means that the Nushift GUI shell has gone away. Nothing is written if the call is a success. The lack of a discriminant between success and error values is a serious deficiency in the output format that should be addressed by the Nushift team. The output format is itself in the Postcard format.
+An error will be written to the `output_shm_cap_id` cap if the Postcard data cannot be deserialised, or the title submission to the Nushift GUI shell failed. In the latter case, this probably means that the Nushift GUI shell has gone away. The error begins with the varint-encoded discriminant 1, followed by error details. On success, the varint-encoded discriminant 0 is written. The output format is itself in the Postcard format.
 
 ### TitleDestroy
 
@@ -184,7 +184,7 @@ The `input_shm_cap_id` cap contains a Postcard `seq` (array) of task IDs.
 
 The `input_shm_cap_id` cap is *not* released by this call. A cap either in the released or non-released state is accepted.
 
-After a task is completed, its `input_shm_cap_id` and `output_shm_cap_id` become accessible again to the app (for acquisition, destruction, etc).
+After a task is completed, its `input_shm_cap_id` and `output_shm_cap_id` become accessible to the app again (for acquisition, destruction, etc).
 
 A call `BlockOnDeferredTasksRace` may be added in the future, which unblocks when one of the tasks in the input is completed.
 
@@ -211,7 +211,7 @@ As with other deferred-style calls:
 * It accepts an `output_shm_cap_id` that is already released
 * The `output_shm_cap_id` cap is created by you, and the hypervisor will write the output of the deferred call to it
 
-A `Vec<GfxOutput>` will be written to the `output_shm_cap_id` cap, where `GfxOutput` is `struct { size_px: Vec<u64>, scale: Vec<f64> }`, in Postcard format. The length of the `Vec`s within `GfxOutput` represent number of dimensions. `size_px` is physical pixels. `scale` is 1, 1.25, 1.5 etc representing DPI.
+A `Vec<GfxOutput>` will be written to the `output_shm_cap_id` cap, where `GfxOutput` is `struct { size_px: Vec<u64>, scale: Vec<f64> }`, in Postcard format. The length of the `Vec`s within `GfxOutput` represent number of dimensions. `size_px` is physical pixels. `scale` is 1, 1.25, 1.5 etc representing DPI. The success discriminant 0 is written at the beginning of the output.
 
 ## Errors (API)
 
