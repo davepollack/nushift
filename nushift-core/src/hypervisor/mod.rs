@@ -38,7 +38,7 @@ impl TabLoader for RealLoader {
 
 impl TabLoader for MockLoader {
     fn load(_tab: &mut Tab, _hypervisor_event_handler: &HypervisorEventHandler) {
-        // Intentionally empty
+        // Intentionally empty. This is a mock.
     }
 }
 

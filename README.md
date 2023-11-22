@@ -188,6 +188,31 @@ After a task is completed, its `input_shm_cap_id` and `output_shm_cap_id` become
 
 A call `BlockOnDeferredTasksRace` may be added in the future, which unblocks when one of the tasks in the input is completed.
 
+## Graphics API
+
+### GfxNew
+
+Arguments: None.\
+Returns: gfx_cap_id (`u64`).\
+Errors: `InternalError`, `Exhausted`
+
+Creates a new graphics capability.
+
+### GfxGetOutputs
+
+Arguments: gfx_cap_id (`u64`), output_shm_cap_id (`u64`).\
+Returns: task_id (`u64`).\
+Errors: `InternalError`, `Exhausted`, `CapNotFound`, `InProgress`, `PermissionDenied`
+
+Starts a task to get descriptions of available graphical output surfaces.
+
+As with other deferred-style calls:
+* This releases `output_shm_cap_id` and then you can't access it anymore
+* It accepts an `output_shm_cap_id` that is already released
+* The `output_shm_cap_id` cap is created by you, and the hypervisor will write the output of the deferred call to it
+
+A `Vec<GfxOutput>` will be written to the `output_shm_cap_id` cap, where `GfxOutput` is `struct { size_px: Vec<u64>, scale: Vec<f64> }`, in Postcard format. The length of the `Vec`s within `GfxOutput` represent number of dimensions. `size_px` is physical pixels. `scale` is 1, 1.25, 1.5 etc representing DPI.
+
 ## Errors (API)
 
 ### SyscallError (enum)
