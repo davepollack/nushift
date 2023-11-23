@@ -90,7 +90,7 @@ Errors: `CapNotFound`, `PermissionDenied`, `ShmCapCurrentlyAcquired`
 
 Deletes a cap.
 
-The cap must be released before destroying, otherwise `ShmCapCurrentlyAcquired` is returned.
+The cap must be released before destroying, otherwise the error `ShmCapCurrentlyAcquired` is returned.
 
 ### ShmReleaseAndDestroy
 
@@ -190,6 +190,16 @@ A call `BlockOnDeferredTasksRace` may be added in the future, which unblocks whe
 
 ## Graphics API
 
+### PresentBufferFormat (enum)
+
+`R8g8b8UintSrgb` = 0,
+
+A format for data in a present buffer which is 3 channels per pixel, an 8-bit unsigned integer for each channel in the order R, G, B, representing gamma-compressed values according to the sRGB standard.
+
+Alpha is not present because the buffer is not blended with anything. A variant with an extra channel `x8` that is ignored, may be added in the future for CPU/memory optimisation purposes.
+
+HDR and/or linear formats may be added in the future.
+
 ### GfxNew
 
 Arguments: None.\
@@ -212,6 +222,18 @@ As with other deferred-style calls:
 * The `output_shm_cap_id` cap is created by you, and the hypervisor will write the output of the deferred call to it
 
 A `Vec<GfxOutput>` will be written to the `output_shm_cap_id` cap, where `GfxOutput` is `struct { size_px: Vec<u64>, scale: Vec<f64> }`, in Postcard format. The length of the `Vec`s within `GfxOutput` represent number of dimensions. `size_px` is physical pixels. `scale` is 1, 1.25, 1.5 etc representing DPI. The success discriminant 0 is written at the beginning of the output.
+
+### GfxCpuPresentBufferNew
+
+Arguments: gfx_cap_id (`u64`), present_buffer_format (`PresentBufferFormat`), present_buffer_shm_cap_id (`u64`).\
+Returns: gfx_cpu_present_buffer_cap_id (`u64`).\
+Errors: `GfxUnknownPresentBufferFormat`, `InternalError`, `Exhausted`, `CapNotFound`
+
+Creates a new CPU present buffer. As the name implies, the buffer is stored in main memory and is operated on by the CPU.
+
+`present_buffer_shm_cap_id` is the SHM cap containing the underlying image data. It is not acquired by the hypervisor or otherwise modified at the time of the `GfxCpuPresentBufferNew` call.
+
+Various presentation strategies can be employed through the creation of multiple present buffers.
 
 ## Errors (API)
 
@@ -280,6 +302,10 @@ A task ID occurred multiple times in the input to `BlockOnDeferredTasks`. This v
 `DeferredTaskIdsNotFound` = 15,
 
 One or more task IDs in the input to `BlockOnDeferredTasks` do not exist, either because they never existed or because they were consumed in a previous call to `BlockOnDeferredTasks`.
+
+`GfxUnknownPresentBufferFormat` = 16,
+
+The value provided for the `PresentBufferFormat` enum was unrecognised.
 
 ## Storage
 
