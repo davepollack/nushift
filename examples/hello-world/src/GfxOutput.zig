@@ -5,12 +5,15 @@ const MAX_DIMENSIONS: usize = 3;
 
 const GfxOutput = @This();
 
+id: u64,
 size_px: [MAX_DIMENSIONS]u64,
 scale: [MAX_DIMENSIONS]f64,
 
-pub const Error = error{ UnsupportedGfxOutputs, UnsupportedDimensions, EndOfStream, Overflow, DeferredOutputError };
+pub const Error = error{ UnsupportedDimensions, EndOfStream, Overflow, DeferredOutputError, UnsupportedGfxOutputs };
 
 fn readGfxOutput(self: *GfxOutput, reader: anytype) Error!void {
+    self.id = try std.leb.readULEB128(u64, reader);
+
     const size_px_length = try std.leb.readULEB128(usize, reader);
     if (size_px_length > MAX_DIMENSIONS) {
         return error.UnsupportedDimensions;

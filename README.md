@@ -221,7 +221,7 @@ As with other deferred-style calls:
 * It accepts an `output_shm_cap_id` that is already released
 * The `output_shm_cap_id` cap is created by you, and the hypervisor will write the output of the deferred call to it
 
-A `Vec<GfxOutput>` will be written to the `output_shm_cap_id` cap, where `GfxOutput` is `struct { size_px: Vec<u64>, scale: Vec<f64> }`, in Postcard format. The length of the `Vec`s within `GfxOutput` represent number of dimensions. `size_px` is physical pixels. `scale` is 1, 1.25, 1.5 etc representing DPI. The success discriminant 0 is written at the beginning of the output.
+A `Vec<GfxOutput>` will be written to the `output_shm_cap_id` cap, where `GfxOutput` is `struct { id: u64, size_px: Vec<u64>, scale: Vec<f64> }`, in Postcard format. The length of the `Vec`s within `GfxOutput` represent number of dimensions. `size_px` is physical pixels. `scale` is 1, 1.25, 1.5 etc representing DPI. The success discriminant 0 is written at the beginning of the output.
 
 ### GfxCpuPresentBufferNew
 

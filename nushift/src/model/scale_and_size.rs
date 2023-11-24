@@ -12,12 +12,12 @@ pub struct ScaleAndSize {
 }
 
 impl ScaleAndSize {
-    pub fn gfx_output(&self) -> GfxOutput {
+    pub fn gfx_output(&self, id: u64) -> GfxOutput {
         let size_px: Vec<u64> = iter::zip(&self.window_scale, &self.client_area_size_dp)
             .map(|(scale_dimension, dp_dimension)| (scale_dimension * dp_dimension).round() as u64)
             .collect();
 
-        GfxOutput::new(size_px, self.window_scale.iter().cloned().collect())
+        GfxOutput::new(id, size_px, self.window_scale.iter().cloned().collect())
     }
 }
 

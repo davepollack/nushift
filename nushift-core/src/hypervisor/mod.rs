@@ -116,7 +116,7 @@ mod tests {
     fn hypervisor_add_new_tab_adds_new_tab() {
         let mut hypervisor = Hypervisor::new(|_| Ok(()));
 
-        hypervisor.add_new_tab_impl::<MockLoader>(GfxOutput::new(vec![1920, 1080], vec![1.25, 1.25]));
+        hypervisor.add_new_tab_impl::<MockLoader>(GfxOutput::new(0, vec![1920, 1080], vec![1.25, 1.25]));
 
         assert_eq!(1, hypervisor.tabs.len());
     }
@@ -124,7 +124,7 @@ mod tests {
     #[test]
     fn hypervisor_close_tab_closes_existing_tab() {
         let mut hypervisor = Hypervisor::new(|_| Ok(()));
-        let tab_id = hypervisor.add_new_tab_impl::<MockLoader>(GfxOutput::new(vec![1920, 1080], vec![1.25, 1.25]));
+        let tab_id = hypervisor.add_new_tab_impl::<MockLoader>(GfxOutput::new(0, vec![1920, 1080], vec![1.25, 1.25]));
 
         hypervisor.close_tab(&tab_id);
 

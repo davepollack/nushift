@@ -23,13 +23,14 @@ pub struct GfxSpace {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct GfxOutput {
+    id: u64,
     size_px: Vec<u64>,
     scale: Vec<f64>,
 }
 
 impl GfxOutput {
-    pub fn new(size_px: Vec<u64>, scale: Vec<f64>) -> Self {
-        Self { size_px, scale }
+    pub fn new(id: u64, size_px: Vec<u64>, scale: Vec<f64>) -> Self {
+        Self { id, size_px, scale }
     }
 
     pub fn size_px(&self) -> &Vec<u64> {
@@ -81,7 +82,7 @@ impl DeferredSpacePublish for CpuPresent {
 
     fn publish_cap_payload(&mut self, payload: Self::Payload<'_>, output_shm_cap: &mut ShmCap, cap_id: u64) {
         let Some(cpu_present_buffer_info) = self.get_info(cap_id) else {
-            let error_message = format!("Extra info no longer present. GfxCpuPresentBufferCapId: {cap_id}");
+            let error_message = format!("Extra info no longer present. gfx_cpu_present_buffer_cap_id: {cap_id}");
             tracing::debug!(error_message);
             deferred_space::print_error(output_shm_cap, DeferredError::ExtraInfoNoLongerPresent, &error_message);
             return;
