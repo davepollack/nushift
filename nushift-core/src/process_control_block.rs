@@ -15,7 +15,7 @@ use ckb_vm::{
     decoder::build_decoder,
     instructions::execute,
     Memory,
-    registers::{A0, A1, A2, A3, T0},
+    registers::{A0, A1, A2, A3, A4, T0},
 };
 use elfloader::{ElfLoaderErr, ElfBinary};
 use snafu::prelude::*;
@@ -31,6 +31,7 @@ const SYSCALL_NUM_REGISTER: usize = A0;
 const FIRST_ARG_REGISTER: usize = A1;
 const SECOND_ARG_REGISTER: usize = A2;
 const THIRD_ARG_REGISTER: usize = A3;
+const FOURTH_ARG_REGISTER: usize = A4;
 
 const RETURN_VAL_REGISTER: usize = A0;
 /// a1 is used by the RISC-V calling conventions for a second return value,
@@ -236,7 +237,13 @@ where
     R: Register + LowerHex,
 {
     fn ecall(&mut self) -> Result<(), CKBVMError> {
-        let send = SyscallEnter::new(self.registers()[SYSCALL_NUM_REGISTER].clone(), self.registers()[FIRST_ARG_REGISTER].clone(), self.registers()[SECOND_ARG_REGISTER].clone(), self.registers()[THIRD_ARG_REGISTER].clone());
+        let send = SyscallEnter::new(
+            self.registers()[SYSCALL_NUM_REGISTER].clone(),
+            self.registers()[FIRST_ARG_REGISTER].clone(),
+            self.registers()[SECOND_ARG_REGISTER].clone(),
+            self.registers()[THIRD_ARG_REGISTER].clone(),
+            self.registers()[FOURTH_ARG_REGISTER].clone(),
+        );
         self.syscall_enter.send(send).expect("Send should succeed");
         let recv = self.syscall_return.recv().expect("Receive should succeed");
         match recv {

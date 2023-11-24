@@ -235,6 +235,14 @@ Creates a new CPU present buffer. As the name implies, the buffer is stored in m
 
 Various presentation strategies can be employed through the creation of multiple present buffers.
 
+### GfxCpuPresent
+
+Arguments: gfx_cpu_present_buffer_cap_id (`u64`), gfx_output_id (`u64`), wait_for_vblank (`u64`), output_shm_cap_id (`u64`).\
+Returns: task_id (`u64`).\
+Errors: `InternalError`, `Exhausted`, `CapNotFound`, `InProgress`, `PermissionDenied`
+
+TODO
+
 ## Errors (API)
 
 ### SyscallError (enum)

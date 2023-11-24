@@ -52,7 +52,7 @@ pub fn SyscallArgs(comptime sys: Syscall) type {
         .gfx_new => struct {},
         .gfx_get_outputs => struct { gfx_cap_id: usize, output_shm_cap_id: usize },
         .gfx_cpu_present_buffer_new => struct { gfx_cap_id: usize, present_buffer_format: PresentBufferFormat, present_buffer_shm_cap_id: usize },
-        .gfx_cpu_present => struct { gfx_cpu_present_buffer_cap_id: usize, wait_for_vblank: usize, output_shm_cap_id: usize },
+        .gfx_cpu_present => struct { gfx_cpu_present_buffer_cap_id: usize, gfx_output_id: usize, wait_for_vblank: usize, output_shm_cap_id: usize },
         .gfx_cpu_present_buffer_destroy => struct { gfx_cpu_present_buffer_cap_id: usize },
         .gfx_destroy => struct { gfx_cap_id: usize },
 
@@ -157,7 +157,7 @@ fn syscallInternal(comptime sys: Syscall, sys_args: SyscallArgs(sys), comptime i
         .gfx_new => syscallInternalArgs(sys, .{}, ignore_errors),
         .gfx_get_outputs => syscallInternalArgs(sys, .{ sys_args.gfx_cap_id, sys_args.output_shm_cap_id }, ignore_errors),
         .gfx_cpu_present_buffer_new => syscallInternalArgs(sys, .{ sys_args.gfx_cap_id, @intFromEnum(sys_args.present_buffer_format), sys_args.present_buffer_shm_cap_id }, ignore_errors),
-        .gfx_cpu_present => syscallInternalArgs(sys, .{ sys_args.gfx_cpu_present_buffer_cap_id, sys_args.wait_for_vblank, sys_args.output_shm_cap_id }, ignore_errors),
+        .gfx_cpu_present => syscallInternalArgs(sys, .{ sys_args.gfx_cpu_present_buffer_cap_id, sys_args.gfx_output_id, sys_args.wait_for_vblank, sys_args.output_shm_cap_id }, ignore_errors),
         .gfx_cpu_present_buffer_destroy => syscallInternalArgs(sys, .{sys_args.gfx_cpu_present_buffer_cap_id}, ignore_errors),
         .gfx_destroy => syscallInternalArgs(sys, .{sys_args.gfx_cap_id}, ignore_errors),
 
@@ -203,6 +203,15 @@ fn syscallInternalArgs(comptime sys: Syscall, args: anytype, comptime ignore_err
                   [arg3] "{a3}" (args[2]),
                 : "memory", "t0", "a0", "a1", "a2", "a3"
             ),
+            4 => asm volatile ("ecall"
+                : [ret] "={a0}" (-> usize),
+                : [syscall_number] "{a0}" (syscall_number),
+                  [arg1] "{a1}" (args[0]),
+                  [arg2] "{a2}" (args[1]),
+                  [arg3] "{a3}" (args[2]),
+                  [arg4] "{a4}" (args[3]),
+                : "memory", "t0", "a0", "a1", "a2", "a3", "a4"
+            ),
             else => @compileError("syscall_internal_args does not support " ++ std.fmt.comptimePrint("{}", .{args.len}) ++ " args, please add support if needed"),
         };
     }
@@ -240,6 +249,16 @@ fn syscallInternalArgs(comptime sys: Syscall, args: anytype, comptime ignore_err
               [arg2] "{a2}" (args[1]),
               [arg3] "{a3}" (args[2]),
             : "memory", "t0", "a0", "a1", "a2", "a3"
+        ),
+        4 => asm volatile ("ecall"
+            : [ret_a0] "={a0}" (a0_output),
+              [ret_t0] "={t0}" (t0_output),
+            : [syscall_number] "{a0}" (syscall_number),
+              [arg1] "{a1}" (args[0]),
+              [arg2] "{a2}" (args[1]),
+              [arg3] "{a3}" (args[2]),
+              [arg4] "{a4}" (args[3]),
+            : "memory", "t0", "a0", "a1", "a2", "a3", "a4"
         ),
         else => @compileError("syscall_internal_args does not support " ++ std.fmt.comptimePrint("{}", .{args.len}) ++ " args, please add support if needed"),
     }

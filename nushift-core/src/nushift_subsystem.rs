@@ -10,7 +10,7 @@ use crate::accessibility_tree_space::AccessibilityTreeSpace;
 use crate::deferred_space::app_global_deferred_space::{AppGlobalDeferredSpace, AppGlobalDeferredSpaceError, Task, TaskId};
 use crate::deferred_space::DeferredSpaceError;
 use crate::gfx_space::{GfxSpace, PresentBufferFormat};
-use crate::register_ipc::{SyscallEnter, SyscallReturn, SYSCALL_NUM_REGISTER_INDEX, FIRST_ARG_REGISTER_INDEX, SECOND_ARG_REGISTER_INDEX, THIRD_ARG_REGISTER_INDEX};
+use crate::register_ipc::{SyscallEnter, SyscallReturn, SYSCALL_NUM_REGISTER_INDEX, FIRST_ARG_REGISTER_INDEX, SECOND_ARG_REGISTER_INDEX, THIRD_ARG_REGISTER_INDEX, FOURTH_ARG_REGISTER_INDEX};
 use crate::shm_space::{CapType, ShmType, ShmSpace, ShmSpaceError};
 use crate::title_space::TitleSpace;
 
@@ -420,14 +420,16 @@ impl NushiftSubsystem {
             },
             Ok(Syscall::GfxCpuPresent) => {
                 let gfx_cpu_present_buffer_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
+                // TODO: This is not used yet.
+                let _gfx_output_id = registers[SECOND_ARG_REGISTER_INDEX].to_u64();
                 // TODO: This is not used yet, we cannot implement it within the
                 // current Druid framework. It will also likely need to be
                 // changed/extended. For example, if the blitting starts but
                 // does not finish until beyond the end of the vblank interval,
                 // there may need to be another option that extends the vblank
                 // (VRR).
-                let _wait_for_vblank = registers[SECOND_ARG_REGISTER_INDEX].to_u64();
-                let output_shm_cap_id = registers[THIRD_ARG_REGISTER_INDEX].to_u64();
+                let _wait_for_vblank = registers[THIRD_ARG_REGISTER_INDEX].to_u64();
+                let output_shm_cap_id = registers[FOURTH_ARG_REGISTER_INDEX].to_u64();
 
                 let mut task = match self.app_global_deferred_space.allocate_task(Task::GfxCpuPresent { gfx_cpu_present_buffer_cap_id }) {
                     Ok(task) => task,

@@ -4,10 +4,10 @@ use core::ops::Index;
 // back to using a condition variable. However with the current structure of the
 // ckb-vm library, it might not be possible to do that.
 
-pub struct SyscallEnter<R>([R; 4]);
+pub struct SyscallEnter<R>([R; 5]);
 impl<R> SyscallEnter<R> {
-    pub fn new(syscall_num: R, first_arg: R, second_arg: R, third_arg: R) -> Self {
-        Self([syscall_num, first_arg, second_arg, third_arg])
+    pub fn new(syscall_num: R, first_arg: R, second_arg: R, third_arg: R, fourth_arg: R) -> Self {
+        Self([syscall_num, first_arg, second_arg, third_arg, fourth_arg])
     }
 }
 impl<R> Index<SyscallEnterIndex> for SyscallEnter<R> {
@@ -39,6 +39,7 @@ pub const SYSCALL_NUM_REGISTER_INDEX: SyscallEnterIndex = SyscallEnterIndex(0);
 pub const FIRST_ARG_REGISTER_INDEX: SyscallEnterIndex = SyscallEnterIndex(1);
 pub const SECOND_ARG_REGISTER_INDEX: SyscallEnterIndex = SyscallEnterIndex(2);
 pub const THIRD_ARG_REGISTER_INDEX: SyscallEnterIndex = SyscallEnterIndex(3);
+pub const FOURTH_ARG_REGISTER_INDEX: SyscallEnterIndex = SyscallEnterIndex(4);
 
 pub struct SyscallReturnIndex(usize);
 pub const RETURN_VAL_REGISTER_INDEX: SyscallReturnIndex = SyscallReturnIndex(0);

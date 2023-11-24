@@ -61,7 +61,7 @@ fn mainImpl() (FBSWriteError || os_nushift.SyscallError || GfxOutput.Error || qo
     const gfx_output_0 = try @call(.always_inline, getGfxOutput0, .{&tasks[2]});
 
     // Present
-    var gfx_cpu_present_task = try GfxCpuPresentTask.init(tasks[2].gfx_cap_id, gfx_output_0.size_px[0], gfx_output_0.size_px[1]);
+    var gfx_cpu_present_task = try GfxCpuPresentTask.init(tasks[2].gfx_cap_id, gfx_output_0.id, gfx_output_0.size_px[0], gfx_output_0.size_px[1]);
     const gfx_cpu_present_task_id = try gfx_cpu_present_task.gfxCpuPresent();
     try blockOnDeferredTasks(&.{gfx_cpu_present_task_id});
     gfx_cpu_present_task.deinit();
@@ -182,13 +182,14 @@ const GfxGetOutputsTask = struct {
 
 const GfxCpuPresentTask = struct {
     gfx_cap_id: usize,
+    gfx_output_id: u64,
     present_buffer_shm_cap_id: usize,
     gfx_cpu_present_buffer_cap_id: usize,
     output_shm_cap_id: usize,
 
     const Self = @This();
 
-    fn init(gfx_cap_id: usize, gfx_output_width_px: u64, gfx_output_height_px: u64) (os_nushift.SyscallError || FBSWriteError || qoi.DecodeError)!Self {
+    fn init(gfx_cap_id: usize, gfx_output_id: u64, gfx_output_width_px: u64, gfx_output_height_px: u64) (os_nushift.SyscallError || FBSWriteError || qoi.DecodeError)!Self {
         // 100 MiB present buffer
         const present_buffer_shm_cap_id = try os_nushift.syscall(.shm_new_and_acquire, .{ .shm_type = os_nushift.ShmType.two_mib, .length = 50, .address = PRESENT_BUFFER_ACQUIRE_ADDRESS });
         errdefer _ = os_nushift.syscallIgnoreErrors(.shm_release_and_destroy, .{ .shm_cap_id = present_buffer_shm_cap_id });
@@ -212,6 +213,7 @@ const GfxCpuPresentTask = struct {
 
         return Self{
             .gfx_cap_id = gfx_cap_id,
+            .gfx_output_id = gfx_output_id,
             .present_buffer_shm_cap_id = present_buffer_shm_cap_id,
             .gfx_cpu_present_buffer_cap_id = gfx_cpu_present_buffer_cap_id,
             .output_shm_cap_id = output_shm_cap_id,
@@ -227,7 +229,7 @@ const GfxCpuPresentTask = struct {
     }
 
     fn gfxCpuPresent(self: *const Self) os_nushift.SyscallError!usize {
-        return os_nushift.syscall(.gfx_cpu_present, .{ .gfx_cpu_present_buffer_cap_id = self.gfx_cpu_present_buffer_cap_id, .wait_for_vblank = std.math.maxInt(usize), .output_shm_cap_id = self.output_shm_cap_id });
+        return os_nushift.syscall(.gfx_cpu_present, .{ .gfx_cpu_present_buffer_cap_id = self.gfx_cpu_present_buffer_cap_id, .gfx_output_id = self.gfx_output_id, .wait_for_vblank = std.math.maxInt(usize), .output_shm_cap_id = self.output_shm_cap_id });
     }
 };
 
