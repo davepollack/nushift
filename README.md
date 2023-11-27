@@ -221,7 +221,7 @@ As with other deferred-style calls:
 * It accepts an `output_shm_cap_id` that is already released
 * The `output_shm_cap_id` cap is created by you, and the hypervisor will write the output of the deferred call to it
 
-A `Vec<GfxOutput>` will be written to the `output_shm_cap_id` cap, where `GfxOutput` is `struct { id: u64, size_px: Vec<u64>, scale: Vec<f64> }`, in Postcard format. The length of the `Vec`s within `GfxOutput` represent number of dimensions. `size_px` is physical pixels. `scale` is 1, 1.25, 1.5 etc representing DPI. The success discriminant 0 is written at the beginning of the output.
+A `Vec<GfxOutput>` will be written to the `output_shm_cap_id` cap, where `GfxOutput` is `struct { id: u64, size_px: Vec<u64>, scale: Vec<f64> }`, in Postcard format. The length of the `Vec`s within `GfxOutput` represent number of dimensions. `size_px` is physical pixels. `scale` is 1, 1.25, 1.5 etc representing DPI. The success discriminant 0 (varint-encoded in Postcard format) is written at the beginning of the output.
 
 ### GfxCpuPresentBufferNew
 
@@ -241,7 +241,18 @@ Arguments: gfx_cpu_present_buffer_cap_id (`u64`), gfx_output_id (`u64`), wait_fo
 Returns: task_id (`u64`).\
 Errors: `InternalError`, `Exhausted`, `CapNotFound`, `InProgress`, `PermissionDenied`
 
-TODO
+Starts a task to blit the CPU present buffer memory to video memory/output.
+
+The linear buffer of memory in the CPU present buffer represents physical pixels and is assumed to have the same width and height (and/or more dimensions) in pixels as the targeted output. Since it is not possible to get this correct, in the future a width and height (and/or more dimensions) will be associated to the buffer, and the presented image will either pad the buffer image or cut off the parts that can't be displayed. Rather than crashing the entire hypervisor as occurs now.
+
+`wait_for_vblank` is not used for now and should always be set to `-1` for now. Conceptually, if it is set to false, the blitting starts straight away and may start in the middle of monitor scanout and tearing will occur. If it is set to true, we wait until the start of the vertical blanking interval and the idea is that tearing will not occur, however blitting a 3840x2160 image from the CPU does take a few milliseconds, which makes it again possible for tearing to occur if the next monitor scanout starts while blitting is still occurring, if there is no VRR support. This option may need to be reworked and extended, and there may be a breaking change to the API of this call in the future.
+
+As with other deferred-style calls:
+* This releases the `present_buffer_shm_cap_id` underlying `gfx_cpu_present_buffer_cap_id`, and `output_shm_cap_id`, and then you can't access them anymore
+* It accepts `present_buffer_shm_cap_id` and `output_shm_cap_id` that are already released
+* The `output_shm_cap_id` cap is created by you, and the hypervisor will write the output of the deferred call to it
+
+An error will be written to the `output_shm_cap_id` cap if the Postcard data in the `present_buffer_shm_cap_id` cap cannot be deserialised, or an internal error fetching `gfx_cpu_present_buffer_cap_id` info failed, or the present command submission to the Nushift GUI shell failed. In the last case, this probably means that the Nushift GUI shell has gone away. The error begins with the varint-encoded discriminant 1, followed by error details. On success, the varint-encoded discriminant 0 is written. The output format is itself in the Postcard format.
 
 ## Errors (API)
 
