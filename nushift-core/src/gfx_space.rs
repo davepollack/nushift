@@ -1,8 +1,10 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use num_enum::TryFromPrimitive;
 use serde::Serialize;
+use snafu::prelude::*;
+use snafu_cli_debug::SnafuCliDebug;
 
 use crate::deferred_space::{self, DefaultDeferredSpace, DeferredSpace, DeferredSpaceError, DeferredSpaceGet, DefaultDeferredSpaceCapId, DeferredSpacePublish, DeferredError};
 use crate::hypervisor::hypervisor_event::{UnboundHypervisorEvent, HypervisorEventError};
@@ -16,6 +18,7 @@ const GFX_CPU_PRESENT_CONTEXT: &str = "gfx_cpu_present";
 
 pub struct GfxSpace {
     root_deferred_space: DefaultDeferredSpace,
+    root_tree: HashMap<GfxCapId, HashSet<GfxCpuPresentBufferCapId>>,
     cpu_present_buffer_deferred_space: DefaultDeferredSpace,
     get_outputs: GetOutputs,
     cpu_present: CpuPresent,
@@ -68,6 +71,7 @@ pub enum PresentBufferFormat {
 }
 
 struct CpuPresentBufferInfo {
+    parent_gfx_cap_id: GfxCapId,
     present_buffer_format: PresentBufferFormat,
     present_buffer_shm_cap_id: ShmCapId,
 }
@@ -106,15 +110,15 @@ impl CpuPresent {
         Self { tab_context, space: HashMap::new() }
     }
 
-    fn add_info(&mut self, cap_id: DefaultDeferredSpaceCapId, present_buffer_format: PresentBufferFormat, present_buffer_shm_cap_id: ShmCapId) {
-        self.space.insert(cap_id, CpuPresentBufferInfo { present_buffer_format, present_buffer_shm_cap_id });
+    fn add_info(&mut self, cap_id: GfxCpuPresentBufferCapId, parent_gfx_cap_id: GfxCapId, present_buffer_format: PresentBufferFormat, present_buffer_shm_cap_id: ShmCapId) {
+        self.space.insert(cap_id, CpuPresentBufferInfo { parent_gfx_cap_id, present_buffer_format, present_buffer_shm_cap_id });
     }
 
-    fn get_info(&self, cap_id: DefaultDeferredSpaceCapId) -> Option<&CpuPresentBufferInfo> {
+    fn get_info(&self, cap_id: GfxCpuPresentBufferCapId) -> Option<&CpuPresentBufferInfo> {
         self.space.get(&cap_id)
     }
 
-    fn remove_info(&mut self, cap_id: DefaultDeferredSpaceCapId) -> Option<CpuPresentBufferInfo> {
+    fn remove_info(&mut self, cap_id: GfxCpuPresentBufferCapId) -> Option<CpuPresentBufferInfo> {
         self.space.remove(&cap_id)
     }
 }
@@ -123,71 +127,158 @@ impl GfxSpace {
     pub(crate) fn new(tab_context: Arc<dyn TabContext>) -> Self {
         Self {
             root_deferred_space: DefaultDeferredSpace::new(),
+            root_tree: HashMap::new(),
             cpu_present_buffer_deferred_space: DefaultDeferredSpace::new(),
             get_outputs: GetOutputs::new(Arc::clone(&tab_context)),
             cpu_present: CpuPresent::new(Arc::clone(&tab_context)),
         }
     }
 
-    pub fn new_gfx_cap(&mut self) -> Result<GfxCapId, DeferredSpaceError> {
-        self.root_deferred_space.new_cap(GFX_CONTEXT)
+    pub fn new_gfx_cap(&mut self) -> Result<GfxCapId, GfxSpaceError> {
+        self.root_deferred_space.new_cap(GFX_CONTEXT).context(DeferredSpaceSnafu)
     }
 
-    pub fn get_outputs_blocking(&mut self, gfx_cap_id: GfxCapId, output_shm_cap_id: ShmCapId, shm_space: &mut ShmSpace) -> Result<(), DeferredSpaceError> {
-        self.root_deferred_space.get_blocking(GFX_CONTEXT, gfx_cap_id, output_shm_cap_id, shm_space)
+    pub fn get_outputs_blocking(&mut self, gfx_cap_id: GfxCapId, output_shm_cap_id: ShmCapId, shm_space: &mut ShmSpace) -> Result<(), GfxSpaceError> {
+        self.root_deferred_space.get_blocking(GFX_CONTEXT, gfx_cap_id, output_shm_cap_id, shm_space).context(DeferredSpaceSnafu)
     }
 
     pub fn get_outputs_deferred(&mut self, gfx_cap_id: GfxCapId, shm_space: &mut ShmSpace) -> Result<(), ()> {
         self.root_deferred_space.get_deferred(&mut self.get_outputs, gfx_cap_id, shm_space)
     }
 
-    pub fn new_gfx_cpu_present_buffer_cap(&mut self, gfx_cap_id: GfxCapId, present_buffer_format: PresentBufferFormat, present_buffer_shm_cap_id: ShmCapId) -> Result<GfxCpuPresentBufferCapId, DeferredSpaceError> {
+    pub fn new_gfx_cpu_present_buffer_cap(&mut self, gfx_cap_id: GfxCapId, present_buffer_format: PresentBufferFormat, present_buffer_shm_cap_id: ShmCapId) -> Result<GfxCpuPresentBufferCapId, GfxSpaceError> {
         // Check that gfx_cap_id is a valid cap
-        self.root_deferred_space.contains_key(gfx_cap_id).then_some(()).ok_or_else(|| DeferredSpaceError::CapNotFound { context: GFX_CONTEXT.into(), id: gfx_cap_id })?;
+        self.root_deferred_space.contains_key(gfx_cap_id).then_some(()).ok_or_else(|| DeferredSpaceError::CapNotFound { context: GFX_CONTEXT.into(), id: gfx_cap_id }).context(DeferredSpaceSnafu)?;
 
         // Create the cpu present cap
-        let gfx_cpu_present_buffer_cap_id = self.cpu_present_buffer_deferred_space.new_cap(GFX_CPU_PRESENT_CONTEXT)?;
-        let mut all_succeeded = drop_guard::guard(false, |all_succeeded| {
-            if !all_succeeded {
-                // CapNotFound is an internal error. We cannot change the error
-                // being returned at this point anyway, so ignore.
-                let _ = self.cpu_present_buffer_deferred_space.destroy_cap(GFX_CPU_PRESENT_CONTEXT, gfx_cpu_present_buffer_cap_id);
-            }
-        });
+        let gfx_cpu_present_buffer_cap_id = self.cpu_present_buffer_deferred_space.new_cap(GFX_CPU_PRESENT_CONTEXT).context(DeferredSpaceSnafu)?;
 
         // Store the additional info
-        self.cpu_present.add_info(gfx_cpu_present_buffer_cap_id, present_buffer_format, present_buffer_shm_cap_id);
+        self.cpu_present.add_info(gfx_cpu_present_buffer_cap_id, gfx_cap_id, present_buffer_format, present_buffer_shm_cap_id);
 
-        *all_succeeded = true;
+        // Store tree-child association
+        self.root_tree.entry(gfx_cap_id).or_default().insert(gfx_cpu_present_buffer_cap_id);
+
         Ok(gfx_cpu_present_buffer_cap_id)
     }
 
-    pub fn cpu_present_blocking(&mut self, gfx_cpu_present_buffer_cap_id: GfxCpuPresentBufferCapId, output_shm_cap_id: ShmCapId, shm_space: &mut ShmSpace) -> Result<(), DeferredSpaceError> {
+    pub fn cpu_present_blocking(&mut self, gfx_cpu_present_buffer_cap_id: GfxCpuPresentBufferCapId, output_shm_cap_id: ShmCapId, shm_space: &mut ShmSpace) -> Result<(), GfxSpaceError> {
         let cpu_present_buffer_info = self.cpu_present.get_info(gfx_cpu_present_buffer_cap_id)
-            .ok_or_else(|| DeferredSpaceError::CapNotFound { context: GFX_CPU_PRESENT_CONTEXT.into(), id: gfx_cpu_present_buffer_cap_id })?;
+            .ok_or_else(|| DeferredSpaceError::CapNotFound { context: GFX_CPU_PRESENT_CONTEXT.into(), id: gfx_cpu_present_buffer_cap_id })
+            .context(DeferredSpaceSnafu)?;
 
-        self.cpu_present_buffer_deferred_space.publish_blocking(GFX_CPU_PRESENT_CONTEXT, gfx_cpu_present_buffer_cap_id, cpu_present_buffer_info.present_buffer_shm_cap_id, output_shm_cap_id, shm_space)
+        self.cpu_present_buffer_deferred_space.publish_blocking(GFX_CPU_PRESENT_CONTEXT, gfx_cpu_present_buffer_cap_id, cpu_present_buffer_info.present_buffer_shm_cap_id, output_shm_cap_id, shm_space).context(DeferredSpaceSnafu)
     }
 
     pub fn cpu_present_deferred(&mut self, gfx_cpu_present_buffer_cap_id: GfxCpuPresentBufferCapId, shm_space: &mut ShmSpace) -> Result<(), ()> {
         self.cpu_present_buffer_deferred_space.publish_deferred(&mut self.cpu_present, gfx_cpu_present_buffer_cap_id, shm_space)
     }
 
-    pub fn destroy_gfx_cpu_present_buffer_cap(&mut self, gfx_cpu_present_buffer_cap_id: GfxCpuPresentBufferCapId) -> Result<(), DeferredSpaceError> {
-        let cpu_present_buffer_info = self.cpu_present.remove_info(gfx_cpu_present_buffer_cap_id).ok_or_else(|| DeferredSpaceError::CapNotFound { context: GFX_CPU_PRESENT_CONTEXT.into(), id: gfx_cpu_present_buffer_cap_id })?;
-        let mut all_succeeded = drop_guard::guard(false, |all_succeeded| {
-            if !all_succeeded {
-                self.cpu_present.add_info(gfx_cpu_present_buffer_cap_id, cpu_present_buffer_info.present_buffer_format, cpu_present_buffer_info.present_buffer_shm_cap_id);
+    pub fn destroy_gfx_cpu_present_buffer_cap(&mut self, gfx_cpu_present_buffer_cap_id: GfxCpuPresentBufferCapId) -> Result<(), GfxSpaceError> {
+        let cpu_present_buffer_info = self.cpu_present.remove_info(gfx_cpu_present_buffer_cap_id).ok_or_else(|| DeferredSpaceError::CapNotFound { context: GFX_CPU_PRESENT_CONTEXT.into(), id: gfx_cpu_present_buffer_cap_id }).context(DeferredSpaceSnafu)?;
+        let all_succeeded = drop_guard::guard(false, |all_succ| {
+            if !all_succ {
+                self.cpu_present.add_info(gfx_cpu_present_buffer_cap_id, cpu_present_buffer_info.parent_gfx_cap_id, cpu_present_buffer_info.present_buffer_format, cpu_present_buffer_info.present_buffer_shm_cap_id);
             }
         });
 
-        self.cpu_present_buffer_deferred_space.destroy_cap(GFX_CPU_PRESENT_CONTEXT, gfx_cpu_present_buffer_cap_id)?;
+        // Remove tree-child association. The association is present because the
+        // parent cap is not allowed to be destroyed while the child cap is
+        // alive.
+        self.root_tree.entry(cpu_present_buffer_info.parent_gfx_cap_id).or_default().remove(&gfx_cpu_present_buffer_cap_id);
+        let mut all_succeeded = drop_guard::guard(all_succeeded, |all_succ| {
+            if !*all_succ {
+                self.root_tree.entry(cpu_present_buffer_info.parent_gfx_cap_id).or_default().insert(gfx_cpu_present_buffer_cap_id);
+            }
+        });
 
-        *all_succeeded = true;
+        self.cpu_present_buffer_deferred_space.destroy_cap(GFX_CPU_PRESENT_CONTEXT, gfx_cpu_present_buffer_cap_id).context(DeferredSpaceSnafu)?;
+
+        **all_succeeded = true;
         Ok(())
     }
 
-    pub fn destroy_gfx_cap(&mut self, gfx_cap_id: GfxCapId) -> Result<(), DeferredSpaceError> {
-        self.root_deferred_space.destroy_cap(GFX_CONTEXT, gfx_cap_id)
+    pub fn destroy_gfx_cap(&mut self, gfx_cap_id: GfxCapId) -> Result<(), GfxSpaceError> {
+        // If this root cap has children, you are not allowed to destroy it.
+        let children = self.root_tree.entry(gfx_cap_id).or_default();
+        if !children.is_empty() {
+            return ChildCapsNotDestroyedSnafu { gfx_cap_id, children: children.clone() }.fail();
+        }
+
+        self.root_deferred_space.destroy_cap(GFX_CONTEXT, gfx_cap_id).context(DeferredSpaceSnafu)
+    }
+}
+
+#[derive(Snafu, SnafuCliDebug)]
+pub enum GfxSpaceError {
+    DeferredSpaceError { source: DeferredSpaceError },
+    #[snafu(display("Not all CPU present buffer children caps were destroyed when trying to destroy this gfx_cap_id: {gfx_cap_id}. Please destroy its CPU present buffer children first: {children:?}"))]
+    ChildCapsNotDestroyed { gfx_cap_id: GfxCapId, children: HashSet<GfxCpuPresentBufferCapId> },
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::MutexGuard;
+
+    use super::*;
+
+    struct MockTabContext;
+    impl TabContext for MockTabContext {
+        fn send_hypervisor_event(&self, _unbound_hypervisor_event: UnboundHypervisorEvent) -> Result<(), HypervisorEventError> {
+            unimplemented!("This is a mock, this method is not expected to be called")
+        }
+
+        fn get_gfx_outputs(&self) -> Vec<MutexGuard<'_, GfxOutput>> {
+            unimplemented!("This is a mock, this method is not expected to be called")
+        }
+    }
+
+    #[test]
+    fn new_root_and_children_and_destroy_all_is_allowed() {
+        let mut gfx_space = GfxSpace::new(Arc::new(MockTabContext));
+
+        let gfx_cap_id = gfx_space.new_gfx_cap().expect("Should succeed");
+
+        let gfx_cpu_present_buffer_cap_id_1 = gfx_space.new_gfx_cpu_present_buffer_cap(gfx_cap_id, PresentBufferFormat::R8g8b8UintSrgb, 0).expect("Should succeed");
+        let gfx_cpu_present_buffer_cap_id_2 = gfx_space.new_gfx_cpu_present_buffer_cap(gfx_cap_id, PresentBufferFormat::R8g8b8UintSrgb, 1).expect("Should succeed");
+
+        // Destroying children first should work
+        gfx_space.destroy_gfx_cpu_present_buffer_cap(gfx_cpu_present_buffer_cap_id_1).expect("Should succeed");
+        gfx_space.destroy_gfx_cpu_present_buffer_cap(gfx_cpu_present_buffer_cap_id_2).expect("Should succeed");
+
+        // Now destroying the root should work
+        gfx_space.destroy_gfx_cap(gfx_cap_id).expect("Should succeed");
+    }
+
+    #[test]
+    fn destroying_root_before_destroying_children_is_not_allowed() {
+        let mut gfx_space = GfxSpace::new(Arc::new(MockTabContext));
+
+        let gfx_cap_id = gfx_space.new_gfx_cap().expect("Should succeed");
+
+        let gfx_cpu_present_buffer_cap_id_1 = gfx_space.new_gfx_cpu_present_buffer_cap(gfx_cap_id, PresentBufferFormat::R8g8b8UintSrgb, 0).expect("Should succeed");
+        let gfx_cpu_present_buffer_cap_id_2 = gfx_space.new_gfx_cpu_present_buffer_cap(gfx_cap_id, PresentBufferFormat::R8g8b8UintSrgb, 1).expect("Should succeed");
+
+        // Destroy only one child
+        gfx_space.destroy_gfx_cpu_present_buffer_cap(gfx_cpu_present_buffer_cap_id_1).expect("Should succeed");
+
+        // Now destroying the root should fail
+        let mut expected_remaining_children = HashSet::new();
+        expected_remaining_children.insert(gfx_cpu_present_buffer_cap_id_2);
+        assert!(matches!(gfx_space.destroy_gfx_cap(gfx_cap_id), Err(GfxSpaceError::ChildCapsNotDestroyed { gfx_cap_id: m_gfx_cap_id, children }) if m_gfx_cap_id == gfx_cap_id && children == expected_remaining_children));
+    }
+
+    #[test]
+    fn destroy_gfx_cpu_present_buffer_cap_returns_error_when_not_found() {
+        let mut gfx_space = GfxSpace::new(Arc::new(MockTabContext));
+
+        assert!(matches!(gfx_space.destroy_gfx_cpu_present_buffer_cap(0), Err(GfxSpaceError::DeferredSpaceError { source: DeferredSpaceError::CapNotFound { id: 0, .. } })));
+    }
+
+    #[test]
+    fn destroy_gfx_cap_returns_error_when_not_found() {
+        let mut gfx_space = GfxSpace::new(Arc::new(MockTabContext));
+
+        assert!(matches!(gfx_space.destroy_gfx_cap(0), Err(GfxSpaceError::DeferredSpaceError { source: DeferredSpaceError::CapNotFound { id: 0, .. } })));
     }
 }

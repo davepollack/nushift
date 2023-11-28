@@ -82,8 +82,9 @@ pub const SyscallErrorEnum = enum(usize) {
     deferred_task_ids_not_found = 15,
 
     gfx_unknown_present_buffer_format = 16,
+    gfx_child_caps_not_destroyed = 17,
 
-    debug_print_deserialize_error = 17,
+    debug_print_deserialize_error = 18,
 };
 
 pub const SyscallError = error{
@@ -108,6 +109,7 @@ pub const SyscallError = error{
     DeferredTaskIdsNotFound,
 
     GfxUnknownPresentBufferFormat,
+    GfxChildCapsNotDestroyed,
 
     DebugPrintDeserializeError,
 };

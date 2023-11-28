@@ -9,7 +9,7 @@ use crate::hypervisor::tab_context::TabContext;
 use crate::accessibility_tree_space::AccessibilityTreeSpace;
 use crate::deferred_space::app_global_deferred_space::{AppGlobalDeferredSpace, AppGlobalDeferredSpaceError, Task, TaskId};
 use crate::deferred_space::DeferredSpaceError;
-use crate::gfx_space::{GfxSpace, PresentBufferFormat};
+use crate::gfx_space::{GfxSpace, PresentBufferFormat, GfxSpaceError};
 use crate::register_ipc::{SyscallEnter, SyscallReturn, SYSCALL_NUM_REGISTER_INDEX, FIRST_ARG_REGISTER_INDEX, SECOND_ARG_REGISTER_INDEX, THIRD_ARG_REGISTER_INDEX, FOURTH_ARG_REGISTER_INDEX};
 use crate::shm_space::{CapType, ShmType, ShmSpace, ShmSpaceError};
 use crate::title_space::TitleSpace;
@@ -82,8 +82,9 @@ pub enum SyscallError {
     DeferredTaskIdsNotFound = 15,
 
     GfxUnknownPresentBufferFormat = 16,
+    GfxChildCapsNotDestroyed = 17,
 
-    DebugPrintDeserializeError = 17,
+    DebugPrintDeserializeError = 18,
 }
 
 fn set_error<R: Register>(error: SyscallError) -> SyscallReturn<R> {
@@ -140,6 +141,13 @@ fn marshall_app_global_deferred_space_error<R: Register>(app_global_deferred_spa
         AppGlobalDeferredSpaceError::NotFound { .. } => set_error(SyscallError::DeferredTaskIdsNotFound),
         AppGlobalDeferredSpaceError::ShmCapNotFound { .. } => set_error(SyscallError::CapNotFound),
         AppGlobalDeferredSpaceError::ShmPermissionDenied { .. } => set_error(SyscallError::PermissionDenied),
+    }
+}
+
+fn marshall_gfx_space_error<R: Register>(gfx_space_error: GfxSpaceError) -> SyscallReturn<R> {
+    match gfx_space_error {
+        GfxSpaceError::DeferredSpaceError { source } => marshall_deferred_space_error(source),
+        GfxSpaceError::ChildCapsNotDestroyed { .. } => set_error(SyscallError::GfxChildCapsNotDestroyed),
     }
 }
 
@@ -380,7 +388,7 @@ impl NushiftSubsystem {
             Ok(Syscall::GfxNew) => {
                 let gfx_cap_id = match self.gfx_space.new_gfx_cap() {
                     Ok(gfx_cap_id) => gfx_cap_id,
-                    Err(deferred_space_error) => return marshall_deferred_space_error(deferred_space_error),
+                    Err(gfx_space_error) => return marshall_gfx_space_error(gfx_space_error),
                 };
 
                 set_success(gfx_cap_id)
@@ -396,7 +404,7 @@ impl NushiftSubsystem {
 
                 match self.gfx_space.get_outputs_blocking(gfx_cap_id, output_shm_cap_id, &mut self.shm_space) {
                     Ok(_) => {},
-                    Err(deferred_space_error) => return marshall_deferred_space_error(deferred_space_error),
+                    Err(gfx_space_error) => return marshall_gfx_space_error(gfx_space_error),
                 };
 
                 let task_id = task.push_task();
@@ -413,7 +421,7 @@ impl NushiftSubsystem {
 
                 let gfx_cpu_present_buffer_cap_id = match self.gfx_space.new_gfx_cpu_present_buffer_cap(gfx_cap_id, present_buffer_format, present_buffer_shm_cap_id) {
                     Ok(gfx_cpu_present_buffer_cap_id) => gfx_cpu_present_buffer_cap_id,
-                    Err(deferred_space_error) => return marshall_deferred_space_error(deferred_space_error),
+                    Err(gfx_space_error) => return marshall_gfx_space_error(gfx_space_error),
                 };
 
                 set_success(gfx_cpu_present_buffer_cap_id)
@@ -438,7 +446,7 @@ impl NushiftSubsystem {
 
                 match self.gfx_space.cpu_present_blocking(gfx_cpu_present_buffer_cap_id, output_shm_cap_id, &mut self.shm_space) {
                     Ok(_) => {},
-                    Err(deferred_space_error) => return marshall_deferred_space_error(deferred_space_error),
+                    Err(gfx_space_error) => return marshall_gfx_space_error(gfx_space_error),
                 };
 
                 let task_id = task.push_task();
@@ -450,7 +458,7 @@ impl NushiftSubsystem {
 
                 match self.gfx_space.destroy_gfx_cpu_present_buffer_cap(gfx_cpu_present_buffer_cap_id) {
                     Ok(_) => {},
-                    Err(deferred_space_error) => return marshall_deferred_space_error(deferred_space_error),
+                    Err(gfx_space_error) => return marshall_gfx_space_error(gfx_space_error),
                 };
 
                 set_success(0)
@@ -460,7 +468,7 @@ impl NushiftSubsystem {
 
                 match self.gfx_space.destroy_gfx_cap(gfx_cap_id) {
                     Ok(_) => {},
-                    Err(deferred_space_error) => return marshall_deferred_space_error(deferred_space_error),
+                    Err(gfx_space_error) => return marshall_gfx_space_error(gfx_space_error),
                 };
 
                 set_success(0)
