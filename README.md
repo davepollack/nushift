@@ -276,6 +276,22 @@ Destroys a graphics capability.
 
 All CPU present buffer capabilities that used this graphics capability must be destroyed before destroying this, otherwise `GfxChildCapsNotDestroyed` is returned.
 
+## Debug Print API
+
+### DebugPrint
+
+Arguments: input_shm_cap_id (`u64`).\
+Returns: `0u64`.\
+Errors: `InternalError`, `CapNotFound`, `PermissionDenied`, `DebugPrintDeserializeError`
+
+Prints a string to the console for debugging purposes.
+
+The `input_shm_cap_id` cap contains the string in Postcard format. That is, it contains a varint-encoded integer representing the length of the following data in bytes, followed by the string data. The hypervisor expects the string data portion to be UTF-8.
+
+An `input_shm_cap_id` cap in either the released or non-released state is accepted. The `input_shm_cap_id` cap is not released by this call.
+
+The console is currently stdout of the Nushift host program. For example on Windows, if you double-click nushift.exe, there will be no console that you can see. If you run nushift.exe from a command prompt, there will be.
+
 ## Errors (API)
 
 ### SyscallError (enum)
@@ -351,6 +367,10 @@ The value provided for the `PresentBufferFormat` enum was unrecognised.
 `GfxChildCapsNotDestroyed` = 17,
 
 The requested graphics capability has been used to create child capabilities (for example, CPU present buffer capabilities) that have not been destroyed, and therefore this graphics capability cannot be destroyed. Please destroy the child capabilities first.
+
+`DebugPrintDeserializeError` = 18,
+
+The data in the `input_shm_cap_id` cap provided to `DebugPrint` is not in valid Postcard format.
 
 ## Storage
 
