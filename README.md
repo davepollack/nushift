@@ -254,6 +254,28 @@ As with other deferred-style calls:
 
 An error will be written to the `output_shm_cap_id` cap if the Postcard data in the `present_buffer_shm_cap_id` cap cannot be deserialised, or an internal error fetching `gfx_cpu_present_buffer_cap_id` info failed, or the present command submission to the Nushift GUI shell failed. In the last case, this probably means that the Nushift GUI shell has gone away. The error begins with the varint-encoded discriminant 1, followed by error details. On success, the varint-encoded discriminant 0 is written. The output format is itself in the Postcard format.
 
+### GfxCpuPresentBufferDestroy
+
+Arguments: gfx_cpu_present_buffer_cap_id (`u64`).\
+Returns: `0u64`.\
+Errors: `CapNotFound`
+
+Destroys a CPU present buffer capability.
+
+This operation is allowed regardless of the state of the underlying `present_buffer_shm_cap_id`.
+
+This does not un-present any previous present operations.
+
+### GfxDestroy
+
+Arguments: gfx_cap_id (`u64`).\
+Returns: `0u64`.\
+Errors: `CapNotFound`, `GfxChildCapsNotDestroyed`
+
+Destroys a graphics capability.
+
+All CPU present buffer capabilities that used this graphics capability must be destroyed before destroying this, otherwise `GfxChildCapsNotDestroyed` is returned.
+
 ## Errors (API)
 
 ### SyscallError (enum)
@@ -325,6 +347,10 @@ One or more task IDs in the input to `BlockOnDeferredTasks` do not exist, either
 `GfxUnknownPresentBufferFormat` = 16,
 
 The value provided for the `PresentBufferFormat` enum was unrecognised.
+
+`GfxChildCapsNotDestroyed` = 17,
+
+The requested graphics capability has been used to create child capabilities (for example, CPU present buffer capabilities) that have not been destroyed, and therefore this graphics capability cannot be destroyed. Please destroy the child capabilities first.
 
 ## Storage
 
