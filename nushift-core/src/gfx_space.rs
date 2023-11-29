@@ -199,6 +199,10 @@ impl GfxSpace {
     }
 
     pub fn destroy_gfx_cap(&mut self, gfx_cap_id: GfxCapId) -> Result<(), GfxSpaceError> {
+        // Check that gfx_cap_id is a valid cap. While destroy_cap does do this
+        // check, we want to have it before the root_tree check.
+        self.root_deferred_space.contains_key(gfx_cap_id).then_some(()).ok_or_else(|| DeferredSpaceError::CapNotFound { context: GFX_CONTEXT.into(), id: gfx_cap_id }).context(DeferredSpaceSnafu)?;
+
         // If this root cap has children, you are not allowed to destroy it.
         let children = self.root_tree.entry(gfx_cap_id).or_default();
         if !children.is_empty() {
