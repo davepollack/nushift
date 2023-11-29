@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const os_nushift = @import("os_nushift");
 const main = @import("main");
 
@@ -32,7 +33,17 @@ export fn _start() callconv(.Naked) noreturn {
               [exit_reason] "{a1}" (t0_output),
             : "memory", "t0", "a0", "a1"
         );
-        // Putting `unreachable` here is not allowed since Zig 0.11.0, even though I would like to
+
+        // I would like to put `unreachable` here. But I'm not allowed to since
+        // Zig 0.11.0. So, I'm emulating it.
+        if (builtin.mode == .Debug or builtin.mode == .ReleaseSafe) {
+            // Spin on ebreak, what Zig usually emits in these modes
+            asm volatile (
+                \\ eb:
+                \\ ebreak
+                \\ j eb
+            );
+        }
     }
 
     // Set SP to base
