@@ -26,7 +26,7 @@ Currently, RV64IMC is supported. Support for more extensions will almost certain
 
 The syscall number is passed in `a0`.
 
-The (optional) first, second and third arguments are passed in `a1`, `a2`, `a3`.
+The (optional) first, second, third and fourth arguments are passed in `a1`, `a2`, `a3`, `a4`.
 
 The `ecall` instruction is used to issue the call.
 
