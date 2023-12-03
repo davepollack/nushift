@@ -22,7 +22,7 @@ pub fn main() usize {
     return mainImpl() catch |err| blk: {
         // While there is no particular reason for this error_message to be
         // computed at comptime anymore, for some reason if we change it to
-        // runtime the .text section size jumps by 45%.
+        // runtime, the .text section size jumps by 45%.
         const error_message = switch (err) {
             inline else => |any_err| std.fmt.comptimePrint("Error: {s}", .{@errorName(any_err)}),
         };
