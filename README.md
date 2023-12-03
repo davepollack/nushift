@@ -44,7 +44,7 @@ If an error occurs, `a0` is set to `u64::MAX`, and the error code is returned in
 
 These correspond to the page and superpage sizes available in the Sv39 scheme described in the RISC-V privileged specification. Apps, furthermore, currently have access to the Sv39 scheme (39-bit virtual addressing giving a total of 512 GiB virtual space, and 56-bit physical addressing). Support for Sv48 and Sv57, and their associated superpage sizes, may be added in the future.
 
-### ShmNew
+### ShmNew = 1,
 
 Arguments: type (`ShmType`), length (`u64`).\
 Returns: shm_cap_id (`u64`).\
@@ -56,7 +56,7 @@ Creates a new SHM cap. The size (in bytes) of the backing memory of the cap is t
 
 On current commodity operating systems, mmap is used to reserve the memory when you call `ShmNew`.
 
-### ShmAcquire
+### ShmAcquire = 2,
 
 Arguments: shm_cap_id (`u64`), address (`u64`).\
 Returns: `0u64`.\
@@ -66,7 +66,7 @@ Maps (acquires) the requested cap into the app at the requested address.
 
 `address` must be page-aligned to the page type of the provided `shm_cap_id`, and must be less than 2<sup>39</sup>, due to the current Sv39 scheme.
 
-### ShmNewAndAcquire
+### ShmNewAndAcquire = 3,
 
 Arguments: type (`ShmType`), length (`u64`), address (`u64`).\
 Returns: shm_cap_id (`u64`).\
@@ -74,7 +74,7 @@ Errors: `InternalError`, `Exhausted`, `ShmUnknownShmType`, `ShmInvalidLength`, `
 
 Calls `ShmNew` and `ShmAcquire` in one system call.
 
-### ShmRelease
+### ShmRelease = 4,
 
 Arguments: shm_cap_id (`u64`).\
 Returns: `0u64`.\
@@ -84,7 +84,7 @@ Unmaps (releases) the requested cap from the app.
 
 Silently succeeds if the requested cap is not currently acquired.
 
-### ShmDestroy
+### ShmDestroy = 5,
 
 Arguments: shm_cap_id (`u64`).\
 Returns: `0u64`.\
@@ -94,7 +94,7 @@ Deletes a cap.
 
 The cap must be released before destroying, otherwise the error `ShmCapCurrentlyAcquired` is returned.
 
-### ShmReleaseAndDestroy
+### ShmReleaseAndDestroy = 6,
 
 Arguments: shm_cap_id (`u64`).\
 Returns: `0u64`.\
@@ -104,7 +104,7 @@ Calls `ShmRelease` and `ShmDestroy` in one system call.
 
 ## Accessibility Tree API
 
-### AccessibilityTreeNew
+### AccessibilityTreeNew = 7,
 
 Arguments: None.\
 Returns: accessibility_tree_cap_id (`u64`).\
@@ -112,7 +112,7 @@ Errors: `InternalError`, `Exhausted`
 
 Creates a new accessibility tree capability, that can be used to publish an accessibility tree.
 
-### AccessibilityTreePublish
+### AccessibilityTreePublish = 8,
 
 Arguments: accessibility_tree_cap_id (`u64`), input_shm_cap_id (`u64`), output_shm_cap_id (`u64`).\
 Returns: task_id (`u64`).\
@@ -129,7 +129,7 @@ As with other deferred-style calls:
 
 An error will be written to the `output_shm_cap_id` cap if the Postcard data cannot be deserialised, or the RON string itself cannot be deserialised. The error begins with the varint-encoded discriminant 1, followed by error details. On success, the varint-encoded discriminant 0 is written. The output format is itself in the Postcard format.
 
-### AccessibilityTreeDestroy
+### AccessibilityTreeDestroy = 9,
 
 Arguments: accessibility_tree_cap_id (`u64`).\
 Returns: `0u64`.\
@@ -139,7 +139,7 @@ Destroys an accessibility tree capability. This does not destroy any published a
 
 ## Title API
 
-### TitleNew
+### TitleNew = 10,
 
 Arguments: None.\
 Returns: title_cap_id (`u64`).\
@@ -147,7 +147,7 @@ Errors: `InternalError`, `Exhausted`
 
 Creates a new title capability, that can be used to publish a title of the app.
 
-### TitlePublish
+### TitlePublish = 11,
 
 Arguments: title_cap_id (`u64`), input_shm_cap_id (`u64`), output_shm_cap_id (`u64`).
 Returns: task_id (`u64`).\
@@ -164,7 +164,7 @@ As with other deferred-style calls:
 
 An error will be written to the `output_shm_cap_id` cap if the Postcard data cannot be deserialised, or the title submission to the Nushift GUI shell failed. In the latter case, this probably means that the Nushift GUI shell has gone away. The error begins with the varint-encoded discriminant 1, followed by error details. On success, the varint-encoded discriminant 0 is written. The output format is itself in the Postcard format.
 
-### TitleDestroy
+### TitleDestroy = 12,
 
 Arguments: title_cap_id (`u64`).\
 Returns: `0u64`.\
@@ -174,7 +174,7 @@ Destroys a title capability. This does not unset any published titles.
 
 ## Block On Deferred Tasks API
 
-### BlockOnDeferredTasks
+### BlockOnDeferredTasks = 13,
 
 Arguments: input_shm_cap_id (`u64`).\
 Returns: `0u64`.\
@@ -202,7 +202,7 @@ Alpha is not present because the buffer is not blended with anything. A variant 
 
 HDR and/or linear formats may be added in the future.
 
-### GfxNew
+### GfxNew = 14,
 
 Arguments: None.\
 Returns: gfx_cap_id (`u64`).\
@@ -210,7 +210,7 @@ Errors: `InternalError`, `Exhausted`
 
 Creates a new graphics capability.
 
-### GfxGetOutputs
+### GfxGetOutputs = 15,
 
 Arguments: gfx_cap_id (`u64`), output_shm_cap_id (`u64`).\
 Returns: task_id (`u64`).\
@@ -225,7 +225,7 @@ As with other deferred-style calls:
 
 A `Vec<GfxOutput>` will be written to the `output_shm_cap_id` cap, where `GfxOutput` is `struct { id: u64, size_px: Vec<u64>, scale: Vec<f64> }`, in Postcard format. The length of the `Vec`s within `GfxOutput` represent number of dimensions. `size_px` is physical pixels. `scale` is 1, 1.25, 1.5 etc representing DPI. The success discriminant 0 (varint-encoded in Postcard format) is written at the beginning of the output.
 
-### GfxCpuPresentBufferNew
+### GfxCpuPresentBufferNew = 16,
 
 Arguments: gfx_cap_id (`u64`), present_buffer_format (`PresentBufferFormat`), present_buffer_shm_cap_id (`u64`).\
 Returns: gfx_cpu_present_buffer_cap_id (`u64`).\
@@ -237,7 +237,7 @@ Creates a new CPU present buffer. As the name implies, the buffer is stored in m
 
 Various presentation strategies can be employed through the creation of multiple present buffers.
 
-### GfxCpuPresent
+### GfxCpuPresent = 17,
 
 Arguments: gfx_cpu_present_buffer_cap_id (`u64`), gfx_output_id (`u64`), wait_for_vblank (`u64`), output_shm_cap_id (`u64`).\
 Returns: task_id (`u64`).\
@@ -256,7 +256,7 @@ As with other deferred-style calls:
 
 An error will be written to the `output_shm_cap_id` cap if the Postcard data in the `present_buffer_shm_cap_id` cap cannot be deserialised, or an internal error fetching `gfx_cpu_present_buffer_cap_id` info failed, or the present command submission to the Nushift GUI shell failed. In the last case, this probably means that the Nushift GUI shell has gone away. The error begins with the varint-encoded discriminant 1, followed by error details. On success, the varint-encoded discriminant 0 is written. The output format is itself in the Postcard format.
 
-### GfxCpuPresentBufferDestroy
+### GfxCpuPresentBufferDestroy = 18,
 
 Arguments: gfx_cpu_present_buffer_cap_id (`u64`).\
 Returns: `0u64`.\
@@ -268,7 +268,7 @@ This operation is allowed regardless of the state of the underlying `present_buf
 
 This does not un-present any previous present operations.
 
-### GfxDestroy
+### GfxDestroy = 19,
 
 Arguments: gfx_cap_id (`u64`).\
 Returns: `0u64`.\
@@ -280,7 +280,7 @@ All CPU present buffer capabilities that used this graphics capability must be d
 
 ## Debug Print API
 
-### DebugPrint
+### DebugPrint = 20,
 
 Arguments: input_shm_cap_id (`u64`).\
 Returns: `0u64`.\
