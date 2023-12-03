@@ -180,7 +180,7 @@ Arguments: input_shm_cap_id (`u64`).\
 Returns: `0u64`.\
 Errors: `InternalError`, `DeferredDeserializeTaskIdsError`, `DeferredDuplicateTaskIds`, `DeferredTaskIdsNotFound`, `CapNotFound`, `PermissionDenied`
 
-Blocks the app until the tasks represented by the task IDs in `input_shm_cap_id` are completed, and destroys those task IDs so they can't be referenced anymore (until they are reused by a future allocation).
+Blocks the app until the tasks represented by the task IDs in `input_shm_cap_id` are completed, and destroys those task IDs so they can't be referenced anymore (until they are reused by a future task ID allocation).
 
 The `input_shm_cap_id` cap contains a Postcard `seq` (array) of task IDs.
 
