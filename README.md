@@ -8,7 +8,7 @@ A new shift in running programs with shareable URLs.
 
 ## Overview
 
-Nushift attempts to be an alternative to the web that has the accessibility and shareability of web URLs, but uses different technologies than the web. Apps (or pages) are RISC-V programs, that interact with a syscall ABI defined by us.
+Nushift attempts to be an alternative to the web that has the accessibility and shareability of web URLs, but uses different technologies to the web. Apps (or pages) are RISC-V programs, that interact with a syscall ABI defined by us.
 
 The Nushift hypervisor is focused on being small and having a strict API. Visual layout is entirely done by apps themselves, while communicating what is being done through the accessibility tree API.
 
