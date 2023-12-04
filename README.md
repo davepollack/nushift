@@ -102,6 +102,20 @@ Errors: `InternalError`, `CapNotFound`, `PermissionDenied`
 
 Calls `ShmRelease` and `ShmDestroy` in one system call.
 
+## Exit API
+
+### Exit = 0,
+
+Arguments: exit_reason (`u64`).\
+Returns: N/A.\
+Errors: None
+
+Exits the app.
+
+Upon issuing the `ecall`, no further app instructions will be executed.
+
+The provided `exit_reason` is currently printed to the console.
+
 ## Accessibility Tree API
 
 ### AccessibilityTreeNew = 7,
