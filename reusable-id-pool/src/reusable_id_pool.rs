@@ -58,17 +58,21 @@ impl PartialEq for ArcId {
         Arc::ptr_eq(&self.0, &other.0)
     }
 }
+
 impl Eq for ArcId {}
+
 impl std::hash::Hash for ArcId {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         Arc::as_ptr(&self.0).hash(state);
     }
 }
+
 impl PartialOrd for ArcId {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
+
 impl Ord for ArcId {
     /// Similarly to PartialEq, multiple references to the same ID created with
     /// `ArcId::clone(&id)` should be ordered as equal.

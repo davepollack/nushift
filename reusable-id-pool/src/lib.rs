@@ -21,6 +21,7 @@ pub use crate::reusable_id_pool_manual::ReusableIdPoolManual;
 pub enum ReusableIdPoolError {
     TooManyLiveIDs,
 }
+
 impl Display for ReusableIdPoolError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -28,6 +29,7 @@ impl Display for ReusableIdPoolError {
         }
     }
 }
+
 impl Debug for ReusableIdPoolError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -35,6 +37,7 @@ impl Debug for ReusableIdPoolError {
         }
     }
 }
+
 // Change to core when error_in_core is stabilised.
 #[cfg(feature = "std")]
 impl std::error::Error for ReusableIdPoolError {}
