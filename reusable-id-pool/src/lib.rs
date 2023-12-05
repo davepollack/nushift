@@ -1,4 +1,4 @@
-// Copyright 2023 reusable-id-pool Contributors.
+// Copyright 2023 The reusable-id-pool Authors.
 //
 // Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
 // https://www.apache.org/licenses/LICENSE-2.0> or the MIT license
