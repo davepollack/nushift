@@ -402,6 +402,16 @@ TODO!
 
 It should be as easy to start a secure server serving Nushift programs as it is to start an SSH server.
 
+## Licence
+
+The `nushift` and `nushift-core` directories are licensed under the Apache License, Version 2.0.
+
+The `reusable-id-pool` directory is licensed under the Apache License, Version 2.0 or the MIT license, at your option.
+
+The `nulib` and `examples` directories are licensed under the Boost Software License, Version 1.0.
+
+See the `LICENSE` and/or `NOTICE` files in each directory for more details.
+
 ## Running
 
 Please run the nushift GUI desktop application from the `nushift` directory. I.e. `cd nushift && cargo run`. NOT `cargo run -p nushift`. This is required for internationalised strings to work.
