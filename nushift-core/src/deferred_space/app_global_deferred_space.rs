@@ -1,3 +1,6 @@
+// Copyright 2023 The Nushift Authors.
+// SPDX-License-Identifier: Apache-2.0
+
 use core::mem;
 use std::collections::{HashMap, hash_map::{Entry, VacantEntry}};
 

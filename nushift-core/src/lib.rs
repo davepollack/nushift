@@ -1,3 +1,6 @@
+// Copyright 2023 The Nushift Authors.
+// SPDX-License-Identifier: Apache-2.0
+
 mod accessibility_tree_space;
 mod debug_print;
 mod deferred_space;

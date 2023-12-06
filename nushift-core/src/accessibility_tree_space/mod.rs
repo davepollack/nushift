@@ -1,3 +1,6 @@
+// Copyright 2023 The Nushift Authors.
+// SPDX-License-Identifier: Apache-2.0
+
 use serde::Deserialize;
 
 use self::accessibility_tree::AccessibilityTree;

@@ -1,3 +1,6 @@
+// Copyright 2023 The Nushift Authors.
+// SPDX-License-Identifier: Apache-2.0
+
 use druid::{Env, EventCtx, Data, Widget, widget::Controller, Event, LifeCycleCtx, LifeCycle, MouseEvent};
 
 /// Like `druid::widget::Click`, but call `child.event` first to let the child

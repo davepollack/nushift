@@ -1,3 +1,6 @@
+// Copyright 2023 The Nushift Authors.
+// SPDX-License-Identifier: Apache-2.0
+
 mod click_inverse;
 mod hypervisor_command_handler;
 

@@ -1,3 +1,6 @@
+// Copyright 2023 The Nushift Authors.
+// SPDX-License-Identifier: Apache-2.0
+
 use druid::{widget::{Painter, SizedBox, Padding}, kurbo::BezPath, Point, RenderContext, Widget, WidgetExt};
 
 use crate::model::RootAndTabData;

@@ -1,3 +1,6 @@
+// Copyright 2023 The Nushift Authors.
+// SPDX-License-Identifier: Apache-2.0
+
 use druid::{
     text::ArcStr,
     widget::{Painter, Flex, MainAxisAlignment, Label},

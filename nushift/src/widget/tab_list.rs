@@ -1,3 +1,6 @@
+// Copyright 2023 The Nushift Authors.
+// SPDX-License-Identifier: Apache-2.0
+
 use druid::widget::prelude::*;
 use druid::{widget::ListIter, WidgetPod, Widget, Point};
 use reusable_id_pool::ArcId;

@@ -1,3 +1,6 @@
+// Copyright 2023 The Nushift Authors.
+// SPDX-License-Identifier: Apache-2.0
+
 use core::ops::DerefMut;
 use std::collections::HashSet;
 use std::sync::{mpsc, Arc, Mutex, Condvar};

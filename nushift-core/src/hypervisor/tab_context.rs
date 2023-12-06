@@ -1,3 +1,6 @@
+// Copyright 2023 The Nushift Authors.
+// SPDX-License-Identifier: Apache-2.0
+
 use std::sync::{MutexGuard, Arc, Mutex};
 
 use reusable_id_pool::ArcId;

@@ -1,3 +1,6 @@
+// Copyright 2023 The Nushift Authors.
+// SPDX-License-Identifier: Apache-2.0
+
 use druid::{Env, EventCtx, Data, Widget, widget::Controller, Event};
 use nushift_core::HypervisorEvent;
 

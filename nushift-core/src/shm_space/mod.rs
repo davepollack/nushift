@@ -1,3 +1,6 @@
+// Copyright 2023 The Nushift Authors.
+// SPDX-License-Identifier: Apache-2.0
+
 use std::{collections::{HashMap, hash_map::Entry}, io, ops::{Deref, DerefMut}, num::NonZeroU64};
 
 use memmap2::MmapMut;

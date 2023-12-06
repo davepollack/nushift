@@ -1,3 +1,6 @@
+// Copyright 2023 The Nushift Authors.
+// SPDX-License-Identifier: Apache-2.0
+
 use druid::{Key, Color};
 
 pub const TEXT_COLOR: Color = Color::grey8(0x00);

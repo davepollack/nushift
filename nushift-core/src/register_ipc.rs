@@ -1,3 +1,6 @@
+// Copyright 2023 The Nushift Authors.
+// SPDX-License-Identifier: Apache-2.0
+
 use core::ops::Index;
 
 // Instead of using the structs in this file for mpsc IPC, I would like to go

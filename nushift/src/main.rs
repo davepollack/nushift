@@ -1,3 +1,6 @@
+// Copyright 2023 The Nushift Authors.
+// SPDX-License-Identifier: Apache-2.0
+
 // On Windows, don't show a console when opening the app.
 #![cfg_attr(not(test), windows_subsystem = "windows")]
 

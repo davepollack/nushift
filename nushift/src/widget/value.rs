@@ -1,3 +1,6 @@
+// Copyright 2023 The Nushift Authors.
+// SPDX-License-Identifier: Apache-2.0
+
 use druid::Color;
 
 pub const TOP_BAR_HEIGHT: f64 = 30.0;
