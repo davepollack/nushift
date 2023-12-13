@@ -3,6 +3,9 @@ name = "reusable-id-pool"
 version = "0.1.0"
 authors = ["David Pollack <david@pollack.id.au>"]
 edition = "2021"
+readme = "README.md"
+repository = "https://github.com/davepollack/nushift/tree/master/reusable-id-pool"
+description = "A pool for RAII IDs"
 license = "Apache-2.0 OR MIT"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

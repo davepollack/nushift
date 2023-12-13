@@ -6,9 +6,6 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// TODO: Before publishing this crate, it would be cool to have an
-// `allocate_rc(...) -> RcId` alternative to `allocate(...) -> ArcId`.
-
 extern crate alloc;
 
 use core::fmt::Debug;
