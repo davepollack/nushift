@@ -1,6 +1,6 @@
 # reusable-id-pool
 
-An RAII ID pool with O(1) allocate and O(1) release of opaque IDs.
+A pool for RAII IDs.
 
 This crate provides two structs, `ReusableIdPool` and `ReusableIdPoolManual`.
 
