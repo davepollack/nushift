@@ -23,7 +23,7 @@ struct ReusableIdPoolInternal {
     free_list: Vec<u64>,
 }
 
-pub struct Id {
+struct Id {
     per_pool_id: u64,
     pool: Arc<Mutex<ReusableIdPoolInternal>>,
 }
