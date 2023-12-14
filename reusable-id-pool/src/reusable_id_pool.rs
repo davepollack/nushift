@@ -43,6 +43,10 @@ impl Drop for Id {
     }
 }
 
+/// An RAII reference to an ID.
+///
+/// This has no "release" or "free" methods, the underlying ID is released when
+/// the last `ArcId` to it is dropped.
 #[derive(Debug, Clone)]
 pub struct ArcId(Arc<Id>);
 
