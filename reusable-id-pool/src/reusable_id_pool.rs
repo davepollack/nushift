@@ -45,10 +45,22 @@ impl Drop for Id {
 
 /// An RAII reference to an ID.
 ///
-/// This has no "release" or "free" methods, the underlying ID is released when
-/// the last `ArcId` to it is dropped.
-#[derive(Debug, Clone)]
+/// This has no "release" or "free" methods --- the underlying ID is released
+/// when the last [`ArcId`] to it is dropped.
+#[derive(Debug)]
 pub struct ArcId(Arc<Id>);
+
+impl Clone for ArcId {
+    /// Clones this [`ArcId`], which creates a new reference to the underlying
+    /// ID.
+    ///
+    /// Multiple [`ArcId`]s created through [`ArcId::clone`] are compared
+    /// ([`ArcId::eq`]) as equal.
+    #[inline]
+    fn clone(&self) -> Self {
+        ArcId(Arc::clone(&self.0))
+    }
+}
 
 impl PartialEq for ArcId {
     /// Returns if this ID is the same as the other ID.
