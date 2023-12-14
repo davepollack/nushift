@@ -6,6 +6,18 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+//! A pool for RAII IDs.
+//!
+//! ## Example
+//!
+//! ```rust
+//! use reusable_id_pool::ReusableIdPool;
+//!
+//! let reusable_id_pool = ReusableIdPool::new();
+//! let id = reusable_id_pool.allocate();
+//! // Do something with the `id`, like move it into a struct. It will be returned to the pool when it is dropped.
+//! ```
+
 #![cfg_attr(not(feature = "std"), no_std)]
 
 use core::fmt::{self, Display, Debug};
