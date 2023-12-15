@@ -56,6 +56,19 @@ impl Clone for ArcId {
     ///
     /// Multiple [`ArcId`]s created through [`ArcId::clone`] are compared
     /// ([`ArcId::eq`]) as equal.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use reusable_id_pool::{ArcId, ReusableIdPool};
+    ///
+    /// let reusable_id_pool = ReusableIdPool::new();
+    ///
+    /// let id_ref_1 = reusable_id_pool.allocate();
+    /// let id_ref_2 = ArcId::clone(&id_ref_1); // Or `id_ref_1.clone();`
+    ///
+    /// assert_eq!(id_ref_1, id_ref_2);
+    /// ```
     #[inline]
     fn clone(&self) -> Self {
         ArcId(Arc::clone(&self.0))
@@ -65,7 +78,7 @@ impl Clone for ArcId {
 impl PartialEq for ArcId {
     /// Returns if this ID is the same as the other ID.
     ///
-    /// When creating a new reference to an ID with `ArcId::clone(&id)`, those IDs
+    /// When creating a new reference to an ID with [`ArcId::clone`], those IDs
     /// are considered the same.
     fn eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
@@ -87,8 +100,11 @@ impl PartialOrd for ArcId {
 }
 
 impl Ord for ArcId {
-    /// Similarly to PartialEq, multiple references to the same ID created with
-    /// `ArcId::clone(&id)` should be ordered as equal.
+    /// Compares IDs. Like [`ArcId::eq`], multiple references to the same ID
+    /// created with [`ArcId::clone`] are ordered as equal.
+    ///
+    /// Different IDs are ordered deterministically, and as not equal, but in an
+    /// otherwise unspecified manner.
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         Arc::as_ptr(&self.0).cmp(&Arc::as_ptr(&other.0))
     }

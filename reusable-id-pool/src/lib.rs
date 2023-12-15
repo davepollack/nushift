@@ -10,7 +10,7 @@
 //!
 //! ## Example
 //!
-//! ```rust
+//! ```
 //! use reusable_id_pool::ReusableIdPool;
 //!
 //! let reusable_id_pool = ReusableIdPool::new();
