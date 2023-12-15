@@ -76,10 +76,10 @@ impl Clone for ArcId {
 }
 
 impl PartialEq for ArcId {
-    /// Returns if this ID is the same as the other ID.
+    /// Returns if this [`ArcId`] is the same as the other [`ArcId`].
     ///
-    /// When creating a new reference to an ID with [`ArcId::clone`], those IDs
-    /// are considered the same.
+    /// When creating a new reference to an ID with [`ArcId::clone`], those
+    /// [`ArcId`]s are considered the same.
     fn eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
     }
@@ -100,8 +100,8 @@ impl PartialOrd for ArcId {
 }
 
 impl Ord for ArcId {
-    /// Compares IDs. Like [`ArcId::eq`], multiple references to the same ID
-    /// created with [`ArcId::clone`] are ordered as equal.
+    /// Compares [`ArcId`]s. Like [`ArcId::eq`], multiple references to the same
+    /// ID created with [`ArcId::clone`] are ordered as equal.
     ///
     /// Different IDs are ordered deterministically, and as not equal, but in an
     /// otherwise unspecified manner.
