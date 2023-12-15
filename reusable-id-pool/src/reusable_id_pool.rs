@@ -14,6 +14,11 @@ use std::sync::Mutex;
 
 use super::ReusableIdPoolError;
 
+/// A `std`-only pool that hands out [`ArcId`]s.
+///
+/// An ID is returned to the pool by dropping --- when all its [`ArcId`]s are
+/// dropped. [`ArcId`] drop is constant time (decrementing a reference count, or
+/// appending to a free list for the final one).
 #[derive(Debug)]
 pub struct ReusableIdPool(Arc<Mutex<ReusableIdPoolInternal>>);
 
@@ -44,9 +49,6 @@ impl Drop for Id {
 }
 
 /// An RAII reference to an ID.
-///
-/// This has no "release" or "free" methods --- the underlying ID is released
-/// when the last [`ArcId`] to it is dropped.
 #[derive(Debug)]
 pub struct ArcId(Arc<Id>);
 
@@ -76,7 +78,7 @@ impl Clone for ArcId {
 }
 
 impl PartialEq for ArcId {
-    /// Returns if this [`ArcId`] is the same as the other [`ArcId`].
+    /// Returns whether this [`ArcId`] is the same as the other [`ArcId`].
     ///
     /// When creating a new reference to an ID with [`ArcId::clone`], those
     /// [`ArcId`]s are considered the same.
@@ -92,9 +94,9 @@ impl std::hash::Hash for ArcId {
     ///
     /// It is suitable to use [`ArcId`] as a key in
     /// [`HashMap`][std::collections::HashMap] or
-    /// [`HashSet`][std::collections::HashSet], and use one reference to an ID to
-    /// look up another reference to the same ID, as we satisfy `k1 == k2 ->
-    /// hash(k1) == hash(k2)`.
+    /// [`HashSet`][std::collections::HashSet], and to use one reference to an
+    /// ID to look up another reference to the same ID, as we satisfy `k1 == k2
+    /// -> hash(k1) == hash(k2)`.
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         Arc::as_ptr(&self.0).hash(state);
     }
@@ -118,7 +120,7 @@ impl Ord for ArcId {
 }
 
 impl ReusableIdPool {
-    /// Create a new reusable ID pool.
+    /// Creates a new reusable ID pool.
     pub fn new() -> Self {
         ReusableIdPool(Arc::new(Mutex::new(ReusableIdPoolInternal {
             frontier: 0,
