@@ -88,6 +88,13 @@ impl PartialEq for ArcId {
 impl Eq for ArcId {}
 
 impl std::hash::Hash for ArcId {
+    /// Hashes this [`ArcId`].
+    ///
+    /// It is suitable to use [`ArcId`] as a key in
+    /// [`HashMap`][std::collections::HashMap] or
+    /// [`HashSet`][std::collections::HashSet], and use one reference to an ID to
+    /// look up another reference to the same ID, as we satisfy `k1 == k2 ->
+    /// hash(k1) == hash(k2)`.
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         Arc::as_ptr(&self.0).hash(state);
     }
