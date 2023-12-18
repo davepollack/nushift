@@ -39,25 +39,28 @@ impl LinkedHashSet {
     }
 }
 
-/// NoStdFreeList, with multiple data structures, is used so the semantics (FIFO
+/// In NoStdFreeList, multiple data structures are used so the semantics (FIFO
 /// for reused IDs) match the std version.
 #[cfg(not(feature = "std"))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct NoStdFreeList {
     insertion_order: VecDeque<u64>,
-    free_list: BTreeSet<u64>,
+    free_tree: BTreeSet<u64>,
 }
 
 #[cfg(not(feature = "std"))]
 impl NoStdFreeList {
     fn new() -> Self {
-        Self { insertion_order: VecDeque::new(), free_list: BTreeSet::new() }
+        Self {
+            insertion_order: VecDeque::new(),
+            free_tree: BTreeSet::new(),
+        }
     }
 
     fn pop_front(&mut self) -> Option<u64> {
         match self.insertion_order.pop_front() {
             Some(item) => {
-                self.free_list.remove(&item);
+                self.free_tree.remove(&item);
                 Some(item)
             },
             None => None,
@@ -65,11 +68,11 @@ impl NoStdFreeList {
     }
 
     fn contains(&self, value: &u64) -> bool {
-        self.free_list.contains(value)
+        self.free_tree.contains(value)
     }
 
-    fn push_back(&mut self, value: u64) {
-        self.free_list.insert(value);
+    fn insert(&mut self, value: u64) {
+        self.free_tree.insert(value);
         self.insertion_order.push_back(value);
     }
 }
@@ -138,36 +141,17 @@ impl ReusableIdPoolManual {
     ///
     /// Silently rejects invalid release requests (double frees and
     /// never-allocated), rather than returning an error.
-    #[cfg(feature = "std")]
     pub fn release(&mut self, id: u64) {
         if id >= self.frontier {
             return;
         }
         // We have to explicitly check for a double free and not continue,
-        // otherwise calling `insert` will change the insertion order.
+        // otherwise calling `insert` will change the insertion order (or will
+        // corrupt the data structure in the case of the no_std version).
         if self.free_list.contains(&id) {
             return;
         }
         self.free_list.insert(id);
-    }
-
-    /// Returns an ID to the pool.
-    ///
-    /// Silently rejects invalid release requests (double frees and
-    /// never-allocated), rather than returning an error.
-    #[cfg(not(feature = "std"))]
-    pub fn release(&mut self, id: u64) {
-        if id >= self.frontier {
-            return;
-        }
-        // If it's not past the frontier, then it's either in the free list
-        // which is an invalid free (double free), or it's a valid free. If it's
-        // an invalid free, we don't continue so we don't corrupt the
-        // insertion_order data structure.
-        if self.free_list.contains(&id) {
-            return;
-        }
-        self.free_list.push_back(id);
     }
 }
 
