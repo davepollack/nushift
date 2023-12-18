@@ -22,6 +22,12 @@ use super::ReusableIdPoolError;
 #[derive(Debug)]
 pub struct ReusableIdPool(Arc<Mutex<ReusableIdPoolInternal>>);
 
+impl Default for ReusableIdPool {
+    fn default() -> Self {
+        ReusableIdPool::new()
+    }
+}
+
 #[derive(Debug)]
 struct ReusableIdPoolInternal {
     frontier: u64,
