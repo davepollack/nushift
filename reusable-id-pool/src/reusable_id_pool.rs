@@ -134,10 +134,22 @@ impl ReusableIdPool {
         })))
     }
 
+    /// Requests an available underlying ID from the pool and returns an
+    /// [`ArcId`] to it.
+    ///
+    /// # Panics
+    ///
+    /// When 2<sup>64</sup> &minus; 1 underlying IDs are currently in use.
     pub fn allocate(&self) -> ArcId {
         self.try_allocate().unwrap()
     }
 
+    /// Like [`allocate`][ReusableIdPool::allocate], but returns an error
+    /// instead of panicking.
+    ///
+    /// # Errors
+    ///
+    /// When 2<sup>64</sup> &minus; 1 underlying IDs are currently in use.
     pub fn try_allocate(&self) -> Result<ArcId, ReusableIdPoolError> {
         let mut pool = self.0.lock().unwrap();
 
