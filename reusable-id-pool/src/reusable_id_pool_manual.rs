@@ -74,6 +74,10 @@ impl NoStdFreeList {
     }
 }
 
+/// An ID pool that hands out `u64`s.
+///
+/// The `u64` IDs must be returned to the pool manually by calling
+/// [`release`][ReusableIdPoolManual::release].
 pub struct ReusableIdPoolManual {
     frontier: u64,
     #[cfg(feature = "std")]
@@ -83,7 +87,7 @@ pub struct ReusableIdPoolManual {
 }
 
 impl ReusableIdPoolManual {
-    /// Create a new reusable ID pool.
+    /// Creates a new manual reusable ID pool.
     pub fn new() -> Self {
         ReusableIdPoolManual {
             frontier: 0,
@@ -94,12 +98,24 @@ impl ReusableIdPoolManual {
         }
     }
 
-    /// This does not hand out u64::MAX, so you can use that as a sentinel value.
+    /// Requests an available ID from the pool and returns it.
+    ///
+    /// This does not hand out [`u64::MAX`], so you can use that as a sentinel
+    /// value.
+    ///
+    /// # Panics
+    ///
+    /// When 2<sup>64</sup> &minus; 1 IDs are currently in use.
     pub fn allocate(&mut self) -> u64 {
         self.try_allocate().unwrap()
     }
 
-    /// This does not hand out u64::MAX, so you can use that as a sentinel value.
+    /// Like [`allocate`][ReusableIdPoolManual::allocate], but returns an error
+    /// instead of panicking.
+    ///
+    /// # Errors
+    ///
+    /// When 2<sup>64</sup> &minus; 1 IDs are currently in use.
     pub fn try_allocate(&mut self) -> Result<u64, ReusableIdPoolError> {
         if let Some(free_list_id) = self.free_list.pop_front() {
             Ok(free_list_id)
@@ -112,7 +128,10 @@ impl ReusableIdPoolManual {
         }
     }
 
-    /// Silently rejects invalid free requests (double frees and never-allocated), rather than returning an error.
+    /// Returns an ID to the pool.
+    ///
+    /// Silently rejects invalid release requests (double frees and
+    /// never-allocated), rather than returning an error.
     #[cfg(feature = "std")]
     pub fn release(&mut self, id: u64) {
         if id >= self.frontier {
@@ -126,7 +145,10 @@ impl ReusableIdPoolManual {
         self.free_list.insert(id);
     }
 
-    /// Silently rejects invalid free requests (double frees and never-allocated), rather than returning an error.
+    /// Returns an ID to the pool.
+    ///
+    /// Silently rejects invalid release requests (double frees and
+    /// never-allocated), rather than returning an error.
     #[cfg(not(feature = "std"))]
     pub fn release(&mut self, id: u64) {
         if id >= self.frontier {

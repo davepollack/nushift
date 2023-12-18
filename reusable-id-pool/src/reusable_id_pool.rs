@@ -14,7 +14,7 @@ use std::sync::Mutex;
 
 use super::ReusableIdPoolError;
 
-/// A `std`-only pool that hands out [`ArcId`]s.
+/// A `std`-only ID pool that hands out [`ArcId`]s.
 ///
 /// An ID is returned to the pool by dropping --- when all its [`ArcId`]s are
 /// dropped. [`ArcId`] drop is constant time (decrementing a reference count, or
