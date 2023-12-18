@@ -33,14 +33,17 @@ pub use crate::reusable_id_pool::{ReusableIdPool, ArcId};
 
 pub use crate::reusable_id_pool_manual::ReusableIdPoolManual;
 
+/// The error type for reusable ID pool operations.
 pub enum ReusableIdPoolError {
+    /// There are too many IDs concurrently in use. The limit is 2<sup>64</sup>
+    /// &minus; 1 live IDs. Please return some IDs to the pool.
     TooManyLiveIDs,
 }
 
 impl Display for ReusableIdPoolError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::TooManyLiveIDs => write!(f, "There are too many IDs concurrently in use. The limit is (2^64 - 1) live IDs. Please release some IDs."),
+            Self::TooManyLiveIDs => write!(f, "There are too many IDs concurrently in use. The limit is (2^64 - 1) live IDs. Please return some IDs to the pool."),
         }
     }
 }
