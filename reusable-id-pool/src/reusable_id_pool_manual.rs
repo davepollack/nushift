@@ -86,6 +86,12 @@ pub struct ReusableIdPoolManual {
     free_list: NoStdFreeList,
 }
 
+impl Default for ReusableIdPoolManual {
+    fn default() -> Self {
+        ReusableIdPoolManual::new()
+    }
+}
+
 impl ReusableIdPoolManual {
     /// Creates a new manual reusable ID pool.
     pub fn new() -> Self {
