@@ -66,10 +66,10 @@ impl Clone for ArcId {
     ///
     /// let reusable_id_pool = ReusableIdPool::new();
     ///
-    /// let id_ref_1 = reusable_id_pool.allocate();
-    /// let id_ref_2 = ArcId::clone(&id_ref_1); // Or `id_ref_1.clone();`
+    /// let id_1 = reusable_id_pool.allocate();
+    /// let id_2 = ArcId::clone(&id_1); // Or `id_1.clone();`
     ///
-    /// assert_eq!(id_ref_1, id_ref_2);
+    /// assert_eq!(id_1, id_2);
     /// ```
     #[inline]
     fn clone(&self) -> Self {
