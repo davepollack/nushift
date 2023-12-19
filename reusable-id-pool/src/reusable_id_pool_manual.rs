@@ -81,6 +81,23 @@ impl NoStdFreeList {
 ///
 /// The `u64` IDs must be returned to the pool manually by calling
 /// [`release`][ReusableIdPoolManual::release].
+///
+/// ## Example
+///
+/// ```
+/// use reusable_id_pool::ReusableIdPoolManual;
+///
+/// let mut reusable_id_pool_manual = ReusableIdPoolManual::new();
+/// let id_1 = reusable_id_pool_manual.allocate();
+/// assert_eq!(0, id_1);
+/// reusable_id_pool_manual.release(id_1);
+///
+/// // Since 0 was returned to the pool, when we allocate again, we should get
+/// // it again.
+/// let id_2 = reusable_id_pool_manual.allocate();
+/// assert_eq!(0, id_2);
+/// reusable_id_pool_manual.release(id_2);
+/// ```
 pub struct ReusableIdPoolManual {
     frontier: u64,
     #[cfg(feature = "std")]

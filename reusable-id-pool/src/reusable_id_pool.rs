@@ -19,6 +19,17 @@ use super::ReusableIdPoolError;
 /// An ID is returned to the pool by dropping --- when all its [`ArcId`]s are
 /// dropped. [`ArcId`] drop is constant time (decrementing a reference count, or
 /// appending to a free list for the final one).
+///
+/// ## Example
+///
+/// ```
+/// use reusable_id_pool::ReusableIdPool;
+///
+/// let reusable_id_pool = ReusableIdPool::new();
+/// let id = reusable_id_pool.allocate();
+/// // Do something with the `id`, like move it into a struct. It will be
+/// // returned to the pool when it is dropped.
+/// ```
 #[derive(Debug)]
 pub struct ReusableIdPool(Arc<Mutex<ReusableIdPoolInternal>>);
 
