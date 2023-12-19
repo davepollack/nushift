@@ -7,6 +7,7 @@ readme = "README.md"
 repository = "https://github.com/davepollack/nushift/tree/master/reusable-id-pool"
 documentation = "https://docs.rs/reusable-id-pool"
 description = "A pool for RAII IDs"
+keywords = ["id", "pool", "raii"]
 license = "Apache-2.0 OR MIT"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
