@@ -98,6 +98,7 @@ impl NoStdFreeList {
 /// assert_eq!(0, id_2);
 /// reusable_id_pool_manual.release(id_2);
 /// ```
+#[derive(Debug)]
 pub struct ReusableIdPoolManual {
     frontier: u64,
     #[cfg(feature = "std")]
