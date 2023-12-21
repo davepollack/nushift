@@ -1,6 +1,6 @@
 [package]
 name = "reusable-id-pool"
-version = "0.0.0"
+version = "0.1.0"
 authors = ["David Pollack <david@pollack.id.au>"]
 edition = "2021"
 readme = "README.md"
