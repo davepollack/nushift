@@ -1384,7 +1384,7 @@ dependencies = [
 
 [[package]]
 name = "reusable-id-pool"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "linked-hash-map",
 ]
