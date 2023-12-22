@@ -7,11 +7,13 @@ This crate provides two structs, `ReusableIdPool` and `ReusableIdPoolManual`.
 ## Example
 
 ```rust
-let reusable_id_pool = ReusableIdPool::new();
+use reusable_id_pool::ReusableIdPool;
 
+let reusable_id_pool = ReusableIdPool::new();
 let id = reusable_id_pool.allocate();
 
-// Do something with the `id`, like move it into a struct. It will be returned to the pool when it is dropped.
+// Do something with the `id`, like move it into a struct. It will be returned
+// to the pool when it is dropped.
 ```
 
 ## ReusableIdPool

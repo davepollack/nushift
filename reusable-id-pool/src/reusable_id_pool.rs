@@ -27,6 +27,7 @@ use super::ReusableIdPoolError;
 ///
 /// let reusable_id_pool = ReusableIdPool::new();
 /// let id = reusable_id_pool.allocate();
+///
 /// // Do something with the `id`, like move it into a struct. It will be
 /// // returned to the pool when it is dropped.
 /// ```
