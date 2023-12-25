@@ -13,6 +13,10 @@ use crate::selector::{INITIAL_SCALE_AND_SIZE, SCALE_OR_SIZE_CHANGED};
 
 pub struct ClientArea {
     image_widget: WidgetPod<RootData, Image>,
+    // TODO: This is currently used to display the last received client
+    // framebuffer in the desired way while resizing the window, but should be
+    // replaced by associating a size with the client framebuffer itself.
+    last_image_size: Size,
 }
 
 impl ClientArea {
@@ -21,7 +25,11 @@ impl ClientArea {
         let image_widget = WidgetPod::new(Image::new(ImageBuf::empty())
             .fill_mode(FillStrat::ScaleDown)
             .interpolation_mode(InterpolationMode::NearestNeighbor));
-        Self { image_widget }
+
+        Self {
+            image_widget,
+            last_image_size: Size::new(0.0, 0.0),
+        }
     }
 
     fn update_image(&mut self, data: &RootData) {
@@ -49,6 +57,7 @@ impl ClientArea {
             _ => ImageBuf::empty(),
         };
 
+        self.last_image_size = img_buf.size();
         self.image_widget.widget_mut().set_image_data(img_buf);
     }
 }
@@ -134,7 +143,17 @@ impl Widget<RootData> for ClientArea {
     }
 
     fn layout(&mut self, ctx: &mut LayoutCtx, bc: &BoxConstraints, data: &RootData, env: &Env) -> Size {
-        self.image_widget.layout(ctx, &bc.loosen(), data, env);
+        let scale = ctx.scale();
+
+        // To draw a non-scaled image, give a size to the image widget in dp
+        // (all layout sizes are expected to be in dp in Druid) that corresponds
+        // to the px size, which combined with the image widget's configuration
+        // of `FillStrat::ScaleDown` and `InterpolationMode::NearestNeighbor`,
+        // will draw a non-scaled image. As noted in the TODO near the top of
+        // this file, this is a terrible way to draw a non-scaled image.
+        let scaled_size = Size::new(scale.px_to_dp_x(self.last_image_size.width), scale.px_to_dp_y(self.last_image_size.height));
+
+        self.image_widget.layout(ctx, &BoxConstraints::tight(scaled_size), data, env);
         self.image_widget.set_origin(ctx, Point::ORIGIN);
 
         bc.max()
