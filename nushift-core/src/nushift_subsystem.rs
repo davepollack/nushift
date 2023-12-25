@@ -232,7 +232,7 @@ impl NushiftSubsystem {
                 match self.shm_space_mut().acquire_shm_cap_app(shm_cap_id, address) {
                     Ok(_) => {},
                     Err(shm_space_error) => return marshall_shm_space_error(shm_space_error),
-                };
+                }
 
                 set_success(0)
             },
@@ -260,7 +260,7 @@ impl NushiftSubsystem {
 
                         return marshall_shm_space_error(shm_space_error);
                     },
-                };
+                }
 
                 set_success(shm_cap_id)
             },
@@ -270,7 +270,7 @@ impl NushiftSubsystem {
                 match self.shm_space_mut().release_shm_cap_app(shm_cap_id) {
                     Ok(_) => {},
                     Err(shm_space_error) => return marshall_shm_space_error(shm_space_error),
-                };
+                }
 
                 set_success(0)
             }
@@ -280,7 +280,7 @@ impl NushiftSubsystem {
                 match self.shm_space_mut().destroy_shm_cap(shm_cap_id, CapType::AppCap) {
                     Ok(_) => {},
                     Err(shm_space_error) => return marshall_shm_space_error(shm_space_error),
-                };
+                }
 
                 set_success(0)
             },
@@ -290,13 +290,13 @@ impl NushiftSubsystem {
                 match self.shm_space_mut().release_shm_cap_app(shm_cap_id) {
                     Ok(_) => {},
                     Err(shm_space_error) => return marshall_shm_space_error(shm_space_error),
-                };
+                }
 
                 // If the release succeeded, destroy should never fail, thus do not rollback (re-acquire).
                 match self.shm_space_mut().destroy_shm_cap(shm_cap_id, CapType::AppCap) {
                     Ok(_) => {},
                     Err(shm_space_error) => return marshall_shm_space_error(shm_space_error),
-                };
+                }
 
                 set_success(0)
             },
@@ -322,7 +322,7 @@ impl NushiftSubsystem {
                 match self.accessibility_tree_space.publish_accessibility_tree_blocking(accessibility_tree_cap_id, input_shm_cap_id, output_shm_cap_id, &mut self.shm_space) {
                     Ok(_) => {},
                     Err(deferred_space_error) => return marshall_deferred_space_error(deferred_space_error),
-                };
+                }
 
                 let task_id = task.push_task();
 
@@ -334,7 +334,7 @@ impl NushiftSubsystem {
                 match self.accessibility_tree_space.destroy_accessibility_tree_cap(accessibility_tree_cap_id) {
                     Ok(_) => {},
                     Err(deferred_space_error) => return marshall_deferred_space_error(deferred_space_error),
-                };
+                }
 
                 set_success(0)
             },
@@ -360,7 +360,7 @@ impl NushiftSubsystem {
                 match self.title_space.publish_title_blocking(title_cap_id, input_shm_cap_id, output_shm_cap_id, &mut self.shm_space) {
                     Ok(_) => {},
                     Err(deferred_space_error) => return marshall_deferred_space_error(deferred_space_error),
-                };
+                }
 
                 let task_id = task.push_task();
 
@@ -372,7 +372,7 @@ impl NushiftSubsystem {
                 match self.title_space.destroy_title_cap(title_cap_id) {
                     Ok(_) => {},
                     Err(deferred_space_error) => return marshall_deferred_space_error(deferred_space_error),
-                };
+                }
 
                 set_success(0)
             },
@@ -383,7 +383,7 @@ impl NushiftSubsystem {
                 match self.app_global_deferred_space.block_on_deferred_tasks(input_shm_cap_id, &self.shm_space, &self.blocking_on_tasks) {
                     Ok(_) => {},
                     Err(app_global_deferred_space_error) => return marshall_app_global_deferred_space_error(app_global_deferred_space_error),
-                };
+                }
 
                 set_success(0)
             },
@@ -408,7 +408,7 @@ impl NushiftSubsystem {
                 match self.gfx_space.get_outputs_blocking(gfx_cap_id, output_shm_cap_id, &mut self.shm_space) {
                     Ok(_) => {},
                     Err(gfx_space_error) => return marshall_gfx_space_error(gfx_space_error),
-                };
+                }
 
                 let task_id = task.push_task();
 
@@ -450,7 +450,7 @@ impl NushiftSubsystem {
                 match self.gfx_space.cpu_present_blocking(gfx_cpu_present_buffer_cap_id, output_shm_cap_id, &mut self.shm_space) {
                     Ok(_) => {},
                     Err(gfx_space_error) => return marshall_gfx_space_error(gfx_space_error),
-                };
+                }
 
                 let task_id = task.push_task();
 
@@ -462,7 +462,7 @@ impl NushiftSubsystem {
                 match self.gfx_space.destroy_gfx_cpu_present_buffer_cap(gfx_cpu_present_buffer_cap_id) {
                     Ok(_) => {},
                     Err(gfx_space_error) => return marshall_gfx_space_error(gfx_space_error),
-                };
+                }
 
                 set_success(0)
             },
@@ -472,7 +472,7 @@ impl NushiftSubsystem {
                 match self.gfx_space.destroy_gfx_cap(gfx_cap_id) {
                     Ok(_) => {},
                     Err(gfx_space_error) => return marshall_gfx_space_error(gfx_space_error),
-                };
+                }
 
                 set_success(0)
             },

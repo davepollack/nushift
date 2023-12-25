@@ -38,7 +38,7 @@ impl CheckedSections {
         match equal_or_below {
             Some((&existing_vpn, &existing_num_pages)) if existing_vpn.checked_add(existing_num_pages).expect("Should be impossible for existing entry to overflow because we validated inputs") > vpn => return OverlapsSnafu.fail(),
             _ => {},
-        };
+        }
 
         // Check if intersects the above entry.
         let mut above = self.0.range((Bound::Excluded(&vpn), Bound::Unbounded));

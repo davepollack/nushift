@@ -52,7 +52,7 @@ pub fn tab() -> impl Widget<RootAndTabData> {
                     root_and_tab_data.root_data_mut().request_close_tab_from_tab_iter(&tab_data.id);
                 },
                 _ => {},
-            };
+            }
         }))
         .controller(HypervisorCommandHandler::new(|hypervisor_event, root_and_tab_data: &mut RootAndTabData| {
             let tab_data = root_and_tab_data.tab_data_mut();
