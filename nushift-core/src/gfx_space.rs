@@ -4,15 +4,16 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use num_enum::TryFromPrimitive;
-use serde::Serialize;
+use num_enum::{TryFromPrimitive, TryFromPrimitiveError, IntoPrimitive};
+use postcard::Error as PostcardError;
+use serde::{Deserialize, Serialize};
 use snafu::prelude::*;
 use snafu_cli_debug::SnafuCliDebug;
 
 use crate::deferred_space::{self, DefaultDeferredSpace, DeferredSpace, DeferredSpaceError, DeferredSpaceGet, DefaultDeferredSpaceCapId, DeferredSpacePublish, DeferredError};
 use crate::hypervisor::hypervisor_event::{UnboundHypervisorEvent, HypervisorEventError};
 use crate::hypervisor::tab_context::TabContext;
-use crate::shm_space::{ShmCap, ShmCapId, ShmSpace};
+use crate::shm_space::{ShmCap, ShmCapId, ShmSpace, ShmSpaceError};
 
 pub type GfxCapId = u64;
 pub type GfxCpuPresentBufferCapId = u64;
@@ -67,7 +68,7 @@ impl GetOutputs {
     }
 }
 
-#[derive(TryFromPrimitive, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(TryFromPrimitive, IntoPrimitive, Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u64)]
 pub enum PresentBufferFormat {
     R8g8b8UintSrgb = 0,
@@ -76,6 +77,13 @@ pub enum PresentBufferFormat {
 struct CpuPresentBufferInfo {
     parent_gfx_cap_id: GfxCapId,
     present_buffer_format: PresentBufferFormat,
+    present_buffer_shm_cap_id: ShmCapId,
+}
+
+#[derive(Deserialize)]
+struct CpuPresentBufferArgs {
+    present_buffer_format: u64,
+    present_buffer_size_px: Vec<u64>,
     present_buffer_shm_cap_id: ShmCapId,
 }
 
@@ -149,7 +157,26 @@ impl GfxSpace {
         self.root_deferred_space.get_deferred(&mut self.get_outputs, gfx_cap_id, shm_space)
     }
 
-    pub fn new_gfx_cpu_present_buffer_cap(&mut self, gfx_cap_id: GfxCapId, present_buffer_format: PresentBufferFormat, present_buffer_shm_cap_id: ShmCapId) -> Result<GfxCpuPresentBufferCapId, GfxSpaceError> {
+    pub fn new_gfx_cpu_present_buffer_cap(&mut self, gfx_cap_id: GfxCapId, input_shm_cap_id: ShmCapId, shm_space: &ShmSpace) -> Result<GfxCpuPresentBufferCapId, GfxSpaceError> {
+        // Get input SHM cap for parsing arguments
+        let input_shm_cap = shm_space.get_shm_cap_app(input_shm_cap_id).map_err(|shm_space_error| match shm_space_error {
+            ShmSpaceError::CapNotFound => ShmCapNotFoundSnafu { id: input_shm_cap_id }.build(),
+            ShmSpaceError::PermissionDenied => ShmPermissionDeniedSnafu { id: input_shm_cap_id }.build(),
+            _ => ShmUnexpectedSnafu.build(),
+        })?;
+
+        // Parse input SHM cap arguments
+        let cpu_present_buffer_args = postcard::from_bytes(input_shm_cap.backing()).context(DeserializeCpuPresentBufferArgsSnafu)?;
+
+        // Do rest of logic
+        self.new_gfx_cpu_present_buffer_cap_impl(gfx_cap_id, cpu_present_buffer_args)
+    }
+
+    /// Separated `_impl` function for unit tests
+    fn new_gfx_cpu_present_buffer_cap_impl(&mut self, gfx_cap_id: GfxCapId, cpu_present_buffer_args: CpuPresentBufferArgs) -> Result<GfxCpuPresentBufferCapId, GfxSpaceError> {
+        // Parse present buffer format
+        let present_buffer_format = PresentBufferFormat::try_from(cpu_present_buffer_args.present_buffer_format).context(UnknownPresentBufferFormatSnafu)?;
+
         // Check that gfx_cap_id is a valid cap
         self.root_deferred_space.contains_key(gfx_cap_id).then_some(()).ok_or_else(|| DeferredSpaceError::CapNotFound { context: GFX_CONTEXT.into(), id: gfx_cap_id }).context(DeferredSpaceSnafu)?;
 
@@ -157,7 +184,8 @@ impl GfxSpace {
         let gfx_cpu_present_buffer_cap_id = self.cpu_present_buffer_deferred_space.new_cap(GFX_CPU_PRESENT_CONTEXT).context(DeferredSpaceSnafu)?;
 
         // Store the additional info
-        self.cpu_present.add_info(gfx_cpu_present_buffer_cap_id, gfx_cap_id, present_buffer_format, present_buffer_shm_cap_id);
+        // TODO: Also store the size_px
+        self.cpu_present.add_info(gfx_cpu_present_buffer_cap_id, gfx_cap_id, present_buffer_format, cpu_present_buffer_args.present_buffer_shm_cap_id);
 
         // Store tree-child association
         self.root_tree.entry(gfx_cap_id).or_default().insert(gfx_cpu_present_buffer_cap_id);
@@ -221,6 +249,15 @@ pub enum GfxSpaceError {
     DeferredSpaceError { source: DeferredSpaceError },
     #[snafu(display("Not all CPU present buffer children caps were destroyed when trying to destroy this gfx_cap_id: {gfx_cap_id}. Please destroy its CPU present buffer children first: {children:?}"))]
     ChildCapsNotDestroyed { gfx_cap_id: GfxCapId, children: HashSet<GfxCpuPresentBufferCapId> },
+    #[snafu(display("Could not deserialise the CPU present buffer args in input_shm_cap_id: {source}"))]
+    DeserializeCpuPresentBufferArgsError { source: PostcardError },
+    #[snafu(display("The value provided for the PresentBufferFormat enum was unrecognised."))]
+    UnknownPresentBufferFormat { source: TryFromPrimitiveError<PresentBufferFormat> },
+    #[snafu(display("The SHM cap with ID {id} was not found."))]
+    ShmCapNotFound { id: ShmCapId },
+    #[snafu(display("The SHM cap with ID {id} is not allowed to be used as an input cap, possibly because it is an ELF cap."))]
+    ShmPermissionDenied { id: ShmCapId },
+    ShmUnexpectedError,
 }
 
 #[cfg(test)]
@@ -246,8 +283,8 @@ mod tests {
 
         let gfx_cap_id = gfx_space.new_gfx_cap().expect("Should succeed");
 
-        let gfx_cpu_present_buffer_cap_id_1 = gfx_space.new_gfx_cpu_present_buffer_cap(gfx_cap_id, PresentBufferFormat::R8g8b8UintSrgb, 0).expect("Should succeed");
-        let gfx_cpu_present_buffer_cap_id_2 = gfx_space.new_gfx_cpu_present_buffer_cap(gfx_cap_id, PresentBufferFormat::R8g8b8UintSrgb, 1).expect("Should succeed");
+        let gfx_cpu_present_buffer_cap_id_1 = gfx_space.new_gfx_cpu_present_buffer_cap_impl(gfx_cap_id, CpuPresentBufferArgs { present_buffer_format: PresentBufferFormat::R8g8b8UintSrgb.into(), present_buffer_size_px: vec![], present_buffer_shm_cap_id: 0 }).expect("Should succeed");
+        let gfx_cpu_present_buffer_cap_id_2 = gfx_space.new_gfx_cpu_present_buffer_cap_impl(gfx_cap_id, CpuPresentBufferArgs { present_buffer_format: PresentBufferFormat::R8g8b8UintSrgb.into(), present_buffer_size_px: vec![], present_buffer_shm_cap_id: 1 }).expect("Should succeed");
 
         // Destroying children first should work
         gfx_space.destroy_gfx_cpu_present_buffer_cap(gfx_cpu_present_buffer_cap_id_1).expect("Should succeed");
@@ -263,8 +300,8 @@ mod tests {
 
         let gfx_cap_id = gfx_space.new_gfx_cap().expect("Should succeed");
 
-        let gfx_cpu_present_buffer_cap_id_1 = gfx_space.new_gfx_cpu_present_buffer_cap(gfx_cap_id, PresentBufferFormat::R8g8b8UintSrgb, 0).expect("Should succeed");
-        let gfx_cpu_present_buffer_cap_id_2 = gfx_space.new_gfx_cpu_present_buffer_cap(gfx_cap_id, PresentBufferFormat::R8g8b8UintSrgb, 1).expect("Should succeed");
+        let gfx_cpu_present_buffer_cap_id_1 = gfx_space.new_gfx_cpu_present_buffer_cap_impl(gfx_cap_id, CpuPresentBufferArgs { present_buffer_format: PresentBufferFormat::R8g8b8UintSrgb.into(), present_buffer_size_px: vec![], present_buffer_shm_cap_id: 0 }).expect("Should succeed");
+        let gfx_cpu_present_buffer_cap_id_2 = gfx_space.new_gfx_cpu_present_buffer_cap_impl(gfx_cap_id, CpuPresentBufferArgs { present_buffer_format: PresentBufferFormat::R8g8b8UintSrgb.into(), present_buffer_size_px: vec![], present_buffer_shm_cap_id: 1 }).expect("Should succeed");
 
         // Destroy only one child
         gfx_space.destroy_gfx_cpu_present_buffer_cap(gfx_cpu_present_buffer_cap_id_1).expect("Should succeed");

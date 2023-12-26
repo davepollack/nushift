@@ -12,7 +12,7 @@ use crate::hypervisor::tab_context::TabContext;
 use crate::accessibility_tree_space::AccessibilityTreeSpace;
 use crate::deferred_space::app_global_deferred_space::{AppGlobalDeferredSpace, AppGlobalDeferredSpaceError, Task, TaskId};
 use crate::deferred_space::DeferredSpaceError;
-use crate::gfx_space::{GfxSpace, PresentBufferFormat, GfxSpaceError};
+use crate::gfx_space::{GfxSpace, GfxSpaceError};
 use crate::register_ipc::{SyscallEnter, SyscallReturn, SYSCALL_NUM_REGISTER_INDEX, FIRST_ARG_REGISTER_INDEX, SECOND_ARG_REGISTER_INDEX, THIRD_ARG_REGISTER_INDEX, FOURTH_ARG_REGISTER_INDEX};
 use crate::shm_space::{CapType, ShmType, ShmSpace, ShmSpaceError};
 use crate::title_space::TitleSpace;
@@ -71,6 +71,7 @@ pub enum SyscallError {
     CapNotFound = 6,
     InProgress = 11,
     PermissionDenied = 12,
+    DeserializeError = 13,
 
     ShmUnknownShmType = 3,
     ShmInvalidLength = 4,
@@ -80,14 +81,11 @@ pub enum SyscallError {
     ShmAddressNotAligned = 9,
     ShmOverlapsExistingAcquisition = 10,
 
-    DeferredDeserializeTaskIdsError = 13,
     DeferredDuplicateTaskIds = 14,
     DeferredTaskIdsNotFound = 15,
 
     GfxUnknownPresentBufferFormat = 16,
     GfxChildCapsNotDestroyed = 17,
-
-    DebugPrintDeserializeError = 18,
 }
 
 fn set_error<R: Register>(error: SyscallError) -> SyscallReturn<R> {
@@ -139,7 +137,7 @@ fn marshall_app_global_deferred_space_error<R: Register>(app_global_deferred_spa
         AppGlobalDeferredSpaceError::DuplicateId
         | AppGlobalDeferredSpaceError::ShmUnexpectedError => set_error(SyscallError::InternalError),
         AppGlobalDeferredSpaceError::Exhausted => set_error(SyscallError::Exhausted),
-        AppGlobalDeferredSpaceError::DeserializeTaskIdsError { .. } => set_error(SyscallError::DeferredDeserializeTaskIdsError),
+        AppGlobalDeferredSpaceError::DeserializeTaskIdsError { .. } => set_error(SyscallError::DeserializeError),
         AppGlobalDeferredSpaceError::Duplicates { .. } => set_error(SyscallError::DeferredDuplicateTaskIds),
         AppGlobalDeferredSpaceError::NotFound { .. } => set_error(SyscallError::DeferredTaskIdsNotFound),
         AppGlobalDeferredSpaceError::ShmCapNotFound { .. } => set_error(SyscallError::CapNotFound),
@@ -151,12 +149,17 @@ fn marshall_gfx_space_error<R: Register>(gfx_space_error: GfxSpaceError) -> Sysc
     match gfx_space_error {
         GfxSpaceError::DeferredSpaceError { source } => marshall_deferred_space_error(source),
         GfxSpaceError::ChildCapsNotDestroyed { .. } => set_error(SyscallError::GfxChildCapsNotDestroyed),
+        GfxSpaceError::DeserializeCpuPresentBufferArgsError { .. } => set_error(SyscallError::DeserializeError),
+        GfxSpaceError::UnknownPresentBufferFormat { .. } => set_error(SyscallError::GfxUnknownPresentBufferFormat),
+        GfxSpaceError::ShmCapNotFound { .. } => set_error(SyscallError::CapNotFound),
+        GfxSpaceError::ShmPermissionDenied { .. } => set_error(SyscallError::PermissionDenied),
+        GfxSpaceError::ShmUnexpectedError => set_error(SyscallError::InternalError),
     }
 }
 
 fn marshall_debug_print_error<R: Register>(debug_print_error: DebugPrintError) -> SyscallReturn<R> {
     match debug_print_error {
-        DebugPrintError::DeserializeStringError { .. } => set_error(SyscallError::DebugPrintDeserializeError),
+        DebugPrintError::DeserializeStringError { .. } => set_error(SyscallError::DeserializeError),
         DebugPrintError::ShmCapNotFound { .. } => set_error(SyscallError::CapNotFound),
         DebugPrintError::ShmPermissionDenied { .. } => set_error(SyscallError::PermissionDenied),
         DebugPrintError::ShmUnexpectedError => set_error(SyscallError::InternalError),
@@ -416,13 +419,9 @@ impl NushiftSubsystem {
             },
             Ok(Syscall::GfxCpuPresentBufferNew) => {
                 let gfx_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
-                let present_buffer_format = match PresentBufferFormat::try_from(registers[SECOND_ARG_REGISTER_INDEX].to_u64()) {
-                    Ok(present_buffer_format) => present_buffer_format,
-                    Err(_) => return set_error(SyscallError::GfxUnknownPresentBufferFormat),
-                };
-                let present_buffer_shm_cap_id = registers[THIRD_ARG_REGISTER_INDEX].to_u64();
+                let input_shm_cap_id = registers[SECOND_ARG_REGISTER_INDEX].to_u64();
 
-                let gfx_cpu_present_buffer_cap_id = match self.gfx_space.new_gfx_cpu_present_buffer_cap(gfx_cap_id, present_buffer_format, present_buffer_shm_cap_id) {
+                let gfx_cpu_present_buffer_cap_id = match self.gfx_space.new_gfx_cpu_present_buffer_cap(gfx_cap_id, input_shm_cap_id, &self.shm_space) {
                     Ok(gfx_cpu_present_buffer_cap_id) => gfx_cpu_present_buffer_cap_id,
                     Err(gfx_space_error) => return marshall_gfx_space_error(gfx_space_error),
                 };

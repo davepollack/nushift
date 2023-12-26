@@ -192,7 +192,7 @@ Destroys a title capability. This does not unset any published titles.
 
 Arguments: input_shm_cap_id (`u64`).\
 Returns: `0u64`.\
-Errors: `InternalError`, `DeferredDeserializeTaskIdsError`, `DeferredDuplicateTaskIds`, `DeferredTaskIdsNotFound`, `CapNotFound`, `PermissionDenied`
+Errors: `InternalError`, `DeserializeError`, `DeferredDuplicateTaskIds`, `DeferredTaskIdsNotFound`, `CapNotFound`, `PermissionDenied`
 
 Blocks the app until the tasks represented by the task IDs in `input_shm_cap_id` are completed, and destroys those task IDs so they can't be referenced anymore (until they are reused by a future task ID allocation).
 
@@ -241,13 +241,19 @@ A `Vec<GfxOutput>` will be written to the `output_shm_cap_id` cap, where `GfxOut
 
 ### GfxCpuPresentBufferNew
 
-Arguments: gfx_cap_id (`u64`), present_buffer_format (`PresentBufferFormat`), present_buffer_shm_cap_id (`u64`).\
+Arguments: gfx_cap_id (`u64`), input_shm_cap_id (`u64`).\
 Returns: gfx_cpu_present_buffer_cap_id (`u64`).\
-Errors: `GfxUnknownPresentBufferFormat`, `InternalError`, `Exhausted`, `CapNotFound`
+Errors: `GfxUnknownPresentBufferFormat`, `DeserializeError`, `InternalError`, `Exhausted`, `CapNotFound`, `PermissionDenied`
 
 Creates a new CPU present buffer. As the name implies, the buffer is stored in main memory and is operated on by the CPU.
 
+`input_shm_cap_id` contains the arguments to create the CPU present buffer. It is expected to contain `struct CpuPresentBufferArgs { present_buffer_format: PresentBufferFormat, present_buffer_size_px: Vec<u64>, present_buffer_shm_cap_id: u64 }` in Postcard format.
+
 `present_buffer_shm_cap_id` is the SHM cap containing the underlying image data. It is not acquired by the hypervisor or otherwise modified at the time of the `GfxCpuPresentBufferNew` call.
+
+An `input_shm_cap_id` cap in either the released or non-released state is accepted. The `input_shm_cap_id` cap is not released by this call.
+
+A system call to modify the `present_buffer_size_px` of an existing CPU present buffer cap is not and may never be provided, but such CPU present buffer caps can cheaply be destroyed and created without any need to copy or otherwise modify the underlying `present_buffer_shm_cap_id` they refer to.
 
 Various presentation strategies can be employed through the creation of multiple present buffers.
 
@@ -259,7 +265,7 @@ Errors: `InternalError`, `Exhausted`, `CapNotFound`, `InProgress`, `PermissionDe
 
 Starts a task to blit the CPU present buffer memory to video memory/output.
 
-The linear buffer of memory in the CPU present buffer represents physical pixels and is assumed to have the same width and height (and/or more dimensions) in pixels as the targeted output. Since it is not possible to get this correct, in the future a width and height (and/or more dimensions) will be associated to the buffer, and the presented image will either pad the buffer image or cut off the parts that can't be displayed. Rather than crashing the entire hypervisor as occurs now.
+The linear buffer of memory in the CPU present buffer represents physical pixels, that has the width and height (and/or more dimensions) that is in the CPU present buffer cap metadata. These dimensions should ideally be the same width and height (and/or more dimensions) in pixels as the targeted output — if it is not, this is accepted and the presented image will either pad the buffer image or cut off the parts that can't be displayed.
 
 `wait_for_vblank` is not used for now and should always be set to `-1` for now. Conceptually, if it is set to false, the blitting starts straight away and may start in the middle of monitor scanout and tearing will occur. If it is set to true, we wait until the start of the vertical blanking interval and the idea is that tearing will not occur, however blitting a 3840x2160 image from the CPU does take a few milliseconds, which makes it again possible for tearing to occur if the next monitor scanout starts while blitting is still occurring, if there is no VRR support. This option may need to be reworked and extended, and there may be a breaking change to the API of this call in the future.
 
@@ -298,7 +304,7 @@ All CPU present buffer capabilities that used this graphics capability must be d
 
 Arguments: input_shm_cap_id (`u64`).\
 Returns: `0u64`.\
-Errors: `InternalError`, `CapNotFound`, `PermissionDenied`, `DebugPrintDeserializeError`
+Errors: `InternalError`, `CapNotFound`, `PermissionDenied`, `DeserializeError`
 
 Prints a string to the console for debugging purposes.
 
@@ -336,6 +342,10 @@ Currently, it is not possible to queue/otherwise process a second deferred opera
 
 An SHM cap ID was provided that is not of the expected SHM cap type. For example, a system-created SHM cap used for storing the program ELF data was provided where an application-created SHM cap was expected.
 
+`DeserializeError` = 13,
+
+The data in the `input_shm_cap_id` SHM cap that was provided was not in valid [Postcard format](https://postcard.jamesmunns.com/wire-format).
+
 `ShmUnknownShmType` = 3,
 
 The value provided for the `ShmType` enum was unrecognised.
@@ -364,10 +374,6 @@ The requested acquisition address is not aligned at the SHM cap's type (e.g. 4 K
 
 The requested acquisition address combined with the `length` in the SHM cap forms a range that overlaps an existing acquisition. Please choose a different address.
 
-`DeferredDeserializeTaskIdsError` = 13,
-
-The list of task IDs in the `input_shm_cap_id` to `BlockOnDeferredTasks` could not be deserialised.
-
 `DeferredDuplicateTaskIds` = 14,
 
 A task ID occurred multiple times in the input to `BlockOnDeferredTasks`. This validation was implemented for an earlier version of `BlockOnDeferredTasks` that required it, which was more complicated than the current version and caused more problems and has been shelved. However, the validation remains for strictness.
@@ -383,10 +389,6 @@ The value provided for the `PresentBufferFormat` enum was unrecognised.
 `GfxChildCapsNotDestroyed` = 17,
 
 The requested graphics capability has been used to create child capabilities (for example, CPU present buffer capabilities) that have not been destroyed, and therefore this graphics capability cannot be destroyed. Please destroy the child capabilities first.
-
-`DebugPrintDeserializeError` = 18,
-
-The data in the `input_shm_cap_id` cap provided to `DebugPrint` is not in valid Postcard format.
 
 ## Storage
 

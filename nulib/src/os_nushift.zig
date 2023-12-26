@@ -74,6 +74,7 @@ pub const SyscallErrorEnum = enum(usize) {
     cap_not_found = 6,
     in_progress = 11,
     permission_denied = 12,
+    deserialize_error = 13,
 
     shm_unknown_shm_type = 3,
     shm_invalid_length = 4,
@@ -83,14 +84,11 @@ pub const SyscallErrorEnum = enum(usize) {
     shm_address_not_aligned = 9,
     shm_overlaps_existing_acquisition = 10,
 
-    deferred_deserialize_task_ids_error = 13,
     deferred_duplicate_task_ids = 14,
     deferred_task_ids_not_found = 15,
 
     gfx_unknown_present_buffer_format = 16,
     gfx_child_caps_not_destroyed = 17,
-
-    debug_print_deserialize_error = 18,
 };
 
 pub const SyscallError = error{
@@ -101,6 +99,7 @@ pub const SyscallError = error{
     CapNotFound,
     InProgress,
     PermissionDenied,
+    DeserializeError,
 
     ShmUnknownShmType,
     ShmInvalidLength,
@@ -110,14 +109,11 @@ pub const SyscallError = error{
     ShmAddressNotAligned,
     ShmOverlapsExistingAcquisition,
 
-    DeferredDeserializeTaskIdsError,
     DeferredDuplicateTaskIds,
     DeferredTaskIdsNotFound,
 
     GfxUnknownPresentBufferFormat,
     GfxChildCapsNotDestroyed,
-
-    DebugPrintDeserializeError,
 };
 
 pub const ShmType = enum(usize) {
