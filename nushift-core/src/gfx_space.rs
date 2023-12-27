@@ -77,6 +77,7 @@ pub enum PresentBufferFormat {
 struct CpuPresentBufferInfo {
     parent_gfx_cap_id: GfxCapId,
     present_buffer_format: PresentBufferFormat,
+    present_buffer_size_px: Vec<u64>,
     present_buffer_shm_cap_id: ShmCapId,
 }
 
@@ -121,8 +122,8 @@ impl CpuPresent {
         Self { tab_context, space: HashMap::new() }
     }
 
-    fn add_info(&mut self, cap_id: GfxCpuPresentBufferCapId, parent_gfx_cap_id: GfxCapId, present_buffer_format: PresentBufferFormat, present_buffer_shm_cap_id: ShmCapId) {
-        self.space.insert(cap_id, CpuPresentBufferInfo { parent_gfx_cap_id, present_buffer_format, present_buffer_shm_cap_id });
+    fn add_info(&mut self, cap_id: GfxCpuPresentBufferCapId, parent_gfx_cap_id: GfxCapId, present_buffer_format: PresentBufferFormat, present_buffer_size_px: Vec<u64>, present_buffer_shm_cap_id: ShmCapId) {
+        self.space.insert(cap_id, CpuPresentBufferInfo { parent_gfx_cap_id, present_buffer_format, present_buffer_size_px, present_buffer_shm_cap_id });
     }
 
     fn get_info(&self, cap_id: GfxCpuPresentBufferCapId) -> Option<&CpuPresentBufferInfo> {
@@ -184,8 +185,7 @@ impl GfxSpace {
         let gfx_cpu_present_buffer_cap_id = self.cpu_present_buffer_deferred_space.new_cap(GFX_CPU_PRESENT_CONTEXT).context(DeferredSpaceSnafu)?;
 
         // Store the additional info
-        // TODO: Also store the size_px
-        self.cpu_present.add_info(gfx_cpu_present_buffer_cap_id, gfx_cap_id, present_buffer_format, cpu_present_buffer_args.present_buffer_shm_cap_id);
+        self.cpu_present.add_info(gfx_cpu_present_buffer_cap_id, gfx_cap_id, present_buffer_format, cpu_present_buffer_args.present_buffer_size_px, cpu_present_buffer_args.present_buffer_shm_cap_id);
 
         // Store tree-child association
         self.root_tree.entry(gfx_cap_id).or_default().insert(gfx_cpu_present_buffer_cap_id);
@@ -209,7 +209,7 @@ impl GfxSpace {
         let cpu_present_buffer_info = self.cpu_present.remove_info(gfx_cpu_present_buffer_cap_id).ok_or_else(|| DeferredSpaceError::CapNotFound { context: GFX_CPU_PRESENT_CONTEXT.into(), id: gfx_cpu_present_buffer_cap_id }).context(DeferredSpaceSnafu)?;
         let all_succeeded = drop_guard::guard(false, |all_succ| {
             if !all_succ {
-                self.cpu_present.add_info(gfx_cpu_present_buffer_cap_id, cpu_present_buffer_info.parent_gfx_cap_id, cpu_present_buffer_info.present_buffer_format, cpu_present_buffer_info.present_buffer_shm_cap_id);
+                self.cpu_present.add_info(gfx_cpu_present_buffer_cap_id, cpu_present_buffer_info.parent_gfx_cap_id, cpu_present_buffer_info.present_buffer_format, cpu_present_buffer_info.present_buffer_size_px.clone(), cpu_present_buffer_info.present_buffer_shm_cap_id);
             }
         });
 
