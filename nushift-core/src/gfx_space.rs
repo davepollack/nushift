@@ -104,7 +104,7 @@ impl DeferredSpacePublish for CpuPresent {
             return;
         };
 
-        match self.tab_context.send_hypervisor_event(UnboundHypervisorEvent::GfxCpuPresent(cpu_present_buffer_info.present_buffer_format, payload.into())) {
+        match self.tab_context.send_hypervisor_event(UnboundHypervisorEvent::GfxCpuPresent(cpu_present_buffer_info.present_buffer_format, cpu_present_buffer_info.present_buffer_size_px.clone(), payload.into())) {
             Ok(_) => deferred_space::print_success(output_shm_cap, ()),
 
             Err(hypervisor_event_error) => match hypervisor_event_error {

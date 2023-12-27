@@ -8,15 +8,12 @@ use druid::widget::{prelude::*, Image, FillStrat};
 use druid::{SingleUse, WidgetPod, ImageBuf, Point};
 use nushift_core::PresentBufferFormat;
 
+use crate::model::client_framebuffer::ClientFramebuffer;
 use crate::model::RootData;
 use crate::selector::{INITIAL_SCALE_AND_SIZE, SCALE_OR_SIZE_CHANGED};
 
 pub struct ClientArea {
     image_widget: WidgetPod<RootData, Image>,
-    // TODO: This is currently used to display the last received client
-    // framebuffer in the desired way while resizing the window, but should be
-    // replaced by associating a size with the client framebuffer itself.
-    last_image_size: Size,
 }
 
 impl ClientArea {
@@ -28,38 +25,35 @@ impl ClientArea {
                 .interpolation_mode(InterpolationMode::NearestNeighbor)
         );
 
-        Self {
-            image_widget,
-            last_image_size: Size::new(0.0, 0.0),
-        }
+        Self { image_widget }
+    }
+
+    fn current_client_framebuffer(data: &RootData) -> Option<&ClientFramebuffer> {
+        data.currently_selected_tab_id.as_ref()
+            .and_then(|currently_selected_tab_id| data.get_tab_by_id(currently_selected_tab_id))
+            .and_then(|tab_data| tab_data.client_framebuffer.as_ref())
     }
 
     fn update_image(&mut self, data: &RootData) {
-        let img_buf = match data.scale_and_size {
-            Some(ref scale_and_size) => {
-                let gfx_output = scale_and_size.gfx_output(0);
-                let (width, height) = (gfx_output.size_px()[0].try_into(), gfx_output.size_px()[1].try_into());
+        let img_buf = if let Some(client_framebuffer) = Self::current_client_framebuffer(data) {
+            let client_framebuffer_2d_size = client_framebuffer.usize_2d_size();
 
-                match (width, height, data.currently_selected_tab_id.as_ref().and_then(|currently_selected_tab_id| data.get_tab_by_id(&currently_selected_tab_id))) {
-                    (Ok(width), Ok(height), Some(tab_data)) => match tab_data.client_framebuffer {
-                        // TODO: "Wrap" buffer? If not, then don't crash here
-                        Some(ref client_framebuffer) => ImageBuf::from_raw(
-                            Arc::clone(&client_framebuffer.framebuffer),
-                            match client_framebuffer.present_buffer_format {
-                                PresentBufferFormat::R8g8b8UintSrgb => ImageFormat::Rgb,
-                            },
-                            width,
-                            height,
-                        ),
-                        None => ImageBuf::empty(),
+            if let Some((width, height)) = client_framebuffer_2d_size {
+                ImageBuf::from_raw(
+                    Arc::clone(&client_framebuffer.framebuffer),
+                    match client_framebuffer.present_buffer_format {
+                        PresentBufferFormat::R8g8b8UintSrgb => ImageFormat::Rgb,
                     },
-                    _ => ImageBuf::empty(),
-                }
-            },
-            _ => ImageBuf::empty(),
+                    width,
+                    height,
+                )
+            } else {
+                ImageBuf::empty()
+            }
+        } else {
+            ImageBuf::empty()
         };
 
-        self.last_image_size = img_buf.size();
         self.image_widget.widget_mut().set_image_data(img_buf);
     }
 }
@@ -146,6 +140,11 @@ impl Widget<RootData> for ClientArea {
 
     fn layout(&mut self, ctx: &mut LayoutCtx, bc: &BoxConstraints, data: &RootData, env: &Env) -> Size {
         let scale = ctx.scale();
+        let client_framebuffer_size = if let Some(client_framebuffer) = Self::current_client_framebuffer(data) {
+            if let Some(size) = client_framebuffer.druid_2d_size() { size } else { Size::new(0.0, 0.0) }
+        } else {
+            Size::new(0.0, 0.0)
+        };
 
         // To draw a non-scaled image, give a size to the image widget in dp
         // (all layout sizes are expected to be in dp in Druid) that corresponds
@@ -153,7 +152,7 @@ impl Widget<RootData> for ClientArea {
         // of `FillStrat::ScaleDown` and `InterpolationMode::NearestNeighbor`,
         // will draw a non-scaled image. As noted in the TODO near the top of
         // this file, this is a terrible way to draw a non-scaled image.
-        let scaled_size = Size::new(scale.px_to_dp_x(self.last_image_size.width), scale.px_to_dp_y(self.last_image_size.height));
+        let scaled_size = Size::new(scale.px_to_dp_x(client_framebuffer_size.width), scale.px_to_dp_y(client_framebuffer_size.height));
 
         self.image_widget.layout(ctx, &BoxConstraints::tight(scaled_size), data, env);
         self.image_widget.set_origin(ctx, Point::ORIGIN);
