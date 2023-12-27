@@ -251,7 +251,7 @@ Creates a new CPU present buffer. As the name implies, the buffer is stored in m
 
 `present_buffer_shm_cap_id` is the SHM cap containing the underlying image data. It is not acquired by the hypervisor or otherwise modified at the time of the `GfxCpuPresentBufferNew` call.
 
-An `input_shm_cap_id` cap in either the released or non-released state is accepted. The `input_shm_cap_id` cap is not released by this call.
+An `input_shm_cap_id` cap in either the released or non-released state is accepted. The `input_shm_cap_id` cap is not released by this call. The contents are copied out, so you can destroy the `input_shm_cap_id` immediately after this call returns and the CPU present buffer cap will not be corrupted.
 
 A system call to modify the `present_buffer_size_px` of an existing CPU present buffer cap is not and may never be provided, but such CPU present buffer caps can cheaply be destroyed and created without any need to copy or otherwise modify the underlying `present_buffer_shm_cap_id` they refer to.
 
