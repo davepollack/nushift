@@ -21,8 +21,10 @@ const GGO_OUTPUT_ACQUIRE_ADDRESS: usize = 0x9000c000;
 const PRESENT_BUFFER_ACQUIRE_ADDRESS: usize = 0x90200000;
 const ALLOCATOR_BUFFER_ACQUIRE_ADDRESS: usize = 0x96600000;
 const DEBUG_PRINT_INPUT_ACQUIRE_ADDRESS: usize = 0x96700000;
+const CPU_PRESENT_BUFFER_ARGS_INPUT_ACQUIRE_ADDRESS: usize = 0x96701000;
 
 const FBSWriteError = std.io.FixedBufferStream([]u8).WriteError;
+const FBSWriter = std.io.FixedBufferStream([]u8).Writer;
 
 pub fn main() usize {
     return mainImpl() catch |err| blk: {
@@ -214,7 +216,13 @@ const GfxCpuPresentTask = struct {
         image.deinit(allocator);
         fixed_buffer_allocator.reset();
 
-        const gfx_cpu_present_buffer_cap_id = try os_nushift.syscall(.gfx_cpu_present_buffer_new, .{ .gfx_cap_id = gfx_cap_id, .present_buffer_format = os_nushift.PresentBufferFormat.r8g8b8_uint_srgb, .present_buffer_shm_cap_id = present_buffer_shm_cap_id });
+        // Write CPU present buffer args to an input cap
+        const input_shm_cap_id = try os_nushift.syscall(.shm_new_and_acquire, .{ .shm_type = os_nushift.ShmType.four_kib, .length = 1, .address = CPU_PRESENT_BUFFER_ARGS_INPUT_ACQUIRE_ADDRESS });
+        defer _ = os_nushift.syscallIgnoreErrors(.shm_release_and_destroy, .{ .shm_cap_id = input_shm_cap_id });
+        try writeCpuPresentBufferArgsToInputCap(@as([*]u8, @ptrFromInt(CPU_PRESENT_BUFFER_ARGS_INPUT_ACQUIRE_ADDRESS))[0..4096], os_nushift.PresentBufferFormat.r8g8b8_uint_srgb, &.{ gfx_output_width_px, gfx_output_height_px }, present_buffer_shm_cap_id);
+
+        // Now pass the input cap containing the args to GfxCpuPresentBufferNew
+        const gfx_cpu_present_buffer_cap_id = try os_nushift.syscall(.gfx_cpu_present_buffer_new, .{ .gfx_cap_id = gfx_cap_id, .input_shm_cap_id = input_shm_cap_id });
         errdefer _ = os_nushift.syscallIgnoreErrors(.gfx_cpu_present_buffer_destroy, .{ .gfx_cpu_present_buffer_cap_id = gfx_cpu_present_buffer_cap_id });
 
         const output_shm_cap_id = try os_nushift.syscall(.shm_new, .{ .shm_type = os_nushift.ShmType.four_kib, .length = 1 });
@@ -277,11 +285,24 @@ fn writeTaskIdsToInputCap(input_cap_buffer: []u8, task_ids: []const u64) FBSWrit
     var stream = std.io.fixedBufferStream(input_cap_buffer);
     const writer = stream.writer();
 
-    try std.leb.writeULEB128(writer, task_ids.len);
+    try writeU64Seq(writer, task_ids);
+}
 
-    for (task_ids) |task_id| {
-        try std.leb.writeULEB128(writer, task_id);
+fn writeU64Seq(writer: FBSWriter, seq: []const u64) FBSWriteError!void {
+    try std.leb.writeULEB128(writer, seq.len);
+
+    for (seq) |elem| {
+        try std.leb.writeULEB128(writer, elem);
     }
+}
+
+fn writeCpuPresentBufferArgsToInputCap(input_cap_buffer: []u8, present_buffer_format: os_nushift.PresentBufferFormat, present_buffer_size_px: []const u64, present_buffer_shm_cap_id: usize) FBSWriteError!void {
+    var stream = std.io.fixedBufferStream(input_cap_buffer);
+    const writer = stream.writer();
+
+    try std.leb.writeULEB128(writer, @intFromEnum(present_buffer_format));
+    try writeU64Seq(writer, present_buffer_size_px);
+    try std.leb.writeULEB128(writer, present_buffer_shm_cap_id);
 }
 
 fn writeWrappedImageToInputCap(input_cap_buffer: []u8, image: qoi.Image, gfx_output_width_px: u64, gfx_output_height_px: u64, allocator: std.mem.Allocator) FBSWriteError!void {
