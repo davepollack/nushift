@@ -14,6 +14,7 @@ drop_guard = "0.3.0"
 elfloader = "0.16.0"
 itertools = "0.11.0"
 memmap2 = "0.6.2"
+num-cmp = "0.1.0"
 num_enum = "0.5.7"
 postcard = "1.0.7"
 reusable-id-pool = { path = "../reusable-id-pool" }

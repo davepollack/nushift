@@ -4,6 +4,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use num_cmp::NumCmp;
 use num_enum::{TryFromPrimitive, TryFromPrimitiveError, IntoPrimitive};
 use postcard::Error as PostcardError;
 use serde::{Deserialize, Serialize};
@@ -74,6 +75,14 @@ pub enum PresentBufferFormat {
     R8g8b8UintSrgb = 0,
 }
 
+impl PresentBufferFormat {
+    fn bytes_per_pixel(&self) -> u8 {
+        match self {
+            Self::R8g8b8UintSrgb => 3,
+        }
+    }
+}
+
 struct CpuPresentBufferInfo {
     parent_gfx_cap_id: GfxCapId,
     present_buffer_format: PresentBufferFormat,
@@ -103,6 +112,18 @@ impl DeferredSpacePublish for CpuPresent {
             deferred_space::print_error(output_shm_cap, DeferredError::ExtraInfoNoLongerPresent, &error_message);
             return;
         };
+
+        let dimensions_product_bytes = cpu_present_buffer_info.present_buffer_size_px
+            .iter()
+            .try_fold(1u64, |number_acc, &elem| number_acc.checked_mul(elem))
+            .and_then(|dimensions_product| dimensions_product.checked_mul(cpu_present_buffer_info.present_buffer_format.bytes_per_pixel().into()));
+
+        if !matches!(dimensions_product_bytes, Some(num) if num.num_eq(payload.len())) {
+            let error_message = "The present buffer length was not consistent with the buffer dimensions and format. The length should be the bytes per pixel of the format multiplied by the product of the dimensions.";
+            tracing::debug!(error_message);
+            deferred_space::print_error(output_shm_cap, DeferredError::GfxInconsistentPresentBufferLength, &error_message);
+            return;
+        }
 
         match self.tab_context.send_hypervisor_event(UnboundHypervisorEvent::GfxCpuPresent(cpu_present_buffer_info.present_buffer_format, cpu_present_buffer_info.present_buffer_size_px.clone(), payload.into())) {
             Ok(_) => deferred_space::print_success(output_shm_cap, ()),
