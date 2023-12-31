@@ -113,12 +113,12 @@ impl DeferredSpacePublish for CpuPresent {
             return;
         };
 
-        let dimensions_product_bytes = cpu_present_buffer_info.present_buffer_size_px
+        let dimensions_product_format_bytes = cpu_present_buffer_info.present_buffer_size_px
             .iter()
             .try_fold(1u64, |number_acc, &elem| number_acc.checked_mul(elem))
             .and_then(|dimensions_product| dimensions_product.checked_mul(cpu_present_buffer_info.present_buffer_format.bytes_per_pixel().into()));
 
-        if !matches!(dimensions_product_bytes, Some(num) if num.num_eq(payload.len())) {
+        if !matches!(dimensions_product_format_bytes, Some(num) if num.num_eq(payload.len())) {
             let error_message = "The present buffer length was not consistent with the buffer dimensions and format. The length should be the bytes per pixel of the format multiplied by the product of the dimensions.";
             tracing::debug!(error_message);
             deferred_space::print_error(output_shm_cap, DeferredError::GfxInconsistentPresentBufferLength, &error_message);

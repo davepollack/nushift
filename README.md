@@ -265,7 +265,7 @@ Errors: `InternalError`, `Exhausted`, `CapNotFound`, `InProgress`, `PermissionDe
 
 Starts a task to blit the CPU present buffer memory to video memory/output.
 
-The linear buffer of memory in the CPU present buffer represents physical pixels, that has the width and height (and/or more dimensions) that is in the CPU present buffer cap metadata. These dimensions should ideally be the same width and height (and/or more dimensions) in pixels as the targeted output — if it is not, this is accepted and the presented image will either pad the buffer image or cut off the parts that can't be displayed.
+The linear buffer of memory in the CPU present buffer is expected to be a byte array in Postcard format. It represents physical pixels, that has the width and height (and/or more dimensions) that is in the CPU present buffer cap metadata, in the format that is in the CPU present buffer cap metadata. These dimensions should ideally be the same width and height (and/or more dimensions) in pixels as the targeted output — if it is not, this is accepted and the presented image will either pad the buffer image or cut off the parts that can't be displayed.
 
 `wait_for_vblank` is not used for now and should always be set to `-1` for now. Conceptually, if it is set to false, the blitting starts straight away and may start in the middle of monitor scanout and tearing will occur. If it is set to true, we wait until the start of the vertical blanking interval and the idea is that tearing will not occur, however blitting a 3840x2160 image from the CPU does take a few milliseconds, which makes it again possible for tearing to occur if the next monitor scanout starts while blitting is still occurring, if there is no VRR support. This option may need to be reworked and extended, and there may be a breaking change to the API of this call in the future.
 
@@ -274,7 +274,7 @@ As with other deferred-style calls:
 * It accepts `present_buffer_shm_cap_id` and `output_shm_cap_id` that are already released
 * The `output_shm_cap_id` cap is created by you, and the hypervisor will write the output of the deferred call to it
 
-An error will be written to the `output_shm_cap_id` cap if the Postcard data in the `present_buffer_shm_cap_id` cap cannot be deserialised, or an internal error fetching `gfx_cpu_present_buffer_cap_id` info failed, or the present command submission to the Nushift GUI shell failed. In the last case, this probably means that the Nushift GUI shell has gone away. The error begins with the varint-encoded discriminant 1, followed by error details. On success, the varint-encoded discriminant 0 is written. The output format is itself in the Postcard format.
+An error will be written to the `output_shm_cap_id` cap if the Postcard data in the `present_buffer_shm_cap_id` cap cannot be deserialised, or an internal error fetching `gfx_cpu_present_buffer_cap_id` info failed, or the byte length in the `present_buffer_shm_cap_id` cap does not equal the product of the dimensions multiplied by the bytes per pixel of the format from the `gfx_cpu_present_buffer_cap_id` info, or the present command submission to the Nushift GUI shell failed. In the last case, this probably means that the Nushift GUI shell has gone away. The error begins with the varint-encoded discriminant 1, followed by error details. On success, the varint-encoded discriminant 0 is written. The output format is itself in the Postcard format.
 
 ### GfxCpuPresentBufferDestroy
 
