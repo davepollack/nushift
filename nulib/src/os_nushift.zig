@@ -57,7 +57,7 @@ pub fn SyscallArgs(comptime sys: Syscall) type {
 
         .gfx_new => struct {},
         .gfx_get_outputs => struct { gfx_cap_id: usize, output_shm_cap_id: usize },
-        .gfx_cpu_present_buffer_new => struct { gfx_cap_id: usize, present_buffer_format: PresentBufferFormat, present_buffer_shm_cap_id: usize },
+        .gfx_cpu_present_buffer_new => struct { gfx_cap_id: usize, input_shm_cap_id: usize },
         .gfx_cpu_present => struct { gfx_cpu_present_buffer_cap_id: usize, gfx_output_id: usize, wait_for_vblank: usize, output_shm_cap_id: usize },
         .gfx_cpu_present_buffer_destroy => struct { gfx_cpu_present_buffer_cap_id: usize },
         .gfx_destroy => struct { gfx_cap_id: usize },
@@ -74,6 +74,7 @@ pub const SyscallErrorEnum = enum(usize) {
     cap_not_found = 6,
     in_progress = 11,
     permission_denied = 12,
+    deserialize_error = 13,
 
     shm_unknown_shm_type = 3,
     shm_invalid_length = 4,
@@ -83,14 +84,11 @@ pub const SyscallErrorEnum = enum(usize) {
     shm_address_not_aligned = 9,
     shm_overlaps_existing_acquisition = 10,
 
-    deferred_deserialize_task_ids_error = 13,
     deferred_duplicate_task_ids = 14,
     deferred_task_ids_not_found = 15,
 
     gfx_unknown_present_buffer_format = 16,
     gfx_child_caps_not_destroyed = 17,
-
-    debug_print_deserialize_error = 18,
 };
 
 pub const SyscallError = error{
@@ -101,6 +99,7 @@ pub const SyscallError = error{
     CapNotFound,
     InProgress,
     PermissionDenied,
+    DeserializeError,
 
     ShmUnknownShmType,
     ShmInvalidLength,
@@ -110,14 +109,11 @@ pub const SyscallError = error{
     ShmAddressNotAligned,
     ShmOverlapsExistingAcquisition,
 
-    DeferredDeserializeTaskIdsError,
     DeferredDuplicateTaskIds,
     DeferredTaskIdsNotFound,
 
     GfxUnknownPresentBufferFormat,
     GfxChildCapsNotDestroyed,
-
-    DebugPrintDeserializeError,
 };
 
 pub const ShmType = enum(usize) {
@@ -164,7 +160,7 @@ fn syscallInternal(comptime sys: Syscall, sys_args: SyscallArgs(sys), comptime i
 
         .gfx_new => syscallInternalArgs(sys, .{}, ignore_errors),
         .gfx_get_outputs => syscallInternalArgs(sys, .{ sys_args.gfx_cap_id, sys_args.output_shm_cap_id }, ignore_errors),
-        .gfx_cpu_present_buffer_new => syscallInternalArgs(sys, .{ sys_args.gfx_cap_id, @intFromEnum(sys_args.present_buffer_format), sys_args.present_buffer_shm_cap_id }, ignore_errors),
+        .gfx_cpu_present_buffer_new => syscallInternalArgs(sys, .{ sys_args.gfx_cap_id, sys_args.input_shm_cap_id }, ignore_errors),
         .gfx_cpu_present => syscallInternalArgs(sys, .{ sys_args.gfx_cpu_present_buffer_cap_id, sys_args.gfx_output_id, sys_args.wait_for_vblank, sys_args.output_shm_cap_id }, ignore_errors),
         .gfx_cpu_present_buffer_destroy => syscallInternalArgs(sys, .{sys_args.gfx_cpu_present_buffer_cap_id}, ignore_errors),
         .gfx_destroy => syscallInternalArgs(sys, .{sys_args.gfx_cap_id}, ignore_errors),

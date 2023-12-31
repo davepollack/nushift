@@ -63,8 +63,8 @@ pub fn tab() -> impl Widget<RootAndTabData> {
                     Some(HypervisorEvent::TitleChange(_, new_title)) => {
                         tab_data.title = new_title.as_str().into();
                     },
-                    Some(HypervisorEvent::GfxCpuPresent(_, present_buffer_format, framebuffer)) => {
-                        tab_data.client_framebuffer = Some(ClientFramebuffer { present_buffer_format, framebuffer });
+                    Some(HypervisorEvent::GfxCpuPresent(_, present_buffer_format, size_px, framebuffer)) => {
+                        tab_data.client_framebuffer = Some(ClientFramebuffer { present_buffer_format, size_px: size_px.into(), framebuffer });
                     },
                     _ => {},
                 }

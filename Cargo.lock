@@ -1003,6 +1003,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "num-cmp"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "63335b2e2c34fae2fb0aa2cecfd9f0832a1e24b3b32ecec612c3426d46dc8aaa"
+
+[[package]]
 name = "num_enum"
 version = "0.5.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1044,6 +1050,7 @@ dependencies = [
  "elfloader",
  "itertools",
  "memmap2",
+ "num-cmp",
  "num_enum",
  "postcard",
  "reusable-id-pool",

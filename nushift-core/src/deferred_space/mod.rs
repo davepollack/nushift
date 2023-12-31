@@ -335,4 +335,5 @@ pub enum DeferredError {
     SubmitFailed = 2,
     ExtraInfoNoLongerPresent = 3,
     SerializeError = 4,
+    GfxInconsistentPresentBufferLength = 5,
 }
