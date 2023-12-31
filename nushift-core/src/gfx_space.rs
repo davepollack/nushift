@@ -346,4 +346,13 @@ mod tests {
 
         assert!(matches!(gfx_space.destroy_gfx_cap(0), Err(GfxSpaceError::DeferredSpaceError { source: DeferredSpaceError::CapNotFound { id: 0, .. } })));
     }
+
+    #[test]
+    fn new_gfx_cpu_present_buffer_cap_impl_returns_error_when_enum_value_unrecognized() {
+        let mut gfx_space = GfxSpace::new(Arc::new(MockTabContext));
+
+        let gfx_cap_id = gfx_space.new_gfx_cap().expect("Should succeed");
+
+        assert!(matches!(gfx_space.new_gfx_cpu_present_buffer_cap_impl(gfx_cap_id, CpuPresentBufferArgs { present_buffer_format: u64::MAX, present_buffer_size_px: vec![], present_buffer_shm_cap_id: 0 }), Err(GfxSpaceError::UnknownPresentBufferFormat { .. })));
+    }
 }
