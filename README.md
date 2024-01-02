@@ -416,4 +416,4 @@ See the `LICENSE` and/or `NOTICE` files in each directory for more details.
 
 ## Running
 
-It is recommended to run the demo with `cargo run --release` for improved performance. Please run the Nushift GUI desktop application from the `nushift` directory, i.e. `cd nushift && cargo run --release`, NOT `cargo run --release -p nushift`. This is required for internationalised strings to work.
+It is recommended to run the Nushift GUI desktop application with `cargo run --release` for improved demo app performance. Please run it from the `nushift` directory, i.e. `cd nushift && cargo run --release`, NOT `cargo run --release -p nushift`. This is required for internationalised strings to work.
