@@ -354,7 +354,7 @@ where
 {
     let subsystem = pcb.locked_subsystem.lock().unwrap();
     protected_memory_load(subsystem.shm_space(), R::to_u64(addr))
-        .map(|value| from_val(value))
+        .map(from_val)
         .map_err(|err| {
             match err {
                 ProtectedMemoryError::WalkError {

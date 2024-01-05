@@ -102,7 +102,7 @@ impl AppGlobalDeferredSpace {
         // The validate method relies on the whole app being blocked making it
         // still valid once the deferred tasks are finished. Is this true?
 
-        let duplicate_task_ids: Vec<TaskId> = task_ids.iter().map(|&task_id| task_id).duplicates().collect();
+        let duplicate_task_ids: Vec<TaskId> = task_ids.iter().copied().duplicates().collect();
         if !duplicate_task_ids.is_empty() {
             return DuplicatesSnafu { duplicate_task_ids }.fail();
         }
