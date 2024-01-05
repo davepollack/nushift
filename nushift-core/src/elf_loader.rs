@@ -7,7 +7,7 @@ use elfloader::{ElfLoader, ElfLoaderErr, LoadableHeaders, Flags, VAddr, Relocati
 use snafu::prelude::*;
 use snafu_cli_debug::SnafuCliDebug;
 
-use super::shm_space::{CapType, ShmSpace, ShmType, ShmCapId, acquisitions_and_page_table::Sv39Flags};
+use crate::shm_space::{SV39_BITS, CapType, ShmSpace, ShmType, ShmCapId, acquisitions_and_page_table::Sv39Flags};
 
 // The loader in this file should be robust against:
 //
@@ -128,6 +128,15 @@ impl ElfLoader for Loader<'_> {
                     ElfLoaderErr::UnsupportedSectionData
                 })?;
 
+            if last_occupied_vpn >= (1 << (SV39_BITS - 12)) {
+                tracing::error!(
+                    "Section at vaddr {:#x} and mem_size {:#x} exceeds 2^39, which is the bounds of the Sv39 scheme, which is currently the only supported scheme.",
+                    header.virtual_addr(),
+                    header.mem_size(),
+                );
+                return Err(ElfLoaderErr::UnsupportedSectionData);
+            }
+
             let number_of_pages = last_occupied_vpn
                 .checked_sub(rounded_down_start_vpn)
                 .expect("This should not underflow because of the last_occupied_page_number logic, but definitely panic if it does")
@@ -169,7 +178,6 @@ impl ElfLoader for Loader<'_> {
             match self.shm_space.acquire_shm_cap_elf(shm_cap_id, rounded_down_start_vpn << 12, sv39_flags) {
                 Ok(_) => {},
                 Err(err) => {
-                    // TODO: It's not necessarily an internal error. We haven't yet checked that it doesn't exceed 2^39.
                     tracing::error!("ELF loading: acquire_shm_cap internal error: {err:?}");
                     errored_caps.push(shm_cap_id);
                     break;
