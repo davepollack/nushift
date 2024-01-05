@@ -1,4 +1,4 @@
-# nushift
+# Nushift
 
 A new shift in running programs with shareable URLs.
 
