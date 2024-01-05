@@ -122,7 +122,7 @@ impl AcquisitionsAndPageTable {
             let leaf_table = match level_2_table.as_ref() {
                 PageTableLevel2::OneGiBSuperpage(pte) => {
                     let shm_cap_ref = shm_space_map.get_shm_cap(pte.shm_cap_id).ok_or_else(|| PageEntryCorruptedSnafu { shm_cap_id: pte.shm_cap_id, mismatched_entry_found_at_level: None, shm_cap_offset: None, shm_cap_length: None }.build())?;
-                    Self::check_shm_type_mismatch_and_permissions(1, &pte, shm_cap_ref.as_ref(), ShmType::OneGiB, required_permissions)?;
+                    Self::check_shm_type_mismatch_and_permissions(1, pte, shm_cap_ref.as_ref(), ShmType::OneGiB, required_permissions)?;
                     break 'superpage_check (pte, shm_cap_ref);
                 },
                 PageTableLevel2::Entries(entries) => {
@@ -134,7 +134,7 @@ impl AcquisitionsAndPageTable {
             let four_k_entry = match leaf_table.as_ref() {
                 PageTableLeaf::TwoMiBSuperpage(pte) => {
                     let shm_cap_ref = shm_space_map.get_shm_cap(pte.shm_cap_id).ok_or_else(|| PageEntryCorruptedSnafu { shm_cap_id: pte.shm_cap_id, mismatched_entry_found_at_level: None, shm_cap_offset: None, shm_cap_length: None }.build())?;
-                    Self::check_shm_type_mismatch_and_permissions(2, &pte, shm_cap_ref.as_ref(), ShmType::TwoMiB, required_permissions)?;
+                    Self::check_shm_type_mismatch_and_permissions(2, pte, shm_cap_ref.as_ref(), ShmType::TwoMiB, required_permissions)?;
                     break 'superpage_check (pte, shm_cap_ref);
                 },
                 PageTableLeaf::Entries(entries) => {
@@ -143,7 +143,7 @@ impl AcquisitionsAndPageTable {
                 }
             };
             let shm_cap_ref = shm_space_map.get_shm_cap(four_k_entry.shm_cap_id).ok_or_else(|| PageEntryCorruptedSnafu { shm_cap_id: four_k_entry.shm_cap_id, mismatched_entry_found_at_level: None, shm_cap_offset: None, shm_cap_length: None }.build())?;
-            Self::check_shm_type_mismatch_and_permissions(3, &four_k_entry, shm_cap_ref.as_ref(), ShmType::FourKiB, required_permissions)?;
+            Self::check_shm_type_mismatch_and_permissions(3, four_k_entry, shm_cap_ref.as_ref(), ShmType::FourKiB, required_permissions)?;
 
             (four_k_entry, shm_cap_ref)
         };
