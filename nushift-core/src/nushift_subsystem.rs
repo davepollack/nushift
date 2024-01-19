@@ -42,7 +42,7 @@ enum Syscall {
     ShmReleaseAndDestroy = 6,
 
     AccessibilityTreeNew = 7,
-    AccessibilityTreePublish = 8,
+    AccessibilityTreePublishRON = 8,
     AccessibilityTreeDestroy = 9,
 
     TitleNew = 10,
@@ -312,7 +312,7 @@ impl NushiftSubsystem {
 
                 set_success(accessibility_tree_cap_id)
             },
-            Ok(Syscall::AccessibilityTreePublish) => {
+            Ok(Syscall::AccessibilityTreePublishRON) => {
                 let accessibility_tree_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
                 let input_shm_cap_id = registers[SECOND_ARG_REGISTER_INDEX].to_u64();
                 let output_shm_cap_id = registers[THIRD_ARG_REGISTER_INDEX].to_u64();
@@ -322,7 +322,7 @@ impl NushiftSubsystem {
                     Err(app_global_deferred_space_error) => return marshall_app_global_deferred_space_error(app_global_deferred_space_error),
                 };
 
-                match self.accessibility_tree_space.publish_accessibility_tree_blocking(accessibility_tree_cap_id, input_shm_cap_id, output_shm_cap_id, &mut self.shm_space) {
+                match self.accessibility_tree_space.publish_accessibility_tree_ron_blocking(accessibility_tree_cap_id, input_shm_cap_id, output_shm_cap_id, &mut self.shm_space) {
                     Ok(_) => {},
                     Err(deferred_space_error) => return marshall_deferred_space_error(deferred_space_error),
                 }

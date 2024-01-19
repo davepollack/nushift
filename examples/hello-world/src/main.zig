@@ -156,7 +156,7 @@ const AccessibilityTreeTask = struct {
     }
 
     fn accessibilityTreePublish(self: *const Self) os_nushift.SyscallError!usize {
-        return os_nushift.syscall(.accessibility_tree_publish, .{ .accessibility_tree_cap_id = self.a11y_tree_cap_id, .input_shm_cap_id = self.a11y_input_shm_cap_id, .output_shm_cap_id = self.a11y_output_shm_cap_id });
+        return os_nushift.syscall(.accessibility_tree_publish_ron, .{ .accessibility_tree_cap_id = self.a11y_tree_cap_id, .input_shm_cap_id = self.a11y_input_shm_cap_id, .output_shm_cap_id = self.a11y_output_shm_cap_id });
     }
 };
 
