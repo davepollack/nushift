@@ -18,6 +18,7 @@ pub const Syscall = enum(usize) {
 
     accessibility_tree_new = 7,
     accessibility_tree_publish_ron = 8,
+    accessibility_tree_publish = 21,
     accessibility_tree_destroy = 9,
 
     title_new = 10,
@@ -47,6 +48,7 @@ pub fn SyscallArgs(comptime sys: Syscall) type {
 
         .accessibility_tree_new => struct {},
         .accessibility_tree_publish_ron => struct { accessibility_tree_cap_id: usize, input_shm_cap_id: usize, output_shm_cap_id: usize },
+        .accessibility_tree_publish => struct { accessibility_tree_cap_id: usize, input_shm_cap_id: usize, output_shm_cap_id: usize },
         .accessibility_tree_destroy => struct { accessibility_tree_cap_id: usize },
 
         .title_new => struct {},
@@ -150,6 +152,7 @@ fn syscallInternal(comptime sys: Syscall, sys_args: SyscallArgs(sys), comptime i
         // Send maxInt(usize) as the first argument. The first argument is not used yet, but may be in the future.
         .accessibility_tree_new => syscallInternalArgs(sys, .{std.math.maxInt(usize)}, ignore_errors),
         .accessibility_tree_publish_ron => syscallInternalArgs(sys, .{ sys_args.accessibility_tree_cap_id, sys_args.input_shm_cap_id, sys_args.output_shm_cap_id }, ignore_errors),
+        .accessibility_tree_publish => syscallInternalArgs(sys, .{ sys_args.accessibility_tree_cap_id, sys_args.input_shm_cap_id, sys_args.output_shm_cap_id }, ignore_errors),
         .accessibility_tree_destroy => syscallInternalArgs(sys, .{sys_args.accessibility_tree_cap_id}, ignore_errors),
 
         .title_new => syscallInternalArgs(sys, .{}, ignore_errors),
