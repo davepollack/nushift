@@ -11,7 +11,7 @@ const qoi = @import("qoi");
 const GfxOutput = @import("./GfxOutput.zig");
 
 const ron = @embedFile("./accessibility_tree.ron");
-const hello_world_qoi_data = @embedFile("./hello_world.qoi");
+const hello_world_qoi_data = @embedFile("./assets/hello_world.qoi");
 const title: []const u8 = "Hello World App";
 
 const TITLE_INPUT_ACQUIRE_ADDRESS: usize = 0x90000000;
