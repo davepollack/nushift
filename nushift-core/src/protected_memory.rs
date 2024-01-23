@@ -165,6 +165,7 @@ trait Numeric<const N: usize> {
     fn from_le_bytes(bytes: [u8; N]) -> Self;
     fn to_le_bytes(self) -> [u8; N];
 }
+
 macro_rules! impl_numeric {
     ($($t:ty),+) => { $(
         impl Numeric<{mem::size_of::<Self>()}> for $t {
@@ -173,4 +174,5 @@ macro_rules! impl_numeric {
         }
     )+ };
 }
+
 impl_numeric!(u16, u32, u64);
