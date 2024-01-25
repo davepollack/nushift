@@ -1,4 +1,4 @@
-// Copyright 2023 The Nushift Authors.
+// Copyright 2024 The Nushift Authors.
 //
 // Distributed under the Boost Software License, Version 1.0.
 // (See accompanying file LICENSE or copy at
@@ -6,6 +6,8 @@
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+
+const writing = @import("./writing.zig");
 
 const AccessibilityTree = @This();
 
@@ -63,4 +65,25 @@ pub fn deinit(self: *AccessibilityTree) void {
         surface.display_list.deinit();
     }
     self.surfaces.deinit();
+}
+
+pub fn write(self: *AccessibilityTree, writer: anytype) !void {
+    try std.leb.writeULEB128(writer, self.surfaces.items.len);
+
+    for (self.surfaces) |surface| {
+        try std.leb.writeULEB128(writer, surface.display_list.items.len);
+
+        for (surface.display_list) |display_item| {
+            switch (display_item) {
+                .text => |text_item| {
+                    // struct_variant, discriminant 0
+                    try std.leb.writeULEB128(writer, 0);
+
+                    try writing.writeF64Seq(writer, text_item.aabb[0].items);
+                    try writing.writeF64Seq(writer, text_item.aabb[1].items);
+                    try writing.writeStr(writer, text_item.text.items);
+                },
+            }
+        }
+    }
 }

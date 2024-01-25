@@ -8,6 +8,7 @@ const std = @import("std");
 const os_nushift = @import("os_nushift");
 const qoi = @import("qoi");
 
+const writing = @import("./writing.zig");
 const GfxOutput = @import("./GfxOutput.zig");
 
 const ron = @embedFile("./accessibility_tree.ron");
@@ -285,15 +286,7 @@ fn writeTaskIdsToInputCap(input_cap_buffer: []u8, task_ids: []const u64) FBSWrit
     var stream = std.io.fixedBufferStream(input_cap_buffer);
     const writer = stream.writer();
 
-    try writeU64Seq(writer, task_ids);
-}
-
-fn writeU64Seq(writer: FBSWriter, seq: []const u64) FBSWriteError!void {
-    try std.leb.writeULEB128(writer, seq.len);
-
-    for (seq) |elem| {
-        try std.leb.writeULEB128(writer, elem);
-    }
+    try writing.writeU64Seq(writer, task_ids);
 }
 
 fn writeCpuPresentBufferArgsToInputCap(input_cap_buffer: []u8, present_buffer_format: os_nushift.PresentBufferFormat, present_buffer_size_px: []const u64, present_buffer_shm_cap_id: usize) FBSWriteError!void {
@@ -301,7 +294,7 @@ fn writeCpuPresentBufferArgsToInputCap(input_cap_buffer: []u8, present_buffer_fo
     const writer = stream.writer();
 
     try std.leb.writeULEB128(writer, @intFromEnum(present_buffer_format));
-    try writeU64Seq(writer, present_buffer_size_px);
+    try writing.writeU64Seq(writer, present_buffer_size_px);
     try std.leb.writeULEB128(writer, present_buffer_shm_cap_id);
 }
 
