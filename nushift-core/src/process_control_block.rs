@@ -152,14 +152,17 @@ where
 
 #[derive(Debug)]
 pub struct ElfLoaderErrImplementingError(ElfLoaderErr);
+
 impl ElfLoaderErrImplementingError {
     fn new(source: ElfLoaderErr) -> Self { Self(source) }
 }
+
 impl Display for ElfLoaderErrImplementingError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         self.0.fmt(f)
     }
 }
+
 impl Error for ElfLoaderErrImplementingError {}
 
 #[derive(Snafu, SnafuCliDebug)]
@@ -182,6 +185,7 @@ macro_rules! proxy_to_self_machine {
         proxy_to_self_machine_impl!(mut; $self, $name$(, $arg)*)
     };
 }
+
 macro_rules! proxy_to_self_machine_impl {
     ($($mut:ident)?; $self:ident, $name:ident$(, $arg:expr)*) => {
         match $self.machine {
