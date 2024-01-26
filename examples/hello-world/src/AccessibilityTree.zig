@@ -30,7 +30,7 @@ const Surface = struct {
     const VirtualPoint = f64;
 };
 
-pub fn initOneItem(allocator: Allocator) Allocator.Error!AccessibilityTree {
+pub fn initOneTextItem(allocator: Allocator) Allocator.Error!AccessibilityTree {
     const display_item = Surface.DisplayItem{
         .text = .{
             .aabb = .{ std.ArrayList(Surface.VirtualPoint).init(allocator), std.ArrayList(Surface.VirtualPoint).init(allocator) },

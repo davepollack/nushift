@@ -41,6 +41,9 @@ pub fn main() usize {
 }
 
 fn mainImpl() (FBSWriteError || os_nushift.SyscallError || GfxOutput.Error || qoi.DecodeError)!usize {
+    var image_and_allocator = try ImageAndAllocator.init();
+    defer image_and_allocator.deinit();
+
     var tasks = blk: {
         var title_task = try TitleTask.init();
         errdefer title_task.deinit();
@@ -73,7 +76,7 @@ fn mainImpl() (FBSWriteError || os_nushift.SyscallError || GfxOutput.Error || qo
     const gfx_output_0 = try @call(.always_inline, getGfxOutput0, .{&tasks[2]});
 
     // Present
-    var gfx_cpu_present_task = try GfxCpuPresentTask.init(tasks[2].gfx_cap_id, gfx_output_0.id, gfx_output_0.size_px[0], gfx_output_0.size_px[1]);
+    var gfx_cpu_present_task = try GfxCpuPresentTask.init(tasks[2].gfx_cap_id, gfx_output_0.id, gfx_output_0.size_px[0], gfx_output_0.size_px[1], image_and_allocator.image, image_and_allocator.allocator());
     const gfx_cpu_present_task_id = try gfx_cpu_present_task.gfxCpuPresent();
     try blockOnDeferredTasks(&.{gfx_cpu_present_task_id});
     gfx_cpu_present_task.deinit();
@@ -82,6 +85,40 @@ fn mainImpl() (FBSWriteError || os_nushift.SyscallError || GfxOutput.Error || qo
 
     return 0;
 }
+
+const ImageAndAllocator = struct {
+    fixed_buffer_allocator: std.heap.FixedBufferAllocator,
+    image: qoi.Image,
+
+    const Self = @This();
+
+    fn init() (os_nushift.SyscallError || qoi.DecodeError)!Self {
+        // 1 MiB buffer for allocator
+        const allocator_buffer_shm_cap_id = try os_nushift.syscall(.shm_new_and_acquire, .{ .shm_type = os_nushift.ShmType.four_kib, .length = 256, .address = ALLOCATOR_BUFFER_ACQUIRE_ADDRESS });
+        errdefer _ = os_nushift.syscallIgnoreErrors(.shm_release_and_destroy, .{ .shm_cap_id = allocator_buffer_shm_cap_id });
+        var fixed_buffer_allocator = std.heap.FixedBufferAllocator.init(@as([*]u8, @ptrFromInt(ALLOCATOR_BUFFER_ACQUIRE_ADDRESS))[0..1048576]);
+
+        const fba_allocator = fixed_buffer_allocator.allocator();
+        var image = try qoi.decodeBuffer(fba_allocator, hello_world_qoi_data);
+        errdefer image.deinit(fba_allocator);
+
+        return Self{
+            .fixed_buffer_allocator = fixed_buffer_allocator,
+            .image = image,
+        };
+    }
+
+    fn deinit(self: *Self) void {
+        self.image.deinit(self.allocator());
+        self.fixed_buffer_allocator.reset();
+
+        self.* = undefined;
+    }
+
+    fn allocator(self: *Self) std.mem.Allocator {
+        return self.fixed_buffer_allocator.allocator();
+    }
+};
 
 const TitleTask = struct {
     title_cap_id: usize,
@@ -201,21 +238,12 @@ const GfxCpuPresentTask = struct {
 
     const Self = @This();
 
-    fn init(gfx_cap_id: usize, gfx_output_id: u64, gfx_output_width_px: u64, gfx_output_height_px: u64) (os_nushift.SyscallError || FBSWriteError || qoi.DecodeError)!Self {
+    fn init(gfx_cap_id: usize, gfx_output_id: u64, gfx_output_width_px: u64, gfx_output_height_px: u64, image: qoi.Image, allocator: std.mem.Allocator) (os_nushift.SyscallError || FBSWriteError || qoi.DecodeError)!Self {
         // 100 MiB present buffer
         const present_buffer_shm_cap_id = try os_nushift.syscall(.shm_new_and_acquire, .{ .shm_type = os_nushift.ShmType.two_mib, .length = 50, .address = PRESENT_BUFFER_ACQUIRE_ADDRESS });
         errdefer _ = os_nushift.syscallIgnoreErrors(.shm_release_and_destroy, .{ .shm_cap_id = present_buffer_shm_cap_id });
 
-        // 1 MiB buffer for allocator
-        const allocator_buffer_shm_cap_id = try os_nushift.syscall(.shm_new_and_acquire, .{ .shm_type = os_nushift.ShmType.four_kib, .length = 256, .address = ALLOCATOR_BUFFER_ACQUIRE_ADDRESS });
-        defer _ = os_nushift.syscallIgnoreErrors(.shm_release_and_destroy, .{ .shm_cap_id = allocator_buffer_shm_cap_id });
-        var fixed_buffer_allocator = std.heap.FixedBufferAllocator.init(@as([*]u8, @ptrFromInt(ALLOCATOR_BUFFER_ACQUIRE_ADDRESS))[0..1048576]);
-        const allocator = fixed_buffer_allocator.allocator();
-
-        var image = try qoi.decodeBuffer(allocator, hello_world_qoi_data);
         try writeWrappedImageToInputCap(@as([*]u8, @ptrFromInt(PRESENT_BUFFER_ACQUIRE_ADDRESS))[0..104857600], image, gfx_output_width_px, gfx_output_height_px, allocator);
-        image.deinit(allocator);
-        fixed_buffer_allocator.reset();
 
         // Write CPU present buffer args to an input cap
         const input_shm_cap_id = try os_nushift.syscall(.shm_new_and_acquire, .{ .shm_type = os_nushift.ShmType.four_kib, .length = 1, .address = CPU_PRESENT_BUFFER_ARGS_INPUT_ACQUIRE_ADDRESS });
