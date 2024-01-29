@@ -407,7 +407,7 @@ fn writeWrappedImageToInputCap(allocator: Allocator, input_cap_buffer: []u8, ima
     }
 
     // Write bottom margin
-    try writer.writeByteNTimes(0xFF, @max(0, gfx_output_height_px - MARGIN_TOP - image.height) * gfx_output_width_px * 3);
+    try writer.writeByteNTimes(0xFF, @max(0, @as(i64, @intCast(gfx_output_height_px)) - @as(i64, MARGIN_TOP) - @as(i64, image.height)) * gfx_output_width_px * 3);
 
     debugPrint(std.fmt.allocPrint(allocator, "Done. {d} bytes written", .{stream.pos}) catch "Fmt error") catch {};
 }
