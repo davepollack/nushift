@@ -268,7 +268,7 @@ where
     fn ebreak(&mut self) -> Result<(), CKBVMError> {
         // Terminate app.
         // TODO: As an improvement to terminating the app, provide debugging functionality.
-        Err(CKBVMError::External(String::from("ebreak encountered; terminating app.")))
+        Err(CKBVMError::External(format!("ebreak encountered; terminating app. PC: {:#x}", self.pc())))
     }
 }
 
