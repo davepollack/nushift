@@ -23,7 +23,7 @@ pub fn writeF64Seq(writer: anytype, seq: []const f64) !void {
 }
 
 pub fn writeF64(writer: anytype, value: f64) !void {
-    try writer.writeIntLittle(@bitCast(value));
+    try writer.writeIntLittle(u64, @as(u64, @bitCast(value)));
 }
 
 pub fn writeStr(writer: anytype, str: []const u8) !void {

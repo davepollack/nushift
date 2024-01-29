@@ -9,9 +9,11 @@ const os_nushift = @import("os_nushift");
 const qoi = @import("qoi");
 
 const writing = @import("./writing.zig");
+const AccessibilityTree = @import("./AccessibilityTree.zig");
 const GfxOutput = @import("./GfxOutput.zig");
 
-const ron = @embedFile("./accessibility_tree.ron");
+const Allocator = std.mem.Allocator;
+
 const hello_world_qoi_data = @embedFile("./assets/hello_world.qoi");
 const title: []const u8 = "Hello World App";
 
@@ -23,6 +25,8 @@ const PRESENT_BUFFER_ACQUIRE_ADDRESS: usize = 0x90200000;
 const ALLOCATOR_BUFFER_ACQUIRE_ADDRESS: usize = 0x96600000;
 const DEBUG_PRINT_INPUT_ACQUIRE_ADDRESS: usize = 0x96700000;
 const CPU_PRESENT_BUFFER_ARGS_INPUT_ACQUIRE_ADDRESS: usize = 0x96701000;
+
+const MARGIN_TOP: u32 = 70;
 
 const FBSWriteError = std.io.FixedBufferStream([]u8).WriteError;
 const FBSWriter = std.io.FixedBufferStream([]u8).Writer;
@@ -40,48 +44,63 @@ pub fn main() usize {
     };
 }
 
-fn mainImpl() (FBSWriteError || os_nushift.SyscallError || GfxOutput.Error || qoi.DecodeError)!usize {
-    var image_and_allocator = try ImageAndAllocator.init();
-    defer image_and_allocator.deinit();
-
-    var tasks = blk: {
+fn mainImpl() (FBSWriteError || os_nushift.SyscallError || GfxOutput.Error || qoi.DecodeError || Allocator.Error)!usize {
+    var title_outputs_tasks = blk: {
         var title_task = try TitleTask.init();
         errdefer title_task.deinit();
-
-        var a11y_tree_task = try AccessibilityTreeTask.init();
-        errdefer a11y_tree_task.deinit();
 
         var gfx_get_outputs_task = try GfxGetOutputsTask.init();
         errdefer gfx_get_outputs_task.deinit();
 
-        break :blk .{ title_task, a11y_tree_task, gfx_get_outputs_task };
+        break :blk .{ title_task, gfx_get_outputs_task };
     };
 
-    const title_task_id = try tasks[0].titlePublish();
-    const a11y_tree_task_id = try tasks[1].accessibilityTreePublish();
-    const gfx_get_outputs_task_id = try tasks[2].gfxGetOutputs();
+    const title_task_id = try title_outputs_tasks[0].titlePublish();
+    const gfx_get_outputs_task_id = try title_outputs_tasks[1].gfxGetOutputs();
 
     // If an error occurs between publishing and the end of
     // block_on_deferred_tasks, you can't deinit the tasks because the resources
     // are in-flight. And we don't. But that does mean the task resources will
     // leak if that error occurs.
 
-    try blockOnDeferredTasks(&.{ title_task_id, a11y_tree_task_id, gfx_get_outputs_task_id });
+    try blockOnDeferredTasks(&.{ title_task_id, gfx_get_outputs_task_id });
 
-    tasks[1].deinit();
-    tasks[0].deinit();
+    title_outputs_tasks[0].deinit();
+    // Do not deinit the outputs task yet, since we need to get the output
+    // information and keep the gfx_cap_id
+
+    var image_and_allocator = try ImageAndAllocator.init();
+    defer image_and_allocator.deinit();
 
     // For some reason specifying .always_inline for this extracted logic is
     // needed, otherwise the binary size blows up by 70% :'(
-    const gfx_output_0 = try @call(.always_inline, getGfxOutput0, .{&tasks[2]});
+    const gfx_output_0 = try @call(.always_inline, getGfxOutput0, .{&title_outputs_tasks[1]});
+    const margin = getMargin(gfx_output_0.size_px[0], image_and_allocator.image);
 
-    // Present
-    var gfx_cpu_present_task = try GfxCpuPresentTask.init(tasks[2].gfx_cap_id, gfx_output_0.id, gfx_output_0.size_px[0], gfx_output_0.size_px[1], image_and_allocator.image, image_and_allocator.allocator());
-    const gfx_cpu_present_task_id = try gfx_cpu_present_task.gfxCpuPresent();
-    try blockOnDeferredTasks(&.{gfx_cpu_present_task_id});
-    gfx_cpu_present_task.deinit();
+    var a11y_present_tasks = blk: {
+        var a11y_tree_task = try AccessibilityTreeTask.init(image_and_allocator.allocator(), margin.left, image_and_allocator.image);
+        errdefer a11y_tree_task.deinit();
 
-    tasks[2].deinit();
+        var gfx_cpu_present_task = try GfxCpuPresentTask.init(image_and_allocator.allocator(), title_outputs_tasks[1].gfx_cap_id, gfx_output_0.id, gfx_output_0.size_px[0], gfx_output_0.size_px[1], margin.left, margin.right, image_and_allocator.image);
+        errdefer gfx_cpu_present_task.deinit();
+
+        break :blk .{ a11y_tree_task, gfx_cpu_present_task };
+    };
+
+    const a11y_tree_publish_task_id = try a11y_present_tasks[0].accessibilityTreePublish();
+    const gfx_cpu_present_task_id = try a11y_present_tasks[1].gfxCpuPresent();
+
+    // If an error occurs between publishing and the end of
+    // block_on_deferred_tasks, you can't deinit the tasks because the resources
+    // are in-flight. And we don't. But that does mean the task resources will
+    // leak if that error occurs.
+
+    try blockOnDeferredTasks(&.{ a11y_tree_publish_task_id, gfx_cpu_present_task_id });
+
+    a11y_present_tasks[1].deinit();
+    a11y_present_tasks[0].deinit();
+
+    title_outputs_tasks[1].deinit();
 
     return 0;
 }
@@ -115,7 +134,7 @@ const ImageAndAllocator = struct {
         self.* = undefined;
     }
 
-    fn allocator(self: *Self) std.mem.Allocator {
+    fn allocator(self: *Self) Allocator {
         return self.fixed_buffer_allocator.allocator();
     }
 };
@@ -166,14 +185,31 @@ const AccessibilityTreeTask = struct {
 
     const Self = @This();
 
-    fn init() (FBSWriteError || os_nushift.SyscallError)!Self {
+    fn init(allocator: Allocator, margin_left: u64, image: qoi.Image) (FBSWriteError || os_nushift.SyscallError || Allocator.Error)!Self {
+        var a11y_tree = try AccessibilityTree.initOneTextItem(allocator);
+        defer a11y_tree.deinit();
+
+        const top_left_x: AccessibilityTree.VirtualPoint = @floatFromInt(margin_left);
+        const top_left_y: AccessibilityTree.VirtualPoint = @floatFromInt(MARGIN_TOP);
+        const bottom_right_x: AccessibilityTree.VirtualPoint = @floatFromInt(margin_left + image.width); // Allowed to exceed the output dimensions (I guess?)
+        const bottom_right_y: AccessibilityTree.VirtualPoint = @floatFromInt(MARGIN_TOP + image.height); // Allowed to exceed the output dimensions (I guess?)
+
+        try a11y_tree.surfaces.items[0].display_list.items[0].text.aabb[0].append(top_left_x);
+        try a11y_tree.surfaces.items[0].display_list.items[0].text.aabb[0].append(top_left_y);
+        try a11y_tree.surfaces.items[0].display_list.items[0].text.aabb[1].append(bottom_right_x);
+        try a11y_tree.surfaces.items[0].display_list.items[0].text.aabb[1].append(bottom_right_y);
+        try a11y_tree.surfaces.items[0].display_list.items[0].text.text.appendSlice("Hello, world!");
+
         const a11y_tree_cap_id = try os_nushift.syscall(.accessibility_tree_new, .{});
         errdefer _ = os_nushift.syscallIgnoreErrors(.accessibility_tree_destroy, .{ .accessibility_tree_cap_id = a11y_tree_cap_id });
 
         const a11y_input_shm_cap_id = try os_nushift.syscall(.shm_new_and_acquire, .{ .shm_type = os_nushift.ShmType.four_kib, .length = 10, .address = A11Y_INPUT_ACQUIRE_ADDRESS });
         errdefer _ = os_nushift.syscallIgnoreErrors(.shm_release_and_destroy, .{ .shm_cap_id = a11y_input_shm_cap_id });
 
-        try writeStrToInputCap(@as([*]u8, @ptrFromInt(A11Y_INPUT_ACQUIRE_ADDRESS))[0..40960], ron);
+        var stream = std.io.fixedBufferStream(@as([*]u8, @ptrFromInt(A11Y_INPUT_ACQUIRE_ADDRESS))[0..40960]);
+        const writer = stream.writer();
+
+        try a11y_tree.write(writer);
 
         const a11y_output_shm_cap_id = try os_nushift.syscall(.shm_new, .{ .shm_type = os_nushift.ShmType.four_kib, .length = 1 });
         errdefer _ = os_nushift.syscallIgnoreErrors(.shm_destroy, .{ .shm_cap_id = a11y_output_shm_cap_id });
@@ -194,7 +230,7 @@ const AccessibilityTreeTask = struct {
     }
 
     fn accessibilityTreePublish(self: *const Self) os_nushift.SyscallError!usize {
-        return os_nushift.syscall(.accessibility_tree_publish_ron, .{ .accessibility_tree_cap_id = self.a11y_tree_cap_id, .input_shm_cap_id = self.a11y_input_shm_cap_id, .output_shm_cap_id = self.a11y_output_shm_cap_id });
+        return os_nushift.syscall(.accessibility_tree_publish, .{ .accessibility_tree_cap_id = self.a11y_tree_cap_id, .input_shm_cap_id = self.a11y_input_shm_cap_id, .output_shm_cap_id = self.a11y_output_shm_cap_id });
     }
 };
 
@@ -238,12 +274,12 @@ const GfxCpuPresentTask = struct {
 
     const Self = @This();
 
-    fn init(gfx_cap_id: usize, gfx_output_id: u64, gfx_output_width_px: u64, gfx_output_height_px: u64, image: qoi.Image, allocator: std.mem.Allocator) (os_nushift.SyscallError || FBSWriteError || qoi.DecodeError)!Self {
+    fn init(allocator: Allocator, gfx_cap_id: usize, gfx_output_id: u64, gfx_output_width_px: u64, gfx_output_height_px: u64, margin_left: u64, margin_right: i64, image: qoi.Image) (os_nushift.SyscallError || FBSWriteError || qoi.DecodeError)!Self {
         // 100 MiB present buffer
         const present_buffer_shm_cap_id = try os_nushift.syscall(.shm_new_and_acquire, .{ .shm_type = os_nushift.ShmType.two_mib, .length = 50, .address = PRESENT_BUFFER_ACQUIRE_ADDRESS });
         errdefer _ = os_nushift.syscallIgnoreErrors(.shm_release_and_destroy, .{ .shm_cap_id = present_buffer_shm_cap_id });
 
-        try writeWrappedImageToInputCap(@as([*]u8, @ptrFromInt(PRESENT_BUFFER_ACQUIRE_ADDRESS))[0..104857600], image, gfx_output_width_px, gfx_output_height_px, allocator);
+        try writeWrappedImageToInputCap(allocator, @as([*]u8, @ptrFromInt(PRESENT_BUFFER_ACQUIRE_ADDRESS))[0..104857600], image, gfx_output_width_px, gfx_output_height_px, margin_left, margin_right);
 
         // Write CPU present buffer args to an input cap
         const input_shm_cap_id = try os_nushift.syscall(.shm_new_and_acquire, .{ .shm_type = os_nushift.ShmType.four_kib, .length = 1, .address = CPU_PRESENT_BUFFER_ARGS_INPUT_ACQUIRE_ADDRESS });
@@ -301,6 +337,15 @@ fn getGfxOutput0(gfx_get_outputs_task: *const GfxGetOutputsTask) (os_nushift.Sys
     return gfx_outputs[0];
 }
 
+fn getMargin(gfx_output_width_px: u64, image: qoi.Image) struct { left: u64, right: i64 } {
+    // Calculate left margin and right margin for centering image
+    const margin_left = @divTrunc(gfx_output_width_px - @min(gfx_output_width_px, image.width), 2);
+    // Can be negative, indicating we are going to cut off the right-hand side of the image
+    const margin_right: i64 = @as(i64, @intCast(gfx_output_width_px)) - @as(i64, @intCast(image.width)) - @as(i64, @intCast(margin_left));
+
+    return .{ .left = margin_left, .right = margin_right };
+}
+
 fn writeStrToInputCap(input_cap_buffer: []u8, str: []const u8) FBSWriteError!void {
     var stream = std.io.fixedBufferStream(input_cap_buffer);
     const writer = stream.writer();
@@ -326,20 +371,13 @@ fn writeCpuPresentBufferArgsToInputCap(input_cap_buffer: []u8, present_buffer_fo
     try std.leb.writeULEB128(writer, present_buffer_shm_cap_id);
 }
 
-fn writeWrappedImageToInputCap(input_cap_buffer: []u8, image: qoi.Image, gfx_output_width_px: u64, gfx_output_height_px: u64, allocator: std.mem.Allocator) FBSWriteError!void {
+fn writeWrappedImageToInputCap(allocator: Allocator, input_cap_buffer: []u8, image: qoi.Image, gfx_output_width_px: u64, gfx_output_height_px: u64, margin_left: u64, margin_right: i64) FBSWriteError!void {
     debugPrint("Copying image, will take a while...") catch {};
 
     var stream = std.io.fixedBufferStream(input_cap_buffer);
     const writer = stream.writer();
 
     try std.leb.writeULEB128(writer, gfx_output_width_px * gfx_output_height_px * 3);
-
-    const MARGIN_TOP: u32 = 70;
-
-    // Calculate left margin and right margin for centering image
-    const margin_left = @divTrunc(gfx_output_width_px - @min(gfx_output_width_px, image.width), 2);
-    // Can be negative, indicating we are going to cut off the right-hand side of the image
-    const margin_right: i64 = @as(i64, @intCast(gfx_output_width_px)) - @as(i64, @intCast(image.width)) - @as(i64, @intCast(margin_left));
 
     // Write top margin
     try writer.writeByteNTimes(0xFF, gfx_output_width_px * MARGIN_TOP * 3);

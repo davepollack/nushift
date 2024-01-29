@@ -14,6 +14,8 @@ const AccessibilityTree = @This();
 allocator: Allocator,
 surfaces: std.ArrayList(Surface),
 
+pub const VirtualPoint = f64;
+
 const Surface = struct {
     const Self = @This();
 
@@ -26,24 +28,23 @@ const Surface = struct {
     const DisplayItems = enum {
         text,
     };
-
-    const VirtualPoint = f64;
 };
 
 pub fn initOneTextItem(allocator: Allocator) Allocator.Error!AccessibilityTree {
     const display_item = Surface.DisplayItem{
         .text = .{
-            .aabb = .{ std.ArrayList(Surface.VirtualPoint).init(allocator), std.ArrayList(Surface.VirtualPoint).init(allocator) },
+            .aabb = .{ std.ArrayList(VirtualPoint).init(allocator), std.ArrayList(VirtualPoint).init(allocator) },
             .text = std.ArrayList(u8).init(allocator),
         },
     };
 
-    const surface = Surface{
+    var surface = Surface{
         .display_list = std.ArrayList(Surface.DisplayItem).init(allocator),
     };
     try surface.display_list.append(display_item);
 
-    const a11y_tree = AccessibilityTree{
+    var a11y_tree = AccessibilityTree{
+        .allocator = allocator,
         .surfaces = std.ArrayList(Surface).init(allocator),
     };
     try a11y_tree.surfaces.append(surface);
@@ -52,8 +53,8 @@ pub fn initOneTextItem(allocator: Allocator) Allocator.Error!AccessibilityTree {
 }
 
 pub fn deinit(self: *AccessibilityTree) void {
-    for (self.surfaces) |surface| {
-        for (surface.display_list) |display_item| {
+    for (self.surfaces.items) |surface| {
+        for (surface.display_list.items) |display_item| {
             switch (display_item) {
                 .text => |text_item| {
                     text_item.aabb[0].deinit();
@@ -70,14 +71,14 @@ pub fn deinit(self: *AccessibilityTree) void {
 pub fn write(self: *AccessibilityTree, writer: anytype) !void {
     try std.leb.writeULEB128(writer, self.surfaces.items.len);
 
-    for (self.surfaces) |surface| {
+    for (self.surfaces.items) |surface| {
         try std.leb.writeULEB128(writer, surface.display_list.items.len);
 
-        for (surface.display_list) |display_item| {
+        for (surface.display_list.items) |display_item| {
             switch (display_item) {
                 .text => |text_item| {
                     // struct_variant, discriminant 0
-                    try std.leb.writeULEB128(writer, 0);
+                    try std.leb.writeULEB128(writer, @as(u8, 0));
 
                     try writing.writeF64Seq(writer, text_item.aabb[0].items);
                     try writing.writeF64Seq(writer, text_item.aabb[1].items);
