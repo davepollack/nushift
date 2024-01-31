@@ -58,6 +58,7 @@ pub struct ShmCap<B = MmapMut> {
     backing: B,
     cap_type: CapType,
 }
+
 impl<B> ShmCap<B> {
     pub fn new(shm_type: ShmType, length: ShmCapLength, backing: B, cap_type: CapType) -> Self {
         ShmCap { shm_type, length, backing, cap_type }
@@ -79,6 +80,7 @@ impl<B> ShmCap<B> {
         self.cap_type
     }
 }
+
 impl<B> ShmCap<B>
 where
     B: Deref<Target = [u8]>,
@@ -87,6 +89,7 @@ where
         &self.backing
     }
 }
+
 impl<B> ShmCap<B>
 where
     B: DerefMut<Target = [u8]>,
@@ -95,11 +98,13 @@ where
         &mut self.backing
     }
 }
+
 pub type ShmCapId = u64;
 pub type ShmCapLength = NonZeroU64;
 pub type ShmCapOffset = u64;
 pub type ShmSpaceMap = HashMap<ShmCapId, ShmCap>;
 pub type OwnedShmIdAndCap = (ShmCapId, ShmCap);
+
 /// 0 = number of 1 GiB caps, 1 = number of 2 MiB caps, 2 = number of 4 KiB caps
 type Sv39SpaceStats = [u32; 3];
 
