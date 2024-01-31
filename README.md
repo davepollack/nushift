@@ -126,7 +126,7 @@ Errors: `InternalError`, `Exhausted`
 
 Creates a new accessibility tree capability, that can be used to publish an accessibility tree.
 
-### AccessibilityTreePublish
+### AccessibilityTreePublishRON
 
 Arguments: accessibility_tree_cap_id (`u64`), input_shm_cap_id (`u64`), output_shm_cap_id (`u64`).\
 Returns: task_id (`u64`).\
@@ -134,7 +134,7 @@ Errors: `InternalError`, `Exhausted`, `CapNotFound`, `InProgress`, `PermissionDe
 
 Starts a task to publish the RON-based accessibility tree contained in `input_shm_cap_id`, to the hypervisor.
 
-The format of the data in the cap represented by `input_shm_cap_id` is in [Postcard](https://postcard.jamesmunns.com/wire-format) format, but is a simple string. Hence, it will be a varint-encoded length followed by the string data, as per the Postcard format. An API call that publishes the accessibility tree in full Postcard format should be added in the future, and then this existing call may be renamed to `AccessibilityTreePublishRON`.
+The format of the data in the cap represented by `input_shm_cap_id` is in [Postcard](https://postcard.jamesmunns.com/wire-format) format, but is a simple string. Hence, it will be a varint-encoded length followed by the string data, as per the Postcard format. The string is an accessibility tree in [RON](https://github.com/ron-rs/ron) format of the schema described in `AccessibilityTreePublish`, and should be easier to use than the `AccessibilityTreePublish` binary version.
 
 As with other deferred-style calls:
 * This releases `input_shm_cap_id` and `output_shm_cap_id` and then you can't access them anymore
@@ -142,6 +142,57 @@ As with other deferred-style calls:
 * The `output_shm_cap_id` cap is created by you, and the hypervisor will write the output of the deferred call to it
 
 An error will be written to the `output_shm_cap_id` cap if the Postcard data cannot be deserialised, or the RON string itself cannot be deserialised. The error begins with the varint-encoded discriminant 1, followed by error details. On success, the varint-encoded discriminant 0 is written. The output format is itself in the Postcard format.
+
+### AccessibilityTreePublish
+
+Arguments: accessibility_tree_cap_id (`u64`), input_shm_cap_id (`u64`), output_shm_cap_id (`u64`).\
+Returns: task_id (`u64`).\
+Errors: `InternalError`, `Exhausted`, `CapNotFound`, `InProgress`, `PermissionDenied`
+
+Starts a task to publish the accessibility tree contained in `input_shm_cap_id`, to the hypervisor.
+
+The format of the data in the cap represented by `input_shm_cap_id` is in Postcard format. The schema expected is that of `AccessibilityTree` in the following Rust source code:
+
+```rust
+// Copyright 2023 The Nushift Authors.
+// SPDX-License-Identifier: Apache-2.0
+
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Deserialize, Serialize, PartialEq, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct AccessibilityTree {
+    surfaces: Vec<Surface>,
+}
+
+#[derive(Debug, Deserialize, Serialize, PartialEq, Clone)]
+#[serde(deny_unknown_fields)]
+struct Surface {
+    display_list: Vec<DisplayItem>,
+}
+
+#[derive(Debug, Deserialize, Serialize, PartialEq, Clone)]
+#[serde(deny_unknown_fields)]
+enum DisplayItem {
+    Text {
+        aabb: (Vec<VirtualPoint>, Vec<VirtualPoint>),
+        text: String,
+    },
+}
+
+#[derive(Debug, Deserialize, Serialize, PartialEq, Clone)]
+#[serde(transparent)]
+struct VirtualPoint(f64);
+```
+
+Follow the [Postcard wire format specification](https://postcard.jamesmunns.com/wire-format) to understand how to encode an accessibility tree following this schema into Postcard binary data, or check the `examples/hello-world/` example.
+
+As with other deferred-style calls:
+* This releases `input_shm_cap_id` and `output_shm_cap_id` and then you can't access them anymore
+* It accepts `input_shm_cap_id` and `output_shm_cap_id` that are already released
+* The `output_shm_cap_id` cap is created by you, and the hypervisor will write the output of the deferred call to it
+
+An error will be written to the `output_shm_cap_id` cap if the Postcard data cannot be deserialised. The error begins with the varint-encoded discriminant 1, followed by error details. On success, the varint-encoded discriminant 0 is written. The output format is itself in the Postcard format.
 
 ### AccessibilityTreeDestroy
 
@@ -328,7 +379,7 @@ Should never happen, and indicates a bug in Nushift's code.
 
 `Exhausted` = 2,
 
-The maximum amount of capabilities in this particular capability space have been used. Please destroy some capabilities.
+The maximum amount of capabilities in this particular capability space have been used, or the maximum number of global task IDs have been used (if starting a task). Please destroy some capabilities, or please block on existing task(s) to consume their task IDs.
 
 `CapNotFound` = 6,
 

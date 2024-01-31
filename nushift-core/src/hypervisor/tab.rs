@@ -115,6 +115,12 @@ impl Tab {
             let tasks = subsystem.app_global_deferred_space.finish_tasks();
             for (task_id, task) in tasks {
                 match task {
+                    Task::AccessibilityTreePublishRON { accessibility_tree_cap_id } => {
+                        match subsystem.accessibility_tree_space.publish_accessibility_tree_ron_deferred(accessibility_tree_cap_id, &mut subsystem.shm_space) {
+                            Ok(_) => {},
+                            Err(_) => {}, // TODO: On internal error, terminate app (?)
+                        }
+                    },
                     Task::AccessibilityTreePublish { accessibility_tree_cap_id } => {
                         match subsystem.accessibility_tree_space.publish_accessibility_tree_deferred(accessibility_tree_cap_id, &mut subsystem.shm_space) {
                             Ok(_) => {},

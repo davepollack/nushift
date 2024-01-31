@@ -20,6 +20,7 @@ pub type TaskId = u64;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Task {
+    AccessibilityTreePublishRON { accessibility_tree_cap_id: AccessibilityTreeCapId },
     AccessibilityTreePublish { accessibility_tree_cap_id: AccessibilityTreeCapId },
     TitlePublish { title_cap_id: TitleCapId },
     GfxGetOutputs { gfx_cap_id: GfxCapId },
