@@ -96,9 +96,6 @@ impl AccessibilityTreeSpace {
     }
 
     pub fn publish_accessibility_tree_ron_deferred(&mut self, accessibility_tree_cap_id: AccessibilityTreeCapId, shm_space: &mut ShmSpace) -> Result<(), ()> {
-        // TODO: Note in the documentation that you can't, currently, publish an
-        // accessibility tree with one (or the same) publish method while a
-        // publish from the other method is being processed.
         self.deferred_space.publish_deferred(&mut self.publish_ron, accessibility_tree_cap_id, shm_space)
     }
 
