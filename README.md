@@ -134,7 +134,7 @@ Errors: `InternalError`, `Exhausted`, `CapNotFound`, `InProgress`, `PermissionDe
 
 Starts a task to publish the RON-based accessibility tree contained in `input_shm_cap_id`, to the hypervisor.
 
-The format of the data in the cap represented by `input_shm_cap_id` is in [Postcard](https://postcard.jamesmunns.com/wire-format) format, but is a simple string. Hence, it will be a varint-encoded length followed by the string data, as per the Postcard format. The string is an accessibility tree in [RON](https://github.com/ron-rs/ron) form of the schema described in `AccessibilityTreePublish`, and should be easier to use than the `AccessibilityTreePublish` binary version.
+The format of the data in the cap represented by `input_shm_cap_id` is in [Postcard](https://postcard.jamesmunns.com/wire-format) format, but is a simple string. Hence, it will be a varint-encoded length followed by the string data, as per the Postcard format. The string is an accessibility tree in [RON](https://github.com/ron-rs/ron) format of the schema described in `AccessibilityTreePublish`, and should be easier to use than the `AccessibilityTreePublish` binary version.
 
 As with other deferred-style calls:
 * This releases `input_shm_cap_id` and `output_shm_cap_id` and then you can't access them anymore
