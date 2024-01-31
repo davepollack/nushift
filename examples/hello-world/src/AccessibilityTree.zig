@@ -78,7 +78,7 @@ pub fn write(self: *AccessibilityTree, writer: anytype) !void {
             switch (display_item) {
                 .text => |text_item| {
                     // struct_variant, discriminant 0
-                    try std.leb.writeULEB128(writer, @as(u8, 0));
+                    try std.leb.writeULEB128(writer, @as(u8, 0)); // Cast just because writeULEB128 doesn't accept comptime_int
 
                     try writing.writeF64Seq(writer, text_item.aabb[0].items);
                     try writing.writeF64Seq(writer, text_item.aabb[1].items);
