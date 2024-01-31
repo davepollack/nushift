@@ -103,6 +103,7 @@ fn mainImpl() (writing.FBSWriteError || os_nushift.SyscallError || GfxOutput.Err
 }
 
 const ImageAndAllocator = struct {
+    allocator_buffer_shm_cap_id: usize,
     fixed_buffer_allocator: std.heap.FixedBufferAllocator,
     image: qoi.Image,
 
@@ -119,6 +120,7 @@ const ImageAndAllocator = struct {
         errdefer image.deinit(fba_allocator);
 
         return Self{
+            .allocator_buffer_shm_cap_id = allocator_buffer_shm_cap_id,
             .fixed_buffer_allocator = fixed_buffer_allocator,
             .image = image,
         };
@@ -127,6 +129,7 @@ const ImageAndAllocator = struct {
     fn deinit(self: *Self) void {
         self.image.deinit(self.allocator());
         self.fixed_buffer_allocator.reset();
+        _ = os_nushift.syscallIgnoreErrors(.shm_release_and_destroy, .{ .shm_cap_id = self.allocator_buffer_shm_cap_id });
 
         self.* = undefined;
     }
