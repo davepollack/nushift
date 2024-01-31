@@ -66,6 +66,8 @@ pub fn deinit(self: *AccessibilityTree) void {
         surface.display_list.deinit();
     }
     self.surfaces.deinit();
+
+    self.* = undefined;
 }
 
 pub fn write(self: *AccessibilityTree, writer: anytype) !void {
