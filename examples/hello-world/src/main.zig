@@ -28,9 +28,6 @@ const CPU_PRESENT_BUFFER_ARGS_INPUT_ACQUIRE_ADDRESS: usize = 0x96701000;
 
 const MARGIN_TOP: u32 = 70;
 
-const FBSWriteError = std.io.FixedBufferStream([]u8).WriteError;
-const FBSWriter = std.io.FixedBufferStream([]u8).Writer;
-
 pub fn main() usize {
     return mainImpl() catch |err| blk: {
         // While there is no particular reason for this error_message to be
@@ -44,7 +41,7 @@ pub fn main() usize {
     };
 }
 
-fn mainImpl() (FBSWriteError || os_nushift.SyscallError || GfxOutput.Error || qoi.DecodeError || Allocator.Error)!usize {
+fn mainImpl() (writing.FBSWriteError || os_nushift.SyscallError || GfxOutput.Error || qoi.DecodeError || Allocator.Error)!usize {
     var title_outputs_tasks = blk: {
         var title_task = try TitleTask.init();
         errdefer title_task.deinit();
@@ -146,7 +143,7 @@ const TitleTask = struct {
 
     const Self = @This();
 
-    fn init() (FBSWriteError || os_nushift.SyscallError)!Self {
+    fn init() (writing.FBSWriteError || os_nushift.SyscallError)!Self {
         const title_cap_id = try os_nushift.syscall(.title_new, .{});
         errdefer _ = os_nushift.syscallIgnoreErrors(.title_destroy, .{ .title_cap_id = title_cap_id });
 
@@ -185,7 +182,7 @@ const AccessibilityTreeTask = struct {
 
     const Self = @This();
 
-    fn init(allocator: Allocator, margin_left: u64, image: qoi.Image) (FBSWriteError || os_nushift.SyscallError || Allocator.Error)!Self {
+    fn init(allocator: Allocator, margin_left: u64, image: qoi.Image) (writing.FBSWriteError || os_nushift.SyscallError || Allocator.Error)!Self {
         var a11y_tree = try AccessibilityTree.initOneTextItem(allocator);
         defer a11y_tree.deinit();
 
@@ -274,7 +271,7 @@ const GfxCpuPresentTask = struct {
 
     const Self = @This();
 
-    fn init(allocator: Allocator, gfx_cap_id: usize, gfx_output_id: u64, gfx_output_width_px: u64, gfx_output_height_px: u64, margin_left: u64, margin_right: i64, image: qoi.Image) (os_nushift.SyscallError || FBSWriteError || qoi.DecodeError)!Self {
+    fn init(allocator: Allocator, gfx_cap_id: usize, gfx_output_id: u64, gfx_output_width_px: u64, gfx_output_height_px: u64, margin_left: u64, margin_right: i64, image: qoi.Image) (os_nushift.SyscallError || writing.FBSWriteError || qoi.DecodeError)!Self {
         // 100 MiB present buffer
         const present_buffer_shm_cap_id = try os_nushift.syscall(.shm_new_and_acquire, .{ .shm_type = os_nushift.ShmType.two_mib, .length = 50, .address = PRESENT_BUFFER_ACQUIRE_ADDRESS });
         errdefer _ = os_nushift.syscallIgnoreErrors(.shm_release_and_destroy, .{ .shm_cap_id = present_buffer_shm_cap_id });
@@ -315,7 +312,7 @@ const GfxCpuPresentTask = struct {
     }
 };
 
-fn blockOnDeferredTasks(task_ids: []const u64) (FBSWriteError || os_nushift.SyscallError)!void {
+fn blockOnDeferredTasks(task_ids: []const u64) (writing.FBSWriteError || os_nushift.SyscallError)!void {
     const block_on_deferred_tasks_input_cap_id = try os_nushift.syscall(.shm_new_and_acquire, .{ .shm_type = os_nushift.ShmType.four_kib, .length = 1, .address = BODT_INPUT_ACQUIRE_ADDRESS });
     defer _ = os_nushift.syscallIgnoreErrors(.shm_release_and_destroy, .{ .shm_cap_id = block_on_deferred_tasks_input_cap_id });
 
@@ -346,7 +343,7 @@ fn getMargin(gfx_output_width_px: u64, image: qoi.Image) struct { left: u64, rig
     return .{ .left = margin_left, .right = margin_right };
 }
 
-fn writeStrToInputCap(input_cap_buffer: []u8, str: []const u8) FBSWriteError!void {
+fn writeStrToInputCap(input_cap_buffer: []u8, str: []const u8) writing.FBSWriteError!void {
     var stream = std.io.fixedBufferStream(input_cap_buffer);
     const writer = stream.writer();
 
@@ -355,14 +352,14 @@ fn writeStrToInputCap(input_cap_buffer: []u8, str: []const u8) FBSWriteError!voi
     _ = try writer.write(str);
 }
 
-fn writeTaskIdsToInputCap(input_cap_buffer: []u8, task_ids: []const u64) FBSWriteError!void {
+fn writeTaskIdsToInputCap(input_cap_buffer: []u8, task_ids: []const u64) writing.FBSWriteError!void {
     var stream = std.io.fixedBufferStream(input_cap_buffer);
     const writer = stream.writer();
 
     try writing.writeU64Seq(writer, task_ids);
 }
 
-fn writeCpuPresentBufferArgsToInputCap(input_cap_buffer: []u8, present_buffer_format: os_nushift.PresentBufferFormat, present_buffer_size_px: []const u64, present_buffer_shm_cap_id: usize) FBSWriteError!void {
+fn writeCpuPresentBufferArgsToInputCap(input_cap_buffer: []u8, present_buffer_format: os_nushift.PresentBufferFormat, present_buffer_size_px: []const u64, present_buffer_shm_cap_id: usize) writing.FBSWriteError!void {
     var stream = std.io.fixedBufferStream(input_cap_buffer);
     const writer = stream.writer();
 
@@ -371,7 +368,7 @@ fn writeCpuPresentBufferArgsToInputCap(input_cap_buffer: []u8, present_buffer_fo
     try std.leb.writeULEB128(writer, present_buffer_shm_cap_id);
 }
 
-fn writeWrappedImageToInputCap(allocator: Allocator, input_cap_buffer: []u8, image: qoi.Image, gfx_output_width_px: u64, gfx_output_height_px: u64, margin_left: u64, margin_right: i64) FBSWriteError!void {
+fn writeWrappedImageToInputCap(allocator: Allocator, input_cap_buffer: []u8, image: qoi.Image, gfx_output_width_px: u64, gfx_output_height_px: u64, margin_left: u64, margin_right: i64) writing.FBSWriteError!void {
     debugPrint("Copying image, will take a while...") catch {};
 
     var stream = std.io.fixedBufferStream(input_cap_buffer);
@@ -412,7 +409,7 @@ fn writeWrappedImageToInputCap(allocator: Allocator, input_cap_buffer: []u8, ima
     debugPrint(std.fmt.allocPrint(allocator, "Done. {d} bytes written", .{stream.pos}) catch "Fmt error") catch {};
 }
 
-fn debugPrint(str: []const u8) (FBSWriteError || os_nushift.SyscallError)!void {
+fn debugPrint(str: []const u8) (writing.FBSWriteError || os_nushift.SyscallError)!void {
     const debug_print_input_cap_id = try os_nushift.syscall(.shm_new_and_acquire, .{ .shm_type = os_nushift.ShmType.four_kib, .length = 1, .address = DEBUG_PRINT_INPUT_ACQUIRE_ADDRESS });
     defer _ = os_nushift.syscallIgnoreErrors(.shm_release_and_destroy, .{ .shm_cap_id = debug_print_input_cap_id });
 

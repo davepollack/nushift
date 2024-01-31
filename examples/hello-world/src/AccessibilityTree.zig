@@ -70,7 +70,7 @@ pub fn deinit(self: *AccessibilityTree) void {
     self.* = undefined;
 }
 
-pub fn write(self: *AccessibilityTree, writer: anytype) !void {
+pub fn write(self: *AccessibilityTree, writer: writing.FBSWriter) writing.FBSWriteError!void {
     try std.leb.writeULEB128(writer, self.surfaces.items.len);
 
     for (self.surfaces.items) |surface| {
