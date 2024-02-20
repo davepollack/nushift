@@ -28,7 +28,7 @@ impl CheckedSections {
     }
 
     fn add_region(&mut self, vpn: u64, number_of_pages: u64) -> Result<(), CheckedSectionsError> {
-        // This check is correct because vpn is off from u64::MAX by factor of
+        // This check is correct because vpn is off from u64::MAX by a factor of
         // 4096 (if we did reach u64::MAX, it wouldn't be correct because it
         // would be valid to have a number of pages that reaches the end
         // overflowing to 0 exactly).
