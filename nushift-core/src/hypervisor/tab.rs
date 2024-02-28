@@ -69,12 +69,9 @@ impl Tab {
         let result = machine.load_machine(image);
 
         // If an error occurred, log the error and return.
-        match result {
-            Err(wrapper_error) => {
-                tracing::error!("Failed to load machine: {:?}, tab ID: {:?}", wrapper_error, tab_id);
-                return;
-            },
-            Ok(_) => {},
+        if let Err(wrapper_error) = result {
+            tracing::error!("Failed to load machine: {:?}, tab ID: {:?}", wrapper_error, tab_id);
+            return;
         }
 
         let thread_builder = Builder::new();

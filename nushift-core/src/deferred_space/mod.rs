@@ -190,7 +190,9 @@ impl DefaultDeferredSpace {
 
         // Currently, you can't queue/otherwise process an [accessibility tree/other thing]
         // while one is being processed.
-        matches!(default_deferred_cap.in_progress_cap, None).then_some(()).ok_or_else(|| InProgressSnafu { context }.build())?;
+        if default_deferred_cap.in_progress_cap.is_some() {
+            return InProgressSnafu { context }.fail();
+        }
 
         if let Some(input_shm_cap_id) = input_shm_cap_id {
             shm_space.release_shm_cap_app(input_shm_cap_id).map_err(|shm_space_error| match shm_space_error {

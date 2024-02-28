@@ -310,7 +310,7 @@ impl Acquisitions {
             }
         }
 
-        return true;
+        true
     }
 
     /// Check `is_allowed()` before calling this.

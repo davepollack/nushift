@@ -123,29 +123,26 @@ where
     }
 
     pub fn user_exit(&mut self, exit_reason: u64) {
-        match self.machine {
-            Machine::Loaded(ref mut machine) => {
-                self.exit_reason = ExitReason::UserExit { exit_reason };
-                machine.set_running(false);
-            },
-            _ => {},
+        if let Machine::Loaded(ref mut machine) = self.machine {
+            self.exit_reason = ExitReason::UserExit { exit_reason };
+            machine.set_running(false);
         }
     }
 
     fn set_running(&mut self) -> Result<(), ProcessControlBlockError> {
-        match self.machine {
-            Machine::Loaded(ref mut machine) => {
-                machine.set_running(true);
-                Ok(())
-            },
-            _ => RunMachineNotLoadedSnafu.fail(),
+        if let Machine::Loaded(ref mut machine) = self.machine {
+            machine.set_running(true);
+            Ok(())
+        } else {
+            RunMachineNotLoadedSnafu.fail()
         }
     }
 
     fn is_running(&self) -> Result<bool, ProcessControlBlockError> {
-        match self.machine {
-            Machine::Loaded(ref machine) => Ok(machine.running()),
-            _ => RunMachineNotLoadedSnafu.fail(),
+        if let Machine::Loaded(ref machine) = self.machine {
+            Ok(machine.running())
+        } else {
+            RunMachineNotLoadedSnafu.fail()
         }
     }
 }

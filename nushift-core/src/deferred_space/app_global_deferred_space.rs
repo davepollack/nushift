@@ -63,9 +63,8 @@ impl AppGlobalDeferredSpace {
     pub fn finish_tasks(&mut self) -> Vec<(TaskId, Task)> {
         let mut tasks = vec![];
         for (task_id, scheduled_task) in self.space.iter_mut() {
-            match mem::replace(scheduled_task, ScheduledTask::Finished) {
-                ScheduledTask::Waiting(task) => tasks.push((*task_id, task)),
-                _ => {},
+            if let ScheduledTask::Waiting(task) = mem::replace(scheduled_task, ScheduledTask::Finished) {
+                tasks.push((*task_id, task))
             }
         }
         tasks
@@ -158,11 +157,8 @@ impl<'space> TaskAllocation<'space> {
     /// is. We can't make the signature `mut self` to enforce this because this
     /// has a Drop impl.
     pub fn push_task(&mut self) -> TaskId {
-        match self.vacant_entry_and_task.take() {
-            Some(vacant_entry_and_task) => {
-                vacant_entry_and_task.0.insert(ScheduledTask::Waiting(vacant_entry_and_task.1));
-            },
-            None => {},
+        if let Some(vacant_entry_and_task) = self.vacant_entry_and_task.take() {
+            vacant_entry_and_task.0.insert(ScheduledTask::Waiting(vacant_entry_and_task.1));
         }
         self.task_id
     }

@@ -187,7 +187,7 @@ impl ElfLoader for Loader<'_> {
             self.vpn_to_shm_cap_id.insert(rounded_down_start_vpn, shm_cap_id);
         }
 
-        if errored_caps.len() > 0 {
+        if !errored_caps.is_empty() {
             for shm_cap_id in errored_caps.into_iter().rev() {
                 self.shm_space.release_shm_cap_elf(shm_cap_id)
                     .map_err(|err| {

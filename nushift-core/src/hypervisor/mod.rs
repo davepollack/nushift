@@ -83,12 +83,9 @@ impl Hypervisor {
     ///
     /// If the passed-in `tab_id` does not exist, this method does nothing.
     pub fn close_tab(&mut self, tab_id: &ArcId) {
-        match self.tabs.entry(ArcId::clone(tab_id)) {
-            Entry::Occupied(mut occupied_entry) => {
-                occupied_entry.get_mut().close_tab();
-                occupied_entry.remove();
-            },
-            _ => {},
+        if let Entry::Occupied(mut occupied_entry) = self.tabs.entry(ArcId::clone(tab_id)) {
+            occupied_entry.get_mut().close_tab();
+            occupied_entry.remove();
         }
     }
 
