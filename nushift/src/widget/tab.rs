@@ -24,14 +24,14 @@ pub fn tab() -> impl Widget<RootAndTabData> {
         match data.root_data().currently_selected_tab_id {
             Some(ref id) if *id == data.tab_data().id => {
                 ctx.fill(bounds, &TAB_SELECTED_BACKGROUND_COLOR);
-            },
+            }
             _ => {
                 if ctx.is_hot() {
                     ctx.fill(bounds, &TAB_HOVER_BACKGROUND_COLOR);
                 } else {
                     ctx.fill(bounds, &TAB_BACKGROUND_COLOR);
                 }
-            },
+            }
         }
     });
 
@@ -46,12 +46,12 @@ pub fn tab() -> impl Widget<RootAndTabData> {
                 MouseButton::Left => {
                     let tab_data = root_and_tab_data.tab_data_cloned();
                     root_and_tab_data.root_data_mut().select_tab(&tab_data.id);
-                },
+                }
                 MouseButton::Middle => {
                     let tab_data = root_and_tab_data.tab_data_cloned();
                     root_and_tab_data.root_data_mut().request_close_tab_from_tab_iter(&tab_data.id);
-                },
-                _ => {},
+                }
+                _ => {}
             }
         }))
         .controller(HypervisorCommandHandler::new(|hypervisor_event, root_and_tab_data: &mut RootAndTabData| {
@@ -62,11 +62,11 @@ pub fn tab() -> impl Widget<RootAndTabData> {
                 match hypervisor_event.take() {
                     Some(HypervisorEvent::TitleChange(_, new_title)) => {
                         tab_data.title = new_title.as_str().into();
-                    },
+                    }
                     Some(HypervisorEvent::GfxCpuPresent(_, present_buffer_format, size_px, framebuffer)) => {
                         tab_data.client_framebuffer = Some(ClientFramebuffer { present_buffer_format, size_px: size_px.into(), framebuffer });
-                    },
-                    _ => {},
+                    }
+                    _ => {}
                 }
             }
         }));

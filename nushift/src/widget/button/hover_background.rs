@@ -130,7 +130,7 @@ impl<T: Data> HoverBackground<T> {
                 } else {
                     (TransitionState::Transitioning(new_t, TransitionDirection::Forward), true)
                 }
-            },
+            }
             TransitionState::Transitioning(t, TransitionDirection::Backward) => {
                 let new_t = (0.0 as f64).max(t - (interval_seconds / self.params.duration));
                 if new_t <= 0.0 {
@@ -138,7 +138,7 @@ impl<T: Data> HoverBackground<T> {
                 } else {
                     (TransitionState::Transitioning(new_t, TransitionDirection::Backward), true)
                 }
-            },
+            }
             ref stopped_state => (stopped_state.clone(), false),
         };
 
@@ -157,8 +157,8 @@ impl<T: Data> Widget<T> for HoverBackground<T> {
                 if should_request_anim_frame {
                     ctx.request_anim_frame();
                 }
-            },
-            _ => {},
+            }
+            _ => {}
         }
 
         self.inner.event(ctx, event, data, env);
@@ -170,14 +170,14 @@ impl<T: Data> Widget<T> for HoverBackground<T> {
                 ctx.request_paint();
                 self.animate_forward();
                 ctx.request_anim_frame();
-            },
+            }
             LifeCycle::HotChanged(false) => {
                 ctx.request_paint();
                 self.animate_backward();
                 ctx.request_anim_frame();
-            },
+            }
             LifeCycle::FocusChanged(_) => ctx.request_paint(),
-            _ => {},
+            _ => {}
         }
 
         self.inner.lifecycle(ctx, event, data, env);
@@ -198,10 +198,10 @@ impl<T: Data> Widget<T> for HoverBackground<T> {
             let alpha = match self.transition_state {
                 TransitionState::Transitioning(t, TransitionDirection::Forward) => {
                     self.params.min_alpha + ((self.params.easing_function_in)(t) * (self.params.max_alpha - self.params.min_alpha))
-                },
+                }
                 TransitionState::Transitioning(t, TransitionDirection::Backward) => {
                     self.params.min_alpha + ((self.params.easing_function_out)(t) * (self.params.max_alpha - self.params.min_alpha))
-                },
+                }
                 TransitionState::Stopped(false) => self.params.min_alpha,
                 TransitionState::Stopped(true) => self.params.max_alpha,
             };

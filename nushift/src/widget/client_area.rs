@@ -78,7 +78,7 @@ impl Widget<RootData> for ClientArea {
                     // Update RootData (for new tabs).
                     data.scale_and_size = Some(scale_and_size);
                 }
-            },
+            }
 
             // Detect and submit command for scale changes.
             //
@@ -87,9 +87,9 @@ impl Widget<RootData> for ClientArea {
                 tracing::debug!("Client area size: {:?}", ctx.size());
                 tracing::debug!("Window scale: {:?}", scale);
                 ctx.submit_command(SCALE_OR_SIZE_CHANGED.with(SingleUse::new((*scale, ctx.size()).into())));
-            },
+            }
 
-            _ => {},
+            _ => {}
         }
 
         self.image_widget.event(ctx, event, data, env)
@@ -99,7 +99,7 @@ impl Widget<RootData> for ClientArea {
         match event {
             LifeCycle::WidgetAdded => ctx.submit_command(INITIAL_SCALE_AND_SIZE.with(SingleUse::new((ctx.scale(), ctx.size()).into()))),
             LifeCycle::Size(size) => ctx.submit_command(SCALE_OR_SIZE_CHANGED.with(SingleUse::new((ctx.scale(), *size).into()))),
-            _ => {},
+            _ => {}
         }
 
         self.image_widget.lifecycle(ctx, event, data, env)

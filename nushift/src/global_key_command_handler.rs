@@ -18,11 +18,11 @@ impl AppDelegate<RootData> for GlobalKeyCommandHandler {
         match event {
             Event::KeyDown(ref key_event) if HotKey::new(SysMods::Cmd, "w").matches(key_event) => {
                 root_data.close_selected_tab();
-            },
+            }
             Event::KeyDown(ref key_event) if HotKey::new(SysMods::Cmd, "t").matches(key_event) => {
                 root_data.add_new_tab(env);
-            },
-            _ => {},
+            }
+            _ => {}
         }
 
         // Should we switch to a focus-based approach? How are keyboard events

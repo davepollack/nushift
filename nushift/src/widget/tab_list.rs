@@ -117,7 +117,7 @@ impl Widget<RootData> for TabList {
                 Some(widget_child) => widget_child,
                 None => {
                     return;
-                },
+                }
             };
 
             let child_bc = BoxConstraints::new(

@@ -23,7 +23,7 @@ impl<T: Data, W: Widget<T>> Controller<T, W> for HypervisorCommandHandler<T> {
                 if let Some(hypervisor_event) = cmd.get(HYPERVISOR_EVENT) {
                     (self.action)(hypervisor_event, data);
                 }
-            },
+            }
             _ => child.event(ctx, event, data, env),
         }
     }

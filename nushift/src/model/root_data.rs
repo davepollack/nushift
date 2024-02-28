@@ -115,7 +115,7 @@ impl RootData {
     pub fn close_selected_tab(&mut self) {
         match self.currently_selected_tab_id.as_ref().map(ArcId::clone) {
             Some(ref tab_id) => self.close_tab_impl(&mut RealImpl, tab_id),
-            None => {},
+            None => {}
         }
     }
 
@@ -139,7 +139,7 @@ impl RootData {
                 id_to_remove = Some(ArcId::clone(id));
                 index_to_remove = Some(index);
             }
-            None => {},
+            None => {}
         }
         if let (Some(id), Some(index)) = (&id_to_remove, index_to_remove) {
             self.tabs.remove(id);
@@ -151,19 +151,19 @@ impl RootData {
             // First tab was closed, is currently selected, and there are no tabs left
             (Some(id_to_remove), Some(currently_selected_tab_id), Some(0)) if id_to_remove == currently_selected_tab_id && self.tabs.is_empty() => {
                 self.currently_selected_tab_id = None;
-            },
+            }
             // First tab was closed, is currently selected, and there are still some tabs left
             (Some(id_to_remove), Some(currently_selected_tab_id), Some(0)) if id_to_remove == currently_selected_tab_id => {
                 let first_tab_id = ArcId::clone(&self.get_tab_by_index(0).expect("Must exist since there are still some tabs left").id);
                 self.currently_selected_tab_id = Some(first_tab_id);
-            },
+            }
             // Other tab was closed, is currently selected
             (Some(id_to_remove), Some(currently_selected_tab_id), Some(index)) if id_to_remove == currently_selected_tab_id => {
                 let previous_tab_id = ArcId::clone(&self.get_tab_by_index(index - 1).expect("Must exist since index == 0 case was handled").id);
                 self.currently_selected_tab_id = Some(previous_tab_id);
-            },
+            }
             // Closed tab is not the currently selected one, or nothing was closed
-            _ => {},
+            _ => {}
         }
 
         if let Some(ref id) = id_to_remove {

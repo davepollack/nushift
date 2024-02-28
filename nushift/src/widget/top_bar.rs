@@ -18,12 +18,12 @@ pub fn top_bar() -> impl Widget<RootData> {
                 root_data.get_tab_by_id(id)
                     .map(|tab_data| ArcStr::clone(&tab_data.title))
                     .unwrap_or_else(|| "".into())
-            },
+            }
             None => {
                 let mut no_tabs = LocalizedString::new("nushift-no-tabs");
                 no_tabs.resolve(root_data, env);
                 no_tabs.localized_str()
-            },
+            }
         }
     })
         .with_text_size(value::TOP_BAR_TEXT_SIZE)
