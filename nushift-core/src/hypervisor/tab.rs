@@ -49,7 +49,7 @@ impl Tab {
             Err(os_error) => {
                 tracing::error!("Failed to create OS hypervisor thread: {:?}, tab ID {:?}", os_error, self.id);
                 return;
-            },
+            }
             Ok(hypervisor_thread) => hypervisor_thread,
         };
 
@@ -80,7 +80,7 @@ impl Tab {
             Err(os_error) => {
                 tracing::error!("Failed to create OS tab thread: {:?}, tab ID {:?}", os_error, tab_id);
                 return;
-            },
+            }
             Ok(machine_thread) => machine_thread,
         };
 
@@ -114,34 +114,34 @@ impl Tab {
                 match task {
                     Task::AccessibilityTreePublishRON { accessibility_tree_cap_id } => {
                         match subsystem.accessibility_tree_space.publish_accessibility_tree_ron_deferred(accessibility_tree_cap_id, &mut subsystem.shm_space) {
-                            Ok(_) => {},
-                            Err(_) => {}, // TODO: On internal error, terminate app (?)
+                            Ok(_) => {}
+                            Err(_) => {} // TODO: On internal error, terminate app (?)
                         }
-                    },
+                    }
                     Task::AccessibilityTreePublish { accessibility_tree_cap_id } => {
                         match subsystem.accessibility_tree_space.publish_accessibility_tree_deferred(accessibility_tree_cap_id, &mut subsystem.shm_space) {
-                            Ok(_) => {},
-                            Err(_) => {}, // TODO: On internal error, terminate app (?)
+                            Ok(_) => {}
+                            Err(_) => {} // TODO: On internal error, terminate app (?)
                         }
-                    },
+                    }
                     Task::TitlePublish { title_cap_id } => {
                         match subsystem.title_space.publish_title_deferred(title_cap_id, &mut subsystem.shm_space) {
-                            Ok(_) => {},
-                            Err(_) => {}, // TODO: On internal error, terminate app (?)
+                            Ok(_) => {}
+                            Err(_) => {} // TODO: On internal error, terminate app (?)
                         }
-                    },
+                    }
                     Task::GfxGetOutputs { gfx_cap_id } => {
                         match subsystem.gfx_space.get_outputs_deferred(gfx_cap_id, &mut subsystem.shm_space) {
-                            Ok(_) => {},
-                            Err(_) => {}, // TODO: On internal error, terminate app (?)
+                            Ok(_) => {}
+                            Err(_) => {} // TODO: On internal error, terminate app (?)
                         }
-                    },
+                    }
                     Task::GfxCpuPresent { gfx_cpu_present_buffer_cap_id } => {
                         match subsystem.gfx_space.cpu_present_deferred(gfx_cpu_present_buffer_cap_id, &mut subsystem.shm_space) {
-                            Ok(_) => {},
-                            Err(_) => {}, // TODO: On internal error, terminate app (?)
+                            Ok(_) => {}
+                            Err(_) => {} // TODO: On internal error, terminate app (?)
                         }
-                    },
+                    }
                 }
 
                 let (lock, cvar) = &*subsystem.blocking_on_tasks;
@@ -155,7 +155,7 @@ impl Tab {
             Err(join_error) => {
                 tracing::error!("Thread panicked: {:?}, tab ID {:?}", join_error, tab_id);
                 return;
-            },
+            }
             Ok(run_result) => run_result,
         };
 

@@ -265,19 +265,19 @@ impl ShmSpace {
                 let four_kib_equivalent_used = (self.stats[0] << 18) + (self.stats[1] << 9) + self.stats[2];
                 let four_kib_total: u32 = 1 << (SV39_BITS - 12);
                 four_kib_total - four_kib_equivalent_used
-            },
+            }
             ShmType::TwoMiB => {
                 let two_mib_equivalent_used = (self.stats[0] << 9) + self.stats[1] + ((self.stats[2] >> 9) + (self.stats[2] & ((1 << 9) - 1) != 0) as u32);
                 let two_mib_total: u32 = 1 << (SV39_BITS - 21);
                 two_mib_total - two_mib_equivalent_used
-            },
+            }
             ShmType::OneGiB => {
                 let four_kib_equivalent_used_excl_one_gib = (self.stats[1] << 9) + self.stats[2];
                 let one_gib_equivalent_used_by_non_one_gib = (four_kib_equivalent_used_excl_one_gib >> 18) + (four_kib_equivalent_used_excl_one_gib & ((1 << 18) - 1) != 0) as u32;
                 let one_gib_equivalent_used = self.stats[0] + one_gib_equivalent_used_by_non_one_gib;
                 let one_gib_total: u32 = 1 << (SV39_BITS - 30);
                 one_gib_total - one_gib_equivalent_used
-            },
+            }
         }
     }
 

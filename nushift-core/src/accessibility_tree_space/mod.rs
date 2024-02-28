@@ -46,7 +46,7 @@ impl DeferredSpacePublish for PublishRon {
                 tracing::debug!("Deserialisation error: {spanned_error}");
                 deferred_space::print_error(output_shm_cap, DeferredError::DeserializeRonError, &spanned_error);
                 return;
-            },
+            }
         };
         tracing::debug!("{accessibility_tree:?}");
         *self.app_accessibility_tree.lock().unwrap() = Some(accessibility_tree);

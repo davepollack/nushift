@@ -40,7 +40,7 @@ impl CheckedSections {
 
         match equal_or_below {
             Some((&existing_vpn, &existing_num_pages)) if existing_vpn.checked_add(existing_num_pages).expect("Should be impossible for existing entry to overflow because we validated inputs") > vpn => return OverlapsSnafu.fail(),
-            _ => {},
+            _ => {}
         }
 
         // Check if intersects the above entry.
@@ -49,7 +49,7 @@ impl CheckedSections {
 
         match above {
             Some((&above_vpn, _)) if end_vpn > above_vpn => return OverlapsSnafu.fail(),
-            _ => {},
+            _ => {}
         }
 
         self.0.insert(vpn, number_of_pages);
@@ -176,7 +176,7 @@ impl ElfLoader for Loader<'_> {
                 })?;
 
             match self.shm_space.acquire_shm_cap_elf(shm_cap_id, rounded_down_start_vpn << 12, sv39_flags) {
-                Ok(_) => {},
+                Ok(_) => {}
                 Err(err) => {
                     tracing::error!("ELF loading: acquire_shm_cap internal error: {err:?}");
                     errored_caps.push(shm_cap_id);

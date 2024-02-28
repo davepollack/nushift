@@ -42,7 +42,7 @@ impl DeferredSpacePublish for TitleSpaceSpecific {
                 HypervisorEventError::SubmitCommandError => {
                     tracing::debug!("Submit failed: {hypervisor_event_error}");
                     deferred_space::print_error(output_shm_cap, DeferredError::SubmitFailed, &hypervisor_event_error);
-                },
+                }
             },
         }
     }

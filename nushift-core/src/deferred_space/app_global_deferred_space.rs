@@ -127,7 +127,7 @@ impl AppGlobalDeferredSpace {
                 Entry::Occupied(occupied_entry) if matches!(occupied_entry.get(), ScheduledTask::Finished) => {
                     occupied_entry.remove();
                     self.id_pool.release(task_id);
-                },
+                }
                 Entry::Occupied(_) => unfinished_task_ids.push(task_id),
                 Entry::Vacant(_) => panic!("Vacant shouldn't be possible. The provided IDs should be validated before calling this function."),
             }

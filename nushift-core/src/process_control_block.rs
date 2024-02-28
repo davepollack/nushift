@@ -255,7 +255,7 @@ where
             SyscallReturn::Return(recv) => {
                 self.set_register(RETURN_VAL_REGISTER, recv[RETURN_VAL_REGISTER_INDEX].clone());
                 self.set_register(ERROR_RETURN_VAL_REGISTER, recv[ERROR_RETURN_VAL_REGISTER_INDEX].clone());
-            },
+            }
         }
         // ecall should always return Ok (i.e. not terminate the app). If this
         // becomes not true in the future, change this!

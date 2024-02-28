@@ -54,7 +54,7 @@ impl AcquisitionsAndPageTable {
         self.acquisitions.try_insert(shm_cap_id, address, length_in_bytes).map_err(|_| AcquireIntersectsExistingAcquisitionSnafu.build())?;
         // Insert to page table.
         match self.page_table.insert(shm_cap_id, shm_cap, address, flags).context(PageTableInsertOrRemoveSnafu) {
-            Ok(_) => {},
+            Ok(_) => {}
             Err(err) => {
                 // Roll back the acquisitions insert.
                 //
@@ -82,7 +82,7 @@ impl AcquisitionsAndPageTable {
         let address = self.acquisitions.remove(shm_cap_id).map_err(|_| ReleasingNonAcquiredCapSnafu.build())?;
         // Remove from page table.
         match self.page_table.remove(shm_cap_id, shm_cap, address).context(PageTableInsertOrRemoveSnafu) {
-            Ok(_) => {},
+            Ok(_) => {}
             Err(err) => {
                 // Roll back the acquisitions remove.
                 //
@@ -95,7 +95,7 @@ impl AcquisitionsAndPageTable {
                 self.acquisitions.try_insert(shm_cap_id, address, length_in_bytes).map_err(|_| RollbackSnafu.build())?;
                 // Now return the error.
                 return Err(err);
-            },
+            }
         }
 
         Ok(())
@@ -124,11 +124,11 @@ impl AcquisitionsAndPageTable {
                     let shm_cap_ref = shm_space_map.get_shm_cap(pte.shm_cap_id).ok_or_else(|| PageEntryCorruptedSnafu { shm_cap_id: pte.shm_cap_id, mismatched_entry_found_at_level: None, shm_cap_offset: None, shm_cap_length: None }.build())?;
                     Self::check_shm_type_mismatch_and_permissions(1, pte, shm_cap_ref.as_ref(), ShmType::OneGiB, required_permissions)?;
                     break 'superpage_check (pte, shm_cap_ref);
-                },
+                }
                 PageTableLevel2::Entries(entries) => {
                     let vpn1 = (vpn >> 9) & ((1 << 9) - 1);
                     entries[vpn1 as usize].as_ref().ok_or(PageNotFoundSnafu.build())?
-                },
+                }
             };
 
             let four_k_entry = match leaf_table.as_ref() {
@@ -136,7 +136,7 @@ impl AcquisitionsAndPageTable {
                     let shm_cap_ref = shm_space_map.get_shm_cap(pte.shm_cap_id).ok_or_else(|| PageEntryCorruptedSnafu { shm_cap_id: pte.shm_cap_id, mismatched_entry_found_at_level: None, shm_cap_offset: None, shm_cap_length: None }.build())?;
                     Self::check_shm_type_mismatch_and_permissions(2, pte, shm_cap_ref.as_ref(), ShmType::TwoMiB, required_permissions)?;
                     break 'superpage_check (pte, shm_cap_ref);
-                },
+                }
                 PageTableLeaf::Entries(entries) => {
                     let vpn0 = vpn & ((1 << 9) - 1);
                     entries[vpn0 as usize].as_ref().ok_or(PageNotFoundSnafu.build())?
@@ -439,7 +439,7 @@ impl PageTableLevel1 {
                     }
                 }
                 Ok(())
-            },
+            }
 
             ShmType::TwoMiB => {
                 let (start_vpn1, end_vpn1) = (
@@ -468,7 +468,7 @@ impl PageTableLevel1 {
                         PageTableOp::Insert { flags } => {
                             // TODO: If you run this allocating line, 200,000 times, it is slow.
                             level_2_table[current_vpn1_index] = Some(Box::new(PageTableLeaf::TwoMiBSuperpage(PageTableEntry { shm_cap_id, shm_cap_offset: (current_vpn1 - start_vpn1), flags })));
-                        },
+                        }
                         PageTableOp::Remove => {
                             // TODO: If you run this dropping line, 200,000 times, it is slow.
                             level_2_table[current_vpn1_index] = None;
@@ -476,11 +476,11 @@ impl PageTableLevel1 {
                             // TODO: How can we free self.entries[current_vpn2
                             // as usize] when no entries are occupied anymore,
                             // without looping through all entries?
-                        },
+                        }
                     }
                 }
                 Ok(())
-            },
+            }
 
             ShmType::FourKiB => {
                 let (start_vpn0, end_vpn0) = (
@@ -532,7 +532,7 @@ impl PageTableLevel1 {
                     }
                 }
                 Ok(())
-            },
+            }
         }
     }
 }
@@ -826,11 +826,11 @@ mod tests {
                     100 => {
                         let Some(entry) = entry else { return false; };
                         matches!(entry.as_ref(), PageTableLeaf::TwoMiBSuperpage(PageTableEntry{ shm_cap_id: 1, shm_cap_offset: 0, flags: Sv39Flags::RW }))
-                    },
+                    }
                     101 => {
                         let Some(entry) = entry else { return false; };
                         matches!(entry.as_ref(), PageTableLeaf::TwoMiBSuperpage(PageTableEntry{ shm_cap_id: 2, shm_cap_offset: 0, flags: Sv39Flags::RW }))
-                    },
+                    }
                     _ => matches!(entry, None),
                 }
             }));

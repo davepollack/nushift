@@ -159,10 +159,10 @@ impl DeferredSpace for DefaultDeferredSpace {
             InProgressCap { input: Some(input), output } => {
                 shm_space.move_shm_cap_back_into_space(input.0, input.1);
                 shm_space.move_shm_cap_back_into_space(output.0, output.1);
-            },
+            }
             InProgressCap { input: None, output } => {
                 shm_space.move_shm_cap_back_into_space(output.0, output.1);
-            },
+            }
         }
 
         Ok(())
@@ -215,12 +215,12 @@ impl DefaultDeferredSpace {
                 let input_shm_cap = shm_space.move_shm_cap_to_other_space(input_shm_cap_id).ok_or_else(|| GetOrPublishInternalSnafu.build())?; // Internal error because presence was already checked in release
                 let output_shm_cap = shm_space.move_shm_cap_to_other_space(output_shm_cap_id).ok_or_else(|| GetOrPublishInternalSnafu.build())?; // Internal error because presence was already checked in release
                 default_deferred_cap.in_progress_cap = Some(InProgressCap::new((input_shm_cap_id, input_shm_cap), (output_shm_cap_id, output_shm_cap)));
-            },
+            }
             // Get
             (None, output_shm_cap_id) => {
                 let output_shm_cap = shm_space.move_shm_cap_to_other_space(output_shm_cap_id).ok_or_else(|| GetOrPublishInternalSnafu.build())?; // Internal error because presence was already checked in release
                 default_deferred_cap.in_progress_cap = Some(InProgressCap::new(None, (output_shm_cap_id, output_shm_cap)));
-            },
+            }
         }
 
         Ok(())
@@ -243,11 +243,11 @@ impl DefaultDeferredSpace {
         match postcard::from_bytes(input_shm_cap.backing()) {
             Ok(payload) => {
                 deferred_space_specific.publish_cap_payload(payload, output_shm_cap, cap_id);
-            },
+            }
             Err(postcard_error) => {
                 tracing::debug!("Postcard deserialise error: {postcard_error}");
                 print_error(output_shm_cap, DeferredError::DeserializeError, &postcard_error);
-            },
+            }
         }
 
         self.get_or_publish_deferred_epilogue(cap_id, shm_space)
@@ -277,11 +277,11 @@ pub fn print_success<T: Serialize>(output_shm_cap: &mut ShmCap, payload: T) {
     let output = DeferredOutput::Success(payload);
 
     match postcard::to_slice(&output, output_shm_cap.backing_mut()) {
-        Ok(_) => {},
+        Ok(_) => {}
         Err(postcard_error) => {
             tracing::debug!("Postcard serialise error: {postcard_error}");
             print_error(output_shm_cap, DeferredError::SerializeError, &postcard_error);
-        },
+        }
     }
 }
 

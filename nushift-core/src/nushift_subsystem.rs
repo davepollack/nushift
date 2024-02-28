@@ -209,11 +209,11 @@ impl NushiftSubsystem {
         match syscall {
             Err(_) => {
                 set_error(SyscallError::UnknownSyscall)
-            },
+            }
 
             Ok(Syscall::Exit) => {
                 user_exit(registers[FIRST_ARG_REGISTER_INDEX].to_u64())
-            },
+            }
 
             Ok(Syscall::ShmNew) => {
                 let shm_type = match ShmType::try_from(registers[FIRST_ARG_REGISTER_INDEX].to_u64()) {
@@ -228,18 +228,18 @@ impl NushiftSubsystem {
                 };
 
                 set_success(shm_cap_id)
-            },
+            }
             Ok(Syscall::ShmAcquire) => {
                 let shm_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
                 let address = registers[SECOND_ARG_REGISTER_INDEX].to_u64();
 
                 match self.shm_space_mut().acquire_shm_cap_app(shm_cap_id, address) {
-                    Ok(_) => {},
+                    Ok(_) => {}
                     Err(shm_space_error) => return marshall_shm_space_error(shm_space_error),
                 }
 
                 set_success(0)
-            },
+            }
             Ok(Syscall::ShmNewAndAcquire) => {
                 let shm_type = match ShmType::try_from(registers[FIRST_ARG_REGISTER_INDEX].to_u64()) {
                     Ok(shm_type) => shm_type,
@@ -254,7 +254,7 @@ impl NushiftSubsystem {
                 };
 
                 match self.shm_space_mut().acquire_shm_cap_app(shm_cap_id, address) {
-                    Ok(_) => {},
+                    Ok(_) => {}
                     Err(shm_space_error) => {
                         // If an acquire error occurs, roll back the just-created cap.
                         let shm_space_error = self.shm_space_mut().destroy_shm_cap(shm_cap_id, CapType::AppCap)
@@ -263,16 +263,16 @@ impl NushiftSubsystem {
                             .map_or_else(|err| err, |_| shm_space_error);
 
                         return marshall_shm_space_error(shm_space_error);
-                    },
+                    }
                 }
 
                 set_success(shm_cap_id)
-            },
+            }
             Ok(Syscall::ShmRelease) => {
                 let shm_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
 
                 match self.shm_space_mut().release_shm_cap_app(shm_cap_id) {
-                    Ok(_) => {},
+                    Ok(_) => {}
                     Err(shm_space_error) => return marshall_shm_space_error(shm_space_error),
                 }
 
@@ -282,28 +282,28 @@ impl NushiftSubsystem {
                 let shm_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
 
                 match self.shm_space_mut().destroy_shm_cap(shm_cap_id, CapType::AppCap) {
-                    Ok(_) => {},
+                    Ok(_) => {}
                     Err(shm_space_error) => return marshall_shm_space_error(shm_space_error),
                 }
 
                 set_success(0)
-            },
+            }
             Ok(Syscall::ShmReleaseAndDestroy) => {
                 let shm_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
 
                 match self.shm_space_mut().release_shm_cap_app(shm_cap_id) {
-                    Ok(_) => {},
+                    Ok(_) => {}
                     Err(shm_space_error) => return marshall_shm_space_error(shm_space_error),
                 }
 
                 // If the release succeeded, destroy should never fail, thus do not rollback (re-acquire).
                 match self.shm_space_mut().destroy_shm_cap(shm_cap_id, CapType::AppCap) {
-                    Ok(_) => {},
+                    Ok(_) => {}
                     Err(shm_space_error) => return marshall_shm_space_error(shm_space_error),
                 }
 
                 set_success(0)
-            },
+            }
 
             Ok(Syscall::AccessibilityTreeNew) => {
                 let accessibility_tree_cap_id = match self.accessibility_tree_space.new_accessibility_tree_cap() {
@@ -312,7 +312,7 @@ impl NushiftSubsystem {
                 };
 
                 set_success(accessibility_tree_cap_id)
-            },
+            }
             Ok(Syscall::AccessibilityTreePublishRON) => {
                 let accessibility_tree_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
                 let input_shm_cap_id = registers[SECOND_ARG_REGISTER_INDEX].to_u64();
@@ -324,14 +324,14 @@ impl NushiftSubsystem {
                 };
 
                 match self.accessibility_tree_space.publish_accessibility_tree_blocking(accessibility_tree_cap_id, input_shm_cap_id, output_shm_cap_id, &mut self.shm_space) {
-                    Ok(_) => {},
+                    Ok(_) => {}
                     Err(deferred_space_error) => return marshall_deferred_space_error(deferred_space_error),
                 }
 
                 let task_id = task.push_task();
 
                 set_success(task_id)
-            },
+            }
             Ok(Syscall::AccessibilityTreePublish) => {
                 let accessibility_tree_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
                 let input_shm_cap_id = registers[SECOND_ARG_REGISTER_INDEX].to_u64();
@@ -343,24 +343,24 @@ impl NushiftSubsystem {
                 };
 
                 match self.accessibility_tree_space.publish_accessibility_tree_blocking(accessibility_tree_cap_id, input_shm_cap_id, output_shm_cap_id, &mut self.shm_space) {
-                    Ok(_) => {},
+                    Ok(_) => {}
                     Err(deferred_space_error) => return marshall_deferred_space_error(deferred_space_error),
                 }
 
                 let task_id = task.push_task();
 
                 set_success(task_id)
-            },
+            }
             Ok(Syscall::AccessibilityTreeDestroy) => {
                 let accessibility_tree_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
 
                 match self.accessibility_tree_space.destroy_accessibility_tree_cap(accessibility_tree_cap_id) {
-                    Ok(_) => {},
+                    Ok(_) => {}
                     Err(deferred_space_error) => return marshall_deferred_space_error(deferred_space_error),
                 }
 
                 set_success(0)
-            },
+            }
 
             Ok(Syscall::TitleNew) => {
                 let title_cap_id = match self.title_space.new_title_cap() {
@@ -369,7 +369,7 @@ impl NushiftSubsystem {
                 };
 
                 set_success(title_cap_id)
-            },
+            }
             Ok(Syscall::TitlePublish) => {
                 let title_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
                 let input_shm_cap_id = registers[SECOND_ARG_REGISTER_INDEX].to_u64();
@@ -381,35 +381,35 @@ impl NushiftSubsystem {
                 };
 
                 match self.title_space.publish_title_blocking(title_cap_id, input_shm_cap_id, output_shm_cap_id, &mut self.shm_space) {
-                    Ok(_) => {},
+                    Ok(_) => {}
                     Err(deferred_space_error) => return marshall_deferred_space_error(deferred_space_error),
                 }
 
                 let task_id = task.push_task();
 
                 set_success(task_id)
-            },
+            }
             Ok(Syscall::TitleDestroy) => {
                 let title_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
 
                 match self.title_space.destroy_title_cap(title_cap_id) {
-                    Ok(_) => {},
+                    Ok(_) => {}
                     Err(deferred_space_error) => return marshall_deferred_space_error(deferred_space_error),
                 }
 
                 set_success(0)
-            },
+            }
 
             Ok(Syscall::BlockOnDeferredTasks) => {
                 let input_shm_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
 
                 match self.app_global_deferred_space.block_on_deferred_tasks(input_shm_cap_id, &self.shm_space, &self.blocking_on_tasks) {
-                    Ok(_) => {},
+                    Ok(_) => {}
                     Err(app_global_deferred_space_error) => return marshall_app_global_deferred_space_error(app_global_deferred_space_error),
                 }
 
                 set_success(0)
-            },
+            }
 
             Ok(Syscall::GfxNew) => {
                 let gfx_cap_id = match self.gfx_space.new_gfx_cap() {
@@ -418,7 +418,7 @@ impl NushiftSubsystem {
                 };
 
                 set_success(gfx_cap_id)
-            },
+            }
             Ok(Syscall::GfxGetOutputs) => {
                 let gfx_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
                 let output_shm_cap_id = registers[SECOND_ARG_REGISTER_INDEX].to_u64();
@@ -429,14 +429,14 @@ impl NushiftSubsystem {
                 };
 
                 match self.gfx_space.get_outputs_blocking(gfx_cap_id, output_shm_cap_id, &mut self.shm_space) {
-                    Ok(_) => {},
+                    Ok(_) => {}
                     Err(gfx_space_error) => return marshall_gfx_space_error(gfx_space_error),
                 }
 
                 let task_id = task.push_task();
 
                 set_success(task_id)
-            },
+            }
             Ok(Syscall::GfxCpuPresentBufferNew) => {
                 let gfx_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
                 let input_shm_cap_id = registers[SECOND_ARG_REGISTER_INDEX].to_u64();
@@ -447,7 +447,7 @@ impl NushiftSubsystem {
                 };
 
                 set_success(gfx_cpu_present_buffer_cap_id)
-            },
+            }
             Ok(Syscall::GfxCpuPresent) => {
                 let gfx_cpu_present_buffer_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
                 // TODO: This is not used yet.
@@ -467,45 +467,45 @@ impl NushiftSubsystem {
                 };
 
                 match self.gfx_space.cpu_present_blocking(gfx_cpu_present_buffer_cap_id, output_shm_cap_id, &mut self.shm_space) {
-                    Ok(_) => {},
+                    Ok(_) => {}
                     Err(gfx_space_error) => return marshall_gfx_space_error(gfx_space_error),
                 }
 
                 let task_id = task.push_task();
 
                 set_success(task_id)
-            },
+            }
             Ok(Syscall::GfxCpuPresentBufferDestroy) => {
                 let gfx_cpu_present_buffer_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
 
                 match self.gfx_space.destroy_gfx_cpu_present_buffer_cap(gfx_cpu_present_buffer_cap_id) {
-                    Ok(_) => {},
+                    Ok(_) => {}
                     Err(gfx_space_error) => return marshall_gfx_space_error(gfx_space_error),
                 }
 
                 set_success(0)
-            },
+            }
             Ok(Syscall::GfxDestroy) => {
                 let gfx_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
 
                 match self.gfx_space.destroy_gfx_cap(gfx_cap_id) {
-                    Ok(_) => {},
+                    Ok(_) => {}
                     Err(gfx_space_error) => return marshall_gfx_space_error(gfx_space_error),
                 }
 
                 set_success(0)
-            },
+            }
 
             Ok(Syscall::DebugPrint) => {
                 let input_shm_cap_id = registers[FIRST_ARG_REGISTER_INDEX].to_u64();
 
                 match self.debug_print.debug_print(input_shm_cap_id, &self.shm_space) {
-                    Ok(_) => {},
+                    Ok(_) => {}
                     Err(debug_print_error) => return marshall_debug_print_error(debug_print_error),
                 }
 
                 set_success(0)
-            },
+            }
         }
     }
 }
