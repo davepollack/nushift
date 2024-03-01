@@ -168,7 +168,9 @@ impl ShmSpace {
 
     fn acquire_shm_cap_impl(&mut self, shm_cap_id: ShmCapId, expected_cap_type: CapType, address: u64, flags: Sv39Flags) -> Result<(), ShmSpaceError> {
         let shm_cap = self.space.get(&shm_cap_id).ok_or_else(|| CapNotFoundSnafu.build())?;
-        (shm_cap.cap_type() == expected_cap_type).then_some(()).ok_or_else(|| PermissionDeniedSnafu.build())?;
+        if shm_cap.cap_type() != expected_cap_type {
+            return PermissionDeniedSnafu.fail();
+        }
 
         // try_acquire does the out-of-bounds and alignment checks. We map the errors here.
         self.acquisitions.try_acquire(shm_cap_id, shm_cap, address, flags)
@@ -191,7 +193,9 @@ impl ShmSpace {
 
     fn release_shm_cap_impl(&mut self, shm_cap_id: ShmCapId, expected_cap_type: CapType) -> Result<(), ShmSpaceError> {
         let shm_cap = self.space.get(&shm_cap_id).ok_or_else(|| CapNotFoundSnafu.build())?;
-        (shm_cap.cap_type() == expected_cap_type).then_some(()).ok_or_else(|| PermissionDeniedSnafu.build())?;
+        if shm_cap.cap_type() != expected_cap_type {
+            return PermissionDeniedSnafu.fail();
+        }
 
         match self.acquisitions.try_release(shm_cap_id, shm_cap) {
             Ok(_) => Ok(()),
@@ -202,7 +206,9 @@ impl ShmSpace {
 
     pub fn destroy_shm_cap(&mut self, shm_cap_id: ShmCapId, expected_cap_type: CapType) -> Result<(), ShmSpaceError> {
         let shm_cap = self.space.get(&shm_cap_id).ok_or_else(|| CapNotFoundSnafu.build())?;
-        (shm_cap.cap_type() == expected_cap_type).then_some(()).ok_or_else(|| PermissionDeniedSnafu.build())?;
+        if shm_cap.cap_type() != expected_cap_type {
+            return PermissionDeniedSnafu.fail();
+        }
         self.acquisitions.check_not_acquired(shm_cap_id).map_err(|address| DestroyingCurrentlyAcquiredCapSnafu { address }.build())?;
         // TODO: Check that it must not be contained by any other dependents. E.g. accessibility tree.
 
@@ -241,14 +247,18 @@ impl ShmSpace {
 
     pub fn get_shm_cap_app(&self, shm_cap_id: ShmCapId) -> Result<&ShmCap, ShmSpaceError> {
         let shm_cap = self.space.get(&shm_cap_id).ok_or_else(|| CapNotFoundSnafu.build())?;
-        matches!(shm_cap.cap_type(), CapType::AppCap).then_some(()).ok_or_else(|| PermissionDeniedSnafu.build())?;
+        if !matches!(shm_cap.cap_type(), CapType::AppCap) {
+            return PermissionDeniedSnafu.fail();
+        }
 
         Ok(shm_cap)
     }
 
     pub fn get_mut_shm_cap_elf(&mut self, shm_cap_id: ShmCapId) -> Result<&mut ShmCap, ShmSpaceError> {
         let shm_cap = self.space.get_mut(&shm_cap_id).ok_or_else(|| CapNotFoundSnafu.build())?;
-        matches!(shm_cap.cap_type(), CapType::ElfCap).then_some(()).ok_or_else(|| PermissionDeniedSnafu.build())?;
+        if !matches!(shm_cap.cap_type(), CapType::ElfCap) {
+            return PermissionDeniedSnafu.fail();
+        }
 
         Ok(shm_cap)
     }
