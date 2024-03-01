@@ -159,22 +159,19 @@ impl ShmSpace {
     }
 
     pub fn acquire_shm_cap_app(&mut self, shm_cap_id: ShmCapId, address: u64) -> Result<(), ShmSpaceError> {
-        let shm_cap = self.space.get(&shm_cap_id).ok_or_else(|| CapNotFoundSnafu.build())?;
-        matches!(shm_cap.cap_type(), CapType::AppCap).then_some(()).ok_or_else(|| PermissionDeniedSnafu.build())?;
-
-        Self::acquire_shm_cap_impl(&mut self.acquisitions, shm_cap_id, shm_cap, address, Sv39Flags::RW)
+        self.acquire_shm_cap_impl(shm_cap_id, CapType::AppCap, address, Sv39Flags::RW)
     }
 
     pub fn acquire_shm_cap_elf(&mut self, shm_cap_id: ShmCapId, address: u64, flags: Sv39Flags) -> Result<(), ShmSpaceError> {
-        let shm_cap = self.space.get(&shm_cap_id).ok_or_else(|| CapNotFoundSnafu.build())?;
-        matches!(shm_cap.cap_type(), CapType::ElfCap).then_some(()).ok_or_else(|| PermissionDeniedSnafu.build())?;
-
-        Self::acquire_shm_cap_impl(&mut self.acquisitions, shm_cap_id, shm_cap, address, flags)
+        self.acquire_shm_cap_impl(shm_cap_id, CapType::ElfCap, address, flags)
     }
 
-    fn acquire_shm_cap_impl(acquisitions: &mut AcquisitionsAndPageTable, shm_cap_id: ShmCapId, shm_cap: &ShmCap, address: u64, flags: Sv39Flags) -> Result<(), ShmSpaceError> {
+    fn acquire_shm_cap_impl(&mut self, shm_cap_id: ShmCapId, expected_cap_type: CapType, address: u64, flags: Sv39Flags) -> Result<(), ShmSpaceError> {
+        let shm_cap = self.space.get(&shm_cap_id).ok_or_else(|| CapNotFoundSnafu.build())?;
+        (shm_cap.cap_type() == expected_cap_type).then_some(()).ok_or_else(|| PermissionDeniedSnafu.build())?;
+
         // try_acquire does the out-of-bounds and alignment checks. We map the errors here.
-        acquisitions.try_acquire(shm_cap_id, shm_cap, address, flags)
+        self.acquisitions.try_acquire(shm_cap_id, shm_cap, address, flags)
             .map_err(|acquire_error| match acquire_error {
                 AcquireError::AcquiringAlreadyAcquiredCap { address } => CurrentlyAcquiredCapSnafu { address }.build(),
                 AcquireError::AcquireExceedsSv39 => AddressOutOfBoundsSnafu.build(),
