@@ -14,6 +14,7 @@ use snafu_cli_debug::SnafuCliDebug;
 use crate::deferred_space::{self, DefaultDeferredSpace, DeferredSpace, DeferredSpaceError, DeferredSpaceGet, DefaultDeferredSpaceCapId, DeferredSpacePublish, DeferredError};
 use crate::hypervisor::hypervisor_event::{UnboundHypervisorEvent, HypervisorEventError};
 use crate::hypervisor::tab_context::TabContext;
+use crate::rollback_chain::RollbackChain;
 use crate::shm_space::{ShmCap, ShmCapId, ShmSpace, ShmSpaceError};
 
 pub type GfxCapId = u64;
@@ -227,26 +228,31 @@ impl GfxSpace {
     }
 
     pub fn destroy_gfx_cpu_present_buffer_cap(&mut self, gfx_cpu_present_buffer_cap_id: GfxCpuPresentBufferCapId) -> Result<(), GfxSpaceError> {
-        let cpu_present_buffer_info = self.cpu_present.remove_info(gfx_cpu_present_buffer_cap_id).ok_or_else(|| DeferredSpaceError::CapNotFound { context: GFX_CPU_PRESENT_CONTEXT.into(), id: gfx_cpu_present_buffer_cap_id }).context(DeferredSpaceSnafu)?;
-        let all_succeeded = drop_guard::guard(false, |all_succ| {
-            if !all_succ {
-                self.cpu_present.add_info(gfx_cpu_present_buffer_cap_id, cpu_present_buffer_info.parent_gfx_cap_id, cpu_present_buffer_info.present_buffer_format, cpu_present_buffer_info.present_buffer_size_px.clone(), cpu_present_buffer_info.present_buffer_shm_cap_id);
-            }
+        let mut chain = RollbackChain::new(self);
+
+        let cpu_present_buffer_info = chain.exec(|this| {
+            this.cpu_present.remove_info(gfx_cpu_present_buffer_cap_id).ok_or_else(|| DeferredSpaceError::CapNotFound { context: GFX_CPU_PRESENT_CONTEXT.into(), id: gfx_cpu_present_buffer_cap_id }).context(DeferredSpaceSnafu)
+        })?;
+        chain.add_rollback(move |this| {
+            this.cpu_present.add_info(gfx_cpu_present_buffer_cap_id, cpu_present_buffer_info.parent_gfx_cap_id, cpu_present_buffer_info.present_buffer_format, cpu_present_buffer_info.present_buffer_size_px, cpu_present_buffer_info.present_buffer_shm_cap_id);
         });
 
         // Remove tree-child association. The association is present because the
         // parent cap is not allowed to be destroyed while the child cap is
         // alive.
-        self.root_tree.entry(cpu_present_buffer_info.parent_gfx_cap_id).or_default().remove(&gfx_cpu_present_buffer_cap_id);
-        let mut all_succeeded = drop_guard::guard(all_succeeded, |all_succ| {
-            if !*all_succ {
-                self.root_tree.entry(cpu_present_buffer_info.parent_gfx_cap_id).or_default().insert(gfx_cpu_present_buffer_cap_id);
-            }
+        chain.exec(|this| {
+            this.root_tree.entry(cpu_present_buffer_info.parent_gfx_cap_id).or_default().remove(&gfx_cpu_present_buffer_cap_id);
+        });
+        chain.add_rollback(move |this| {
+            this.root_tree.entry(cpu_present_buffer_info.parent_gfx_cap_id).or_default().insert(gfx_cpu_present_buffer_cap_id);
         });
 
-        self.cpu_present_buffer_deferred_space.destroy_cap(GFX_CPU_PRESENT_CONTEXT, gfx_cpu_present_buffer_cap_id).context(DeferredSpaceSnafu)?;
+        chain.exec(|this| {
+            this.cpu_present_buffer_deferred_space.destroy_cap(GFX_CPU_PRESENT_CONTEXT, gfx_cpu_present_buffer_cap_id).context(DeferredSpaceSnafu)
+        })?;
+        // Don't need add_rollback here as this is the last one
 
-        **all_succeeded = true;
+        chain.all_succeeded();
         Ok(())
     }
 

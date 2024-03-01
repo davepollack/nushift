@@ -11,6 +11,7 @@ mod nushift_subsystem;
 mod process_control_block;
 mod protected_memory;
 mod register_ipc;
+mod rollback_chain;
 mod shm_space;
 mod title_space;
 
