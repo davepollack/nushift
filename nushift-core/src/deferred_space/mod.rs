@@ -56,6 +56,7 @@ struct InProgressCap {
     input: Option<OwnedShmIdAndCap>,
     output: OwnedShmIdAndCap,
 }
+
 impl InProgressCap {
     fn new<OptionalInput>(input: OptionalInput, output: OwnedShmIdAndCap) -> Self
     where
@@ -68,6 +69,7 @@ impl InProgressCap {
 pub struct DefaultDeferredCap {
     in_progress_cap: Option<InProgressCap>,
 }
+
 impl DefaultDeferredCap {
     fn new() -> Self {
         Self { in_progress_cap: None }
