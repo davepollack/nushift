@@ -9,7 +9,8 @@ use serde::{Deserialize, Serialize};
 use snafu::prelude::*;
 use snafu_cli_debug::SnafuCliDebug;
 
-use super::shm_space::{OwnedShmIdAndCap, ShmCapId, ShmCap, ShmSpace, ShmSpaceError};
+use crate::rollback_chain::RollbackChain;
+use crate::shm_space::{OwnedShmIdAndCap, ShmCapId, ShmCap, ShmSpace, ShmSpaceError};
 
 pub(super) mod app_global_deferred_space;
 
@@ -178,13 +179,7 @@ impl DefaultDeferredSpace {
         self.get_or_publish_blocking(context, cap_id, None, output_shm_cap_id, shm_space)
     }
 
-    /// Releases SHM cap, but does not do further processing yet.
-    ///
-    /// TODO: Rollback logic needs to be added to this function.
-    /// release_shm_cap_app, the first move_shm_cap_to_other_space, and
-    /// new_shm_cap all need to be rolled back if an error is returned by a
-    /// subsequent line. They should NOT be rolled back if the function
-    /// completes normally with no error.
+    /// Releases SHM caps, but does not do further processing yet.
     fn get_or_publish_blocking(&mut self, context: &str, cap_id: DefaultDeferredSpaceCapId, input_shm_cap_id: Option<ShmCapId>, output_shm_cap_id: ShmCapId, shm_space: &mut ShmSpace) -> Result<(), DeferredSpaceError> {
         let default_deferred_cap = self.get_mut(cap_id).ok_or_else(|| CapNotFoundSnafu { context, id: cap_id }.build())?;
 
@@ -194,34 +189,115 @@ impl DefaultDeferredSpace {
             return InProgressSnafu { context }.fail();
         }
 
-        if let Some(input_shm_cap_id) = input_shm_cap_id {
-            shm_space.release_shm_cap_app(input_shm_cap_id).map_err(|shm_space_error| match shm_space_error {
-                ShmSpaceError::CapNotFound => ShmCapNotFoundSnafu { id: input_shm_cap_id }.build(),
-                ShmSpaceError::PermissionDenied => ShmPermissionDeniedSnafu { id: input_shm_cap_id }.build(),
-                err => DeferredSpaceError::ShmSpaceInternalError { source: err },
-            })?;
+        struct RollbackTarget<'a> {
+            default_deferred_cap: &'a mut DefaultDeferredCap,
+            shm_space: &'a mut ShmSpace,
         }
 
-        shm_space.release_shm_cap_app(output_shm_cap_id).map_err(|shm_space_error| match shm_space_error {
-            ShmSpaceError::CapNotFound => ShmCapNotFoundSnafu { id: output_shm_cap_id }.build(),
-            ShmSpaceError::PermissionDenied => ShmPermissionDeniedSnafu { id: output_shm_cap_id }.build(),
-            err => DeferredSpaceError::ShmSpaceInternalError { source: err },
+        let mut rollback_target = RollbackTarget { default_deferred_cap, shm_space };
+
+        let mut chain = RollbackChain::new(&mut rollback_target);
+
+        // Release the input SHM cap for the duration of us processing it.
+        if let Some(input_shm_cap_id) = input_shm_cap_id {
+            let input_address = chain.exec(|target| {
+                target.shm_space.release_shm_cap_app(input_shm_cap_id).map_err(|shm_space_error| match shm_space_error {
+                    ShmSpaceError::CapNotFound => ShmCapNotFoundSnafu { id: input_shm_cap_id }.build(),
+                    ShmSpaceError::PermissionDenied => ShmPermissionDeniedSnafu { id: input_shm_cap_id }.build(),
+                    err => DeferredSpaceError::ShmSpaceInternalError { source: err },
+                })
+            })?;
+
+            if let Some(input_address) = input_address {
+                chain.add_rollback(move |target| {
+                    // Since this executes synchronously with the transaction
+                    // that is being rolled back, all returned errors are an
+                    // internal error. Dunno what to do with those errors.
+                    let _ = target.shm_space.acquire_shm_cap_app(input_shm_cap_id, input_address);
+                });
+            }
+        }
+
+        // Release the output SHM cap for the duration of us processing it.
+        let output_address = chain.exec(|target| {
+            target.shm_space.release_shm_cap_app(output_shm_cap_id).map_err(|shm_space_error| match shm_space_error {
+                ShmSpaceError::CapNotFound => ShmCapNotFoundSnafu { id: output_shm_cap_id }.build(),
+                ShmSpaceError::PermissionDenied => ShmPermissionDeniedSnafu { id: output_shm_cap_id }.build(),
+                err => DeferredSpaceError::ShmSpaceInternalError { source: err },
+            })
         })?;
 
-        // Move out of the SHM space for the duration of us processing it.
+        if let Some(output_address) = output_address {
+            chain.add_rollback(move |target| {
+                // Since this executes synchronously with the transaction
+                // that is being rolled back, all returned errors are an
+                // internal error. Dunno what to do with those errors.
+                let _ = target.shm_space.acquire_shm_cap_app(output_shm_cap_id, output_address);
+            });
+        }
+
+        // Move out of the SHM space for the duration of us processing it. (to
+        // prevent the app from re-acquiring them, which would be a violation of
+        // security)
         match (input_shm_cap_id, output_shm_cap_id) {
             // Publish
             (Some(input_shm_cap_id), output_shm_cap_id) => {
-                let input_shm_cap = shm_space.move_shm_cap_to_other_space(input_shm_cap_id).ok_or_else(|| GetOrPublishInternalSnafu.build())?; // Internal error because presence was already checked in release
-                let output_shm_cap = shm_space.move_shm_cap_to_other_space(output_shm_cap_id).ok_or_else(|| GetOrPublishInternalSnafu.build())?; // Internal error because presence was already checked in release
-                default_deferred_cap.in_progress_cap = Some(InProgressCap::new((input_shm_cap_id, input_shm_cap), (output_shm_cap_id, output_shm_cap)));
+                chain.exec(|target| {
+                    let Some(input_shm_cap) = target.shm_space.move_shm_cap_to_other_space(input_shm_cap_id) else {
+                        // Internal error because presence was already checked in release
+                        return GetOrPublishInternalSnafu.fail();
+                    };
+
+                    let Some(output_shm_cap) = target.shm_space.move_shm_cap_to_other_space(output_shm_cap_id) else {
+                        // Roll back taking of input cap
+                        target.shm_space.move_shm_cap_back_into_space(input_shm_cap_id, input_shm_cap);
+                        // Internal error because presence was already checked in release
+                        return GetOrPublishInternalSnafu.fail();
+                    };
+
+                    target.default_deferred_cap.in_progress_cap = Some(InProgressCap::new((input_shm_cap_id, input_shm_cap), (output_shm_cap_id, output_shm_cap)));
+
+                    Ok(())
+                })?;
+
+                chain.add_rollback(|target| {
+                    let Some(InProgressCap { input: Some(input), output }) = target.default_deferred_cap.in_progress_cap.take() else {
+                        // An internal error occurred because this is the shape
+                        // of the data that we placed into it, synchronously in
+                        // the transaction that is being rolled back.
+                        return;
+                    };
+                    target.shm_space.move_shm_cap_back_into_space(input.0, input.1);
+                    target.shm_space.move_shm_cap_back_into_space(output.0, output.1);
+                });
             }
+
             // Get
             (None, output_shm_cap_id) => {
-                let output_shm_cap = shm_space.move_shm_cap_to_other_space(output_shm_cap_id).ok_or_else(|| GetOrPublishInternalSnafu.build())?; // Internal error because presence was already checked in release
-                default_deferred_cap.in_progress_cap = Some(InProgressCap::new(None, (output_shm_cap_id, output_shm_cap)));
+                chain.exec(|target| {
+                    let Some(output_shm_cap) = target.shm_space.move_shm_cap_to_other_space(output_shm_cap_id) else {
+                        // Internal error because presence was already checked in release
+                        return GetOrPublishInternalSnafu.fail();
+                    };
+
+                    target.default_deferred_cap.in_progress_cap = Some(InProgressCap::new(None, (output_shm_cap_id, output_shm_cap)));
+
+                    Ok(())
+                })?;
+
+                chain.add_rollback(|target| {
+                    let Some(InProgressCap { input: None, output }) = target.default_deferred_cap.in_progress_cap.take() else {
+                        // An internal error occurred because this is the shape
+                        // of the data that we placed into it, synchronously in
+                        // the transaction that is being rolled back.
+                        return;
+                    };
+                    target.shm_space.move_shm_cap_back_into_space(output.0, output.1);
+                });
             }
         }
+
+        chain.all_succeeded();
 
         Ok(())
     }

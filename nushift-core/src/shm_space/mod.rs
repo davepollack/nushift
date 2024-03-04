@@ -183,23 +183,26 @@ impl ShmSpace {
             })
     }
 
-    pub fn release_shm_cap_app(&mut self, shm_cap_id: ShmCapId) -> Result<(), ShmSpaceError> {
+    /// Allows releasing non-acquired cap, returns a `None` as the success result if so.
+    pub fn release_shm_cap_app(&mut self, shm_cap_id: ShmCapId) -> Result<Option<u64>, ShmSpaceError> {
         self.release_shm_cap_impl(shm_cap_id, CapType::AppCap)
     }
 
-    pub fn release_shm_cap_elf(&mut self, shm_cap_id: ShmCapId) -> Result<(), ShmSpaceError> {
+    /// Allows releasing non-acquired cap, returns a `None` as the success result if so.
+    pub fn release_shm_cap_elf(&mut self, shm_cap_id: ShmCapId) -> Result<Option<u64>, ShmSpaceError> {
         self.release_shm_cap_impl(shm_cap_id, CapType::ElfCap)
     }
 
-    fn release_shm_cap_impl(&mut self, shm_cap_id: ShmCapId, expected_cap_type: CapType) -> Result<(), ShmSpaceError> {
+    /// Allows releasing non-acquired cap, returns a `None` as the success result if so.
+    fn release_shm_cap_impl(&mut self, shm_cap_id: ShmCapId, expected_cap_type: CapType) -> Result<Option<u64>, ShmSpaceError> {
         let shm_cap = self.space.get(&shm_cap_id).ok_or_else(|| CapNotFoundSnafu.build())?;
         if shm_cap.cap_type() != expected_cap_type {
             return PermissionDeniedSnafu.fail();
         }
 
         match self.acquisitions.try_release(shm_cap_id, shm_cap) {
-            Ok(_) => Ok(()),
-            Err(AcquireError::ReleasingNonAcquiredCap) => Ok(()), // Silently allow releasing non-acquired cap.
+            Ok(address) => Ok(Some(address)),
+            Err(AcquireError::ReleasingNonAcquiredCap) => Ok(None), // Silently allow releasing non-acquired cap.
             Err(_) => AcquireReleaseInternalSnafu.fail(),
         }
     }

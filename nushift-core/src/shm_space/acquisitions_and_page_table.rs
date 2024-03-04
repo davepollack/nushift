@@ -59,8 +59,8 @@ impl AcquisitionsAndPageTable {
                 // Roll back the acquisitions insert.
                 //
                 // We shouldn't actually get here (i.e. an error when inserting
-                // the page table), this indicates data structure corruption and
-                // a bug in Nushift's code.
+                // into the page table), this indicates data structure
+                // corruption and a bug in Nushift's code.
                 self.acquisitions.remove(shm_cap_id).map_err(|_| RollbackSnafu.build())?;
                 // Now return the error.
                 return Err(err);
@@ -77,7 +77,7 @@ impl AcquisitionsAndPageTable {
         }
     }
 
-    pub fn try_release(&mut self, shm_cap_id: ShmCapId, shm_cap: &ShmCap) -> Result<(), AcquireError> {
+    pub fn try_release(&mut self, shm_cap_id: ShmCapId, shm_cap: &ShmCap) -> Result<u64, AcquireError> {
         // Remove from acquisitions.
         let address = self.acquisitions.remove(shm_cap_id).map_err(|_| ReleasingNonAcquiredCapSnafu.build())?;
         // Remove from page table.
@@ -86,9 +86,9 @@ impl AcquisitionsAndPageTable {
             Err(err) => {
                 // Roll back the acquisitions remove.
                 //
-                // We shouldn't actually get here (i.e. an error when inserting
-                // the page table), this indicates data structure corruption and
-                // a bug in Nushift's code.
+                // We shouldn't actually get here (i.e. an error when removing
+                // from the page table), this indicates data structure
+                // corruption and a bug in Nushift's code.
                 let length_in_bytes = shm_cap.shm_type().page_bytes()
                     .checked_mul(shm_cap.length_u64())
                     .ok_or_else(|| RollbackSnafu.build())?;
@@ -98,7 +98,7 @@ impl AcquisitionsAndPageTable {
             }
         }
 
-        Ok(())
+        Ok(address)
     }
 
     pub fn walk<'space>(&self, vaddr: u64, shm_space_map: &'space ShmSpaceMap) -> Result<WalkResult<'space>, PageTableError> {
