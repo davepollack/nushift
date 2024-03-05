@@ -4,7 +4,8 @@ $directories = @(
     "nothing-nushift-app",
     "shm-nushift-app",
     "ebreak-test",
-    "hello-world"
+    "hello-world",
+    "rollback-test"
 )
 
 $directories | ForEach-Object -Parallel {

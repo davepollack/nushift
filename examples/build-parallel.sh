@@ -6,6 +6,7 @@ directories=(
     "shm-nushift-app"
     "ebreak-test"
     "hello-world"
+    "rollback-test"
 )
 
 # Loop through directories and start a background task for each

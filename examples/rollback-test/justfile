@@ -1,0 +1,4 @@
+set windows-shell := ["cmd.exe", "/c"]
+
+build:
+  zig build -Doptimize=ReleaseSafe
