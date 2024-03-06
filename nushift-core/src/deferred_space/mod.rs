@@ -15,10 +15,9 @@ use crate::shm_space::{OwnedShmIdAndCap, ShmCapId, ShmCap, ShmSpace, ShmSpaceErr
 pub(super) mod app_global_deferred_space;
 
 pub enum PrologueReturn<'deferred_space> {
-    ReturnOk,
-    ReturnErr,
     ContinueCapsPublish(&'deferred_space ShmCap, &'deferred_space mut ShmCap),
     ContinueCapsGet(&'deferred_space mut ShmCap),
+    ReturnErr,
 }
 
 // This trait may not be necessary. I'm only implementing it for
@@ -114,42 +113,35 @@ impl DeferredSpace for DefaultDeferredSpace {
     }
 
     fn destroy_cap(&mut self, context: &str, cap_id: u64) -> Result<(), Self::SpaceError> {
-        // TODO: You should not be allowed to destroy it if it's in progress. Or
-        // the destroy should be deferred. And all deferred tasks should be
-        // executed on app shutdown (?), both when program ends or when user
-        // terminates the tab while running (?)
-        self.space.contains_key(&cap_id).then_some(()).ok_or_else(|| CapNotFoundSnafu { context, id: cap_id }.build())?;
+        let entry = self.space.entry(cap_id);
 
-        self.space.remove(&cap_id);
+        // Check if it exists
+        let Entry::Occupied(entry) = entry else {
+            return CapNotFoundSnafu { context, id: cap_id }.fail();
+        };
+
+        // You're not allowed to destroy it if it's in progress
+        if let Some(_) = entry.get().in_progress_cap {
+            return InProgressSnafu { context }.fail();
+        }
+
+        entry.remove();
         self.id_pool.release(cap_id);
 
         Ok(())
     }
 
     fn get_or_publish_deferred_prologue(&mut self, cap_id: Self::CapId) -> PrologueReturn<'_> {
-        // If cap has been deleted after progress is started, that is valid
-        // and now do nothing here.
-        //
-        // TODO: This comment contradicts the comment in destroy_cap, and
-        // it's only valid if destroy_cap moved the in-progress caps back
-        // into the SHM space (so the stats are not corrupted), which it
-        // currently does not! And probably other things I'm forgetting. So
-        // consider going with the comment in destroy_cap and say it's
-        // actually not valid.
-        let default_deferred_cap = match self.get_mut(cap_id) {
-            Some(default_deferred_cap) => default_deferred_cap,
-            None => return PrologueReturn::ReturnOk,
-        };
-
-        // It should not be possible for in_progress_cap to be empty. This is an
-        // internal error.
-        match default_deferred_cap.in_progress_cap {
+        // It should not be possible for the cap to not exist (because you're
+        // not allowed to delete it if it's in progress). And it should not be
+        // possible for in_progress_cap to be empty. These are internal errors.
+        match self.get_mut(cap_id) {
             // Publish
-            Some(InProgressCap { input: Some((_, ref input_shm_cap)), output: (_, ref mut output_shm_cap) }) => PrologueReturn::ContinueCapsPublish(input_shm_cap, output_shm_cap),
+            Some(DefaultDeferredCap { in_progress_cap: Some(InProgressCap { input: Some((_, ref input_shm_cap)), output: (_, ref mut output_shm_cap) }) }) => PrologueReturn::ContinueCapsPublish(input_shm_cap, output_shm_cap),
             // Get
-            Some(InProgressCap { input: None, output: (_, ref mut output_shm_cap) }) => PrologueReturn::ContinueCapsGet(output_shm_cap),
+            Some(DefaultDeferredCap { in_progress_cap: Some(InProgressCap { input: None, output: (_, ref mut output_shm_cap) }) }) => PrologueReturn::ContinueCapsGet(output_shm_cap),
 
-            _ => PrologueReturn::ReturnErr,
+            Some(DefaultDeferredCap { in_progress_cap: None }) | None => PrologueReturn::ReturnErr,
         }
     }
 
@@ -304,18 +296,16 @@ impl DefaultDeferredSpace {
         Ok(())
     }
 
-    /// The Err(()) variant is only used for an internal error where the output
-    /// cap is not available. All other errors should be reported through the
-    /// output cap.
+    /// The Err(()) variant is only used for internal errors. All other errors
+    /// should be reported through the output cap.
     pub fn publish_deferred<S>(&mut self, deferred_space_specific: &mut S, cap_id: DefaultDeferredSpaceCapId, shm_space: &mut ShmSpace) -> Result<(), ()>
     where
         S: DeferredSpacePublish,
     {
         let (input_shm_cap, output_shm_cap) = match self.get_or_publish_deferred_prologue(cap_id) {
-            PrologueReturn::ReturnOk => return Ok(()),
-            PrologueReturn::ReturnErr => return Err(()),
             PrologueReturn::ContinueCapsPublish(input_shm_cap, output_shm_cap) => (input_shm_cap, output_shm_cap),
             PrologueReturn::ContinueCapsGet(..) => return Err(()), // Internal error. We must have started with a publish.
+            PrologueReturn::ReturnErr => return Err(()),
         };
 
         match postcard::from_bytes(input_shm_cap.backing()) {
@@ -331,18 +321,16 @@ impl DefaultDeferredSpace {
         self.get_or_publish_deferred_epilogue(cap_id, shm_space)
     }
 
-    /// The Err(()) variant is only used for an internal error where the output
-    /// cap is not available. All other errors should be reported through the
-    /// output cap.
+    /// The Err(()) variant is only used for internal errors. All other errors
+    /// should be reported through the output cap.
     pub fn get_deferred<S>(&mut self, deferred_space_specific: &mut S, cap_id: DefaultDeferredSpaceCapId, shm_space: &mut ShmSpace) -> Result<(), ()>
     where
         S: DeferredSpaceGet,
     {
         let output_shm_cap = match self.get_or_publish_deferred_prologue(cap_id) {
-            PrologueReturn::ReturnOk => return Ok(()),
-            PrologueReturn::ReturnErr => return Err(()),
             PrologueReturn::ContinueCapsPublish(..) => return Err(()), // Internal error. We must have started with a get.
             PrologueReturn::ContinueCapsGet(output_shm_cap) => output_shm_cap,
+            PrologueReturn::ReturnErr => return Err(()),
         };
 
         deferred_space_specific.get(output_shm_cap);

@@ -198,7 +198,7 @@ An error will be written to the `output_shm_cap_id` cap if the Postcard data can
 
 Arguments: accessibility_tree_cap_id (`u64`).\
 Returns: `0u64`.\
-Errors: `CapNotFound`
+Errors: `CapNotFound`, `InProgress`
 
 Destroys an accessibility tree capability. This does not destroy any published accessibility trees.
 
@@ -233,7 +233,7 @@ An error will be written to the `output_shm_cap_id` cap if the Postcard data can
 
 Arguments: title_cap_id (`u64`).\
 Returns: `0u64`.\
-Errors: `CapNotFound`
+Errors: `CapNotFound`, `InProgress`
 
 Destroys a title capability. This does not unset any published titles.
 
@@ -331,7 +331,7 @@ An error will be written to the `output_shm_cap_id` cap if the Postcard data in 
 
 Arguments: gfx_cpu_present_buffer_cap_id (`u64`).\
 Returns: `0u64`.\
-Errors: `CapNotFound`
+Errors: `CapNotFound`, `InProgress`
 
 Destroys a CPU present buffer capability.
 
@@ -343,7 +343,7 @@ This does not un-present any previous present operations.
 
 Arguments: gfx_cap_id (`u64`).\
 Returns: `0u64`.\
-Errors: `CapNotFound`, `GfxChildCapsNotDestroyed`
+Errors: `CapNotFound`, `InProgress`, `GfxChildCapsNotDestroyed`
 
 Destroys a graphics capability.
 
@@ -387,7 +387,11 @@ A capability in this particular capability space with the requested capability I
 
 `InProgress` = 11,
 
-Currently, it is not possible to queue/otherwise process a second deferred operation in a deferred-capable space while one is being processed in that space. This limitation should be removed in the future.
+The operation was not allowed because the deferred-capable capability is in progress (a task has been queued on it that is not yet completed).
+
+Currently, it is not possible to queue/otherwise process a second deferred task on a deferred-capable capability while one is being processed on that capability. This limitation should be removed in the future.
+
+It is not allowed to destroy a deferred-capable capability that is in progress.
 
 `PermissionDenied` = 12,
 
