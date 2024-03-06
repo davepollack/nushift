@@ -185,7 +185,7 @@ enum DisplayItem {
 struct VirtualPoint(f64);
 ```
 
-An accessibility tree following the `AccessibilityTree` schema can be encoded into Postcard data according to the [Postcard wire format specification](https://postcard.jamesmunns.com/wire-format).
+An accessibility tree following the `AccessibilityTree` schema should be encoded into Postcard data according to the [Postcard wire format specification](https://postcard.jamesmunns.com/wire-format).
 
 As with other deferred-style calls:
 * This releases `input_shm_cap_id` and `output_shm_cap_id` and then you can't access them anymore
