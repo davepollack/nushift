@@ -113,10 +113,8 @@ impl DeferredSpace for DefaultDeferredSpace {
     }
 
     fn destroy_cap(&mut self, context: &str, cap_id: u64) -> Result<(), Self::SpaceError> {
-        let entry = self.space.entry(cap_id);
-
         // Check if it exists
-        let Entry::Occupied(entry) = entry else {
+        let Entry::Occupied(entry) = self.space.entry(cap_id) else {
             return CapNotFoundSnafu { context, id: cap_id }.fail();
         };
 
@@ -141,7 +139,7 @@ impl DeferredSpace for DefaultDeferredSpace {
             // Get
             Some(DefaultDeferredCap { in_progress_cap: Some(InProgressCap { input: None, output: (_, ref mut output_shm_cap) }) }) => PrologueReturn::ContinueCapsGet(output_shm_cap),
 
-            Some(DefaultDeferredCap { in_progress_cap: None }) | None => PrologueReturn::ReturnErr,
+            None | Some(DefaultDeferredCap { in_progress_cap: None }) => PrologueReturn::ReturnErr,
         }
     }
 
@@ -404,4 +402,184 @@ pub enum DeferredError {
     ExtraInfoNoLongerPresent = 3,
     SerializeError = 4,
     GfxInconsistentPresentBufferLength = 5,
+}
+
+#[cfg(test)]
+mod tests {
+    use std::num::NonZeroU64;
+
+    use memmap2::MmapMut;
+
+    use crate::shm_space::{CapType, ShmType};
+
+    use super::*;
+
+    #[test]
+    fn new_cap_ok() {
+        let mut default_deferred_space = DefaultDeferredSpace::new();
+
+        let cap_id = default_deferred_space.new_cap("test").expect("Should succeed");
+
+        assert!(default_deferred_space.space.contains_key(&cap_id));
+        assert!(matches!(default_deferred_space.space.get(&cap_id), Some(DefaultDeferredCap { in_progress_cap: None })));
+    }
+
+    #[test]
+    fn new_cap_internal_error_if_duplicate_id() {
+        let mut default_deferred_space = DefaultDeferredSpace::new();
+
+        default_deferred_space.space.insert(0, DefaultDeferredCap::new());
+
+        // Internal error, there should never be a duplicate ID except when we
+        // manually inserted one in this test code above
+        assert!(matches!(default_deferred_space.new_cap("test"), Err(DeferredSpaceError::DuplicateId)));
+    }
+
+    #[test]
+    fn get_mut_ok() {
+        let mut default_deferred_space = DefaultDeferredSpace::new();
+
+        let cap_id = default_deferred_space.new_cap("test").expect("Should succeed");
+
+        assert!(matches!(default_deferred_space.get_mut(cap_id), Some(DefaultDeferredCap { in_progress_cap: None })));
+    }
+
+    #[test]
+    fn get_mut_not_present() {
+        let mut default_deferred_space = DefaultDeferredSpace::new();
+
+        assert!(matches!(default_deferred_space.get_mut(0), None));
+    }
+
+    #[test]
+    fn contains_key_ok() {
+        let mut default_deferred_space = DefaultDeferredSpace::new();
+
+        let cap_id = default_deferred_space.new_cap("test").expect("Should succeed");
+
+        assert!(default_deferred_space.contains_key(cap_id));
+    }
+
+    #[test]
+    fn contains_key_does_not_contain() {
+        let default_deferred_space = DefaultDeferredSpace::new();
+
+        assert!(!default_deferred_space.contains_key(0));
+    }
+
+    #[test]
+    fn destroy_cap_ok() {
+        let mut default_deferred_space = DefaultDeferredSpace::new();
+
+        let cap_id = default_deferred_space.new_cap("test").expect("Should succeed");
+
+        assert!(matches!(default_deferred_space.destroy_cap("test", cap_id), Ok(())));
+        // TODO: Mock ReusableIdPool and test that release is called?
+        assert!(!default_deferred_space.contains_key(cap_id));
+    }
+
+    #[test]
+    fn destroy_cap_cap_not_found_error_if_not_found() {
+        let mut default_deferred_space = DefaultDeferredSpace::new();
+
+        assert!(matches!(default_deferred_space.destroy_cap("test", 0), Err(DeferredSpaceError::CapNotFound { context: m_context, id: 0 }) if m_context == "test"));
+    }
+
+    #[test]
+    fn destroy_cap_in_progress_error_if_in_progress() {
+        let mut default_deferred_space = DefaultDeferredSpace::new();
+
+        let cap_id = default_deferred_space.new_cap("test").expect("Should succeed");
+
+        let output_shm_cap = ShmCap::new(ShmType::FourKiB, NonZeroU64::new(1).expect("Should work"), MmapMut::map_anon(8).expect("Should work"), CapType::AppCap);
+        *default_deferred_space.space.get_mut(&cap_id).expect("Should exist") = DefaultDeferredCap { in_progress_cap: Some(InProgressCap::new(None, (0, output_shm_cap))) };
+
+        assert!(matches!(default_deferred_space.destroy_cap("test", cap_id), Err(DeferredSpaceError::InProgress { context: m_context }) if m_context == "test"));
+    }
+
+    #[test]
+    fn get_or_publish_deferred_prologue_ok_publish() {
+        let mut default_deferred_space = DefaultDeferredSpace::new();
+
+        let cap_id = default_deferred_space.new_cap("test").expect("Should succeed");
+
+        let output_shm_cap = ShmCap::new(ShmType::FourKiB, NonZeroU64::new(1).expect("Should work"), MmapMut::map_anon(8).expect("Should work"), CapType::AppCap);
+        let input_shm_cap = ShmCap::new(ShmType::FourKiB, NonZeroU64::new(2).expect("Should work"), MmapMut::map_anon(8).expect("Should work"), CapType::AppCap);
+        *default_deferred_space.space.get_mut(&cap_id).expect("Should exist") = DefaultDeferredCap { in_progress_cap: Some(InProgressCap::new((1, input_shm_cap), (0, output_shm_cap))) };
+
+        assert!(matches!(default_deferred_space.get_or_publish_deferred_prologue(cap_id), PrologueReturn::ContinueCapsPublish(_, _)));
+    }
+
+    #[test]
+    fn get_or_publish_deferred_prologue_ok_get() {
+        let mut default_deferred_space = DefaultDeferredSpace::new();
+
+        let cap_id = default_deferred_space.new_cap("test").expect("Should succeed");
+
+        let output_shm_cap = ShmCap::new(ShmType::FourKiB, NonZeroU64::new(1).expect("Should work"), MmapMut::map_anon(8).expect("Should work"), CapType::AppCap);
+        *default_deferred_space.space.get_mut(&cap_id).expect("Should exist") = DefaultDeferredCap { in_progress_cap: Some(InProgressCap::new(None, (0, output_shm_cap))) };
+
+        assert!(matches!(default_deferred_space.get_or_publish_deferred_prologue(cap_id), PrologueReturn::ContinueCapsGet(_)));
+    }
+
+    #[test]
+    fn get_or_publish_deferred_epilogue_ok_publish() {
+        let mut default_deferred_space = DefaultDeferredSpace::new();
+
+        let cap_id = default_deferred_space.new_cap("test").expect("Should succeed");
+
+        let mut shm_space = ShmSpace::new();
+        let (input_shm_cap_id, _) = shm_space.new_shm_cap(ShmType::FourKiB, 1, CapType::AppCap).expect("Should succeed");
+        let (output_shm_cap_id, _) = shm_space.new_shm_cap(ShmType::FourKiB, 1, CapType::AppCap).expect("Should succeed");
+
+        let input_shm_cap = shm_space.move_shm_cap_to_other_space(input_shm_cap_id).expect("Should succeed");
+        let output_shm_cap = shm_space.move_shm_cap_to_other_space(output_shm_cap_id).expect("Should succeed");
+
+        *default_deferred_space.space.get_mut(&cap_id).expect("Should exist") = DefaultDeferredCap { in_progress_cap: Some(InProgressCap::new((input_shm_cap_id, input_shm_cap), (output_shm_cap_id, output_shm_cap))) };
+
+        assert!(matches!(default_deferred_space.get_or_publish_deferred_epilogue(cap_id, &mut shm_space), Ok(())));
+        // Assert they were moved back into space
+        assert!(matches!(shm_space.get_shm_cap_app(input_shm_cap_id), Ok(_)));
+        assert!(matches!(shm_space.get_shm_cap_app(output_shm_cap_id), Ok(_)));
+    }
+
+    #[test]
+    fn get_or_publish_deferred_epilogue_ok_get() {
+        let mut default_deferred_space = DefaultDeferredSpace::new();
+
+        let cap_id = default_deferred_space.new_cap("test").expect("Should succeed");
+
+        let mut shm_space = ShmSpace::new();
+        let (output_shm_cap_id, _) = shm_space.new_shm_cap(ShmType::FourKiB, 1, CapType::AppCap).expect("Should succeed");
+
+        let output_shm_cap = shm_space.move_shm_cap_to_other_space(output_shm_cap_id).expect("Should succeed");
+
+        *default_deferred_space.space.get_mut(&cap_id).expect("Should exist") = DefaultDeferredCap { in_progress_cap: Some(InProgressCap::new(None, (output_shm_cap_id, output_shm_cap))) };
+
+        assert!(matches!(default_deferred_space.get_or_publish_deferred_epilogue(cap_id, &mut shm_space), Ok(())));
+        // Assert it was moved back into space
+        assert!(matches!(shm_space.get_shm_cap_app(output_shm_cap_id), Ok(_)));
+    }
+
+    #[test]
+    fn get_or_publish_deferred_epilogue_internal_error_does_not_exist() {
+        let mut default_deferred_space = DefaultDeferredSpace::new();
+
+        let mut shm_space = ShmSpace::new();
+
+        assert!(matches!(default_deferred_space.get_or_publish_deferred_epilogue(0, &mut shm_space), Err(())));
+    }
+
+    #[test]
+    fn get_or_publish_deferred_epilogue_internal_error_not_in_progress() {
+        let mut default_deferred_space = DefaultDeferredSpace::new();
+
+        let cap_id = default_deferred_space.new_cap("test").expect("Should succeed");
+
+        *default_deferred_space.space.get_mut(&cap_id).expect("Should exist") = DefaultDeferredCap { in_progress_cap: None };
+
+        let mut shm_space = ShmSpace::new();
+
+        assert!(matches!(default_deferred_space.get_or_publish_deferred_epilogue(cap_id, &mut shm_space), Err(())));
+    }
 }
