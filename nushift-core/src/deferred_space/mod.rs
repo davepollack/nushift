@@ -142,7 +142,7 @@ where
         };
 
         // You're not allowed to destroy it if it's in progress
-        if let Some(_) = entry.get().in_progress_cap {
+        if entry.get().in_progress_cap.is_some() {
             return InProgressSnafu { context }.fail();
         }
 
