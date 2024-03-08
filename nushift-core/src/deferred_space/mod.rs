@@ -8,6 +8,8 @@ use reusable_id_pool::{ReusableIdPoolManual, ReusableIdPoolError};
 use serde::{Deserialize, Serialize};
 use snafu::prelude::*;
 use snafu_cli_debug::SnafuCliDebug;
+#[cfg(test)]
+use mockall::automock;
 
 use crate::rollback_chain::RollbackChain;
 use crate::shm_space::{OwnedShmIdAndCap, ShmCapId, ShmCap, ShmSpace, ShmSpaceError};
@@ -27,8 +29,9 @@ pub trait DeferredSpace {
     type SpaceError;
     type Cap;
     type CapId;
+    type IdPool;
 
-    fn new() -> Self;
+    fn new_with_id_pool(id_pool: Self::IdPool) -> Self;
     fn new_cap(&mut self, context: &str) -> Result<u64, Self::SpaceError>;
     fn get_mut(&mut self, cap_id: u64) -> Option<&mut Self::Cap>;
     fn contains_key(&self, cap_id: u64) -> bool;
@@ -75,19 +78,39 @@ impl DefaultDeferredCap {
     }
 }
 
-pub struct DefaultDeferredSpace {
-    id_pool: ReusableIdPoolManual,
+#[cfg_attr(test, automock)]
+pub(crate) trait IdPoolBacking {
+    fn try_allocate(&mut self) -> Result<u64, ReusableIdPoolError>;
+    fn release(&mut self, id: u64);
+}
+
+impl IdPoolBacking for ReusableIdPoolManual {
+    fn try_allocate(&mut self) -> Result<u64, ReusableIdPoolError> {
+        self.try_allocate()
+    }
+
+    fn release(&mut self, id: u64) {
+        self.release(id);
+    }
+}
+
+pub struct DefaultDeferredSpace<I = ReusableIdPoolManual> {
+    id_pool: I,
     space: HashMap<DefaultDeferredSpaceCapId, DefaultDeferredCap>,
 }
 
-impl DeferredSpace for DefaultDeferredSpace {
+impl<I> DeferredSpace for DefaultDeferredSpace<I>
+where
+    I: IdPoolBacking,
+{
     type SpaceError = DeferredSpaceError;
     type Cap = DefaultDeferredCap;
     type CapId = DefaultDeferredSpaceCapId;
+    type IdPool = I;
 
-    fn new() -> Self {
+    fn new_with_id_pool(id_pool: I) -> Self {
         Self {
-            id_pool: ReusableIdPoolManual::new(),
+            id_pool,
             space: HashMap::new(),
         }
     }
@@ -163,6 +186,12 @@ impl DeferredSpace for DefaultDeferredSpace {
 }
 
 impl DefaultDeferredSpace {
+    pub fn new() -> Self {
+        Self::new_with_id_pool(ReusableIdPoolManual::new())
+    }
+}
+
+impl<I: IdPoolBacking> DefaultDeferredSpace<I> {
     pub fn publish_blocking(&mut self, context: &str, cap_id: DefaultDeferredSpaceCapId, input_shm_cap_id: ShmCapId, output_shm_cap_id: ShmCapId, shm_space: &mut ShmSpace) -> Result<(), DeferredSpaceError> {
         self.get_or_publish_blocking(context, cap_id, Some(input_shm_cap_id), output_shm_cap_id, shm_space)
     }
@@ -409,6 +438,7 @@ mod tests {
     use std::num::NonZeroU64;
 
     use memmap2::MmapMut;
+    use mockall::predicate;
 
     use crate::shm_space::{CapType, ShmType};
 
@@ -425,13 +455,30 @@ mod tests {
     }
 
     #[test]
-    fn new_cap_internal_error_if_duplicate_id() {
-        let mut default_deferred_space = DefaultDeferredSpace::new();
+    fn new_cap_exhausted() {
+        let mut mock = MockIdPoolBacking::new();
+        mock.expect_try_allocate()
+            .times(1)
+            .returning(|| Err(ReusableIdPoolError::TooManyLiveIDs));
 
-        default_deferred_space.space.insert(0, DefaultDeferredCap::new());
+        let mut default_deferred_space = DefaultDeferredSpace::new_with_id_pool(mock);
+
+        assert!(matches!(default_deferred_space.new_cap("test"), Err(DeferredSpaceError::Exhausted { context }) if context == "test"));
+    }
+
+    #[test]
+    fn new_cap_internal_error_if_duplicate_id() {
+        let mut mock = MockIdPoolBacking::new();
+        mock.expect_try_allocate()
+            .times(2)
+            .returning(|| Ok(0));
+
+        let mut default_deferred_space = DefaultDeferredSpace::new_with_id_pool(mock);
+
+        default_deferred_space.new_cap("test").expect("Should succeed");
 
         // Internal error, there should never be a duplicate ID except when we
-        // manually inserted one in this test code above
+        // locked the mock to do so above
         assert!(matches!(default_deferred_space.new_cap("test"), Err(DeferredSpaceError::DuplicateId)));
     }
 
@@ -469,20 +516,30 @@ mod tests {
 
     #[test]
     fn destroy_cap_ok() {
-        let mut default_deferred_space = DefaultDeferredSpace::new();
+        let mut mock = MockIdPoolBacking::new();
+        mock.expect_try_allocate()
+            .times(1)
+            .returning(|| Ok(0));
+        mock.expect_release()
+            .with(predicate::eq(0))
+            .times(1)
+            .return_const(());
+
+        let mut default_deferred_space = DefaultDeferredSpace::new_with_id_pool(mock);
 
         let cap_id = default_deferred_space.new_cap("test").expect("Should succeed");
 
         assert!(matches!(default_deferred_space.destroy_cap("test", cap_id), Ok(())));
-        // TODO: Mock ReusableIdPool and test that release is called?
         assert!(!default_deferred_space.contains_key(cap_id));
+        // Assert that release was called
+        default_deferred_space.id_pool.checkpoint();
     }
 
     #[test]
     fn destroy_cap_cap_not_found_error_if_not_found() {
         let mut default_deferred_space = DefaultDeferredSpace::new();
 
-        assert!(matches!(default_deferred_space.destroy_cap("test", 0), Err(DeferredSpaceError::CapNotFound { context: m_context, id: 0 }) if m_context == "test"));
+        assert!(matches!(default_deferred_space.destroy_cap("test", 0), Err(DeferredSpaceError::CapNotFound { context, id: 0 }) if context == "test"));
     }
 
     #[test]
@@ -494,7 +551,7 @@ mod tests {
         let output_shm_cap = ShmCap::new(ShmType::FourKiB, NonZeroU64::new(1).expect("Should work"), MmapMut::map_anon(8).expect("Should work"), CapType::AppCap);
         *default_deferred_space.space.get_mut(&cap_id).expect("Should exist") = DefaultDeferredCap { in_progress_cap: Some(InProgressCap::new(None, (0, output_shm_cap))) };
 
-        assert!(matches!(default_deferred_space.destroy_cap("test", cap_id), Err(DeferredSpaceError::InProgress { context: m_context }) if m_context == "test"));
+        assert!(matches!(default_deferred_space.destroy_cap("test", cap_id), Err(DeferredSpaceError::InProgress { context }) if context == "test"));
     }
 
     #[test]

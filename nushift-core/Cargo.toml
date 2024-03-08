@@ -22,3 +22,6 @@ serde = { version = "1", features = ["derive"] }
 snafu = "0.7.1"
 snafu-cli-debug = "0.1.1"
 tracing = "0.1.37"
+
+[dev-dependencies]
+mockall = "0.12.1"
