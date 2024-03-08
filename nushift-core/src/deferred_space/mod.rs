@@ -440,7 +440,7 @@ mod tests {
     use memmap2::MmapMut;
     use mockall::predicate;
 
-    use crate::shm_space::{CapType, ShmType};
+    use crate::shm_space::{acquisitions_and_page_table::PageTableError, CapType, ShmType};
 
     use super::*;
 
@@ -638,5 +638,166 @@ mod tests {
         let mut shm_space = ShmSpace::new();
 
         assert!(matches!(default_deferred_space.get_or_publish_deferred_epilogue(cap_id, &mut shm_space), Err(())));
+    }
+
+    #[test]
+    fn publish_blocking_ok() {
+        let mut default_deferred_space = DefaultDeferredSpace::new();
+
+        let cap_id = default_deferred_space.new_cap("test").expect("Should succeed");
+
+        let mut shm_space = ShmSpace::new();
+        let (input_shm_cap_id, _) = shm_space.new_shm_cap(ShmType::FourKiB, 1, CapType::AppCap).expect("Should succeed");
+        let (output_shm_cap_id, _) = shm_space.new_shm_cap(ShmType::FourKiB, 1, CapType::AppCap).expect("Should succeed");
+        shm_space.acquire_shm_cap_app(input_shm_cap_id, 0x1000).expect("Should succeed");
+        shm_space.acquire_shm_cap_app(output_shm_cap_id, 0x2000).expect("Should succeed");
+
+        // Assert publish_blocking succeeds
+        assert!(matches!(default_deferred_space.publish_blocking("test", cap_id, input_shm_cap_id, output_shm_cap_id, &mut shm_space), Ok(())));
+
+        // Assert caps released
+        assert!(matches!(shm_space.walk(0x1000), Err(PageTableError::PageNotFound)));
+        assert!(matches!(shm_space.walk(0x2000), Err(PageTableError::PageNotFound)));
+
+        // Assert caps moved out
+        assert!(matches!(shm_space.get_shm_cap_app(input_shm_cap_id), Err(ShmSpaceError::CapNotFound)));
+        assert!(matches!(shm_space.get_shm_cap_app(output_shm_cap_id), Err(ShmSpaceError::CapNotFound)));
+        assert!(matches!(
+            default_deferred_space.space.get(&cap_id),
+            Some(DefaultDeferredCap { in_progress_cap: Some(InProgressCap { input: Some((m_input_shm_cap_id, _)), output: (m_output_shm_cap_id, _) }) }) if *m_input_shm_cap_id == input_shm_cap_id && *m_output_shm_cap_id == output_shm_cap_id,
+        ));
+    }
+
+    #[test]
+    fn publish_blocking_ok_already_released() {
+        let mut default_deferred_space = DefaultDeferredSpace::new();
+
+        let cap_id = default_deferred_space.new_cap("test").expect("Should succeed");
+
+        let mut shm_space = ShmSpace::new();
+        let (input_shm_cap_id, _) = shm_space.new_shm_cap(ShmType::FourKiB, 1, CapType::AppCap).expect("Should succeed");
+        let (output_shm_cap_id, _) = shm_space.new_shm_cap(ShmType::FourKiB, 1, CapType::AppCap).expect("Should succeed");
+
+        // Assert publish_blocking succeeds even though caps not acquired
+        assert!(matches!(default_deferred_space.publish_blocking("test", cap_id, input_shm_cap_id, output_shm_cap_id, &mut shm_space), Ok(())));
+
+        // Assert caps moved out
+        assert!(matches!(shm_space.get_shm_cap_app(input_shm_cap_id), Err(ShmSpaceError::CapNotFound)));
+        assert!(matches!(shm_space.get_shm_cap_app(output_shm_cap_id), Err(ShmSpaceError::CapNotFound)));
+        assert!(matches!(
+            default_deferred_space.space.get(&cap_id),
+            Some(DefaultDeferredCap { in_progress_cap: Some(InProgressCap { input: Some((m_input_shm_cap_id, _)), output: (m_output_shm_cap_id, _) }) }) if *m_input_shm_cap_id == input_shm_cap_id && *m_output_shm_cap_id == output_shm_cap_id,
+        ));
+    }
+
+    #[test]
+    fn get_blocking_ok() {
+        let mut default_deferred_space = DefaultDeferredSpace::new();
+
+        let cap_id = default_deferred_space.new_cap("test").expect("Should succeed");
+
+        let mut shm_space = ShmSpace::new();
+        let (output_shm_cap_id, _) = shm_space.new_shm_cap(ShmType::FourKiB, 1, CapType::AppCap).expect("Should succeed");
+        shm_space.acquire_shm_cap_app(output_shm_cap_id, 0x2000).expect("Should succeed");
+
+        // Assert get_blocking succeeds
+        assert!(matches!(default_deferred_space.get_blocking("test", cap_id, output_shm_cap_id, &mut shm_space), Ok(())));
+
+        // Assert cap released
+        assert!(matches!(shm_space.walk(0x2000), Err(PageTableError::PageNotFound)));
+
+        // Assert cap moved out
+        assert!(matches!(shm_space.get_shm_cap_app(output_shm_cap_id), Err(ShmSpaceError::CapNotFound)));
+        assert!(matches!(
+            default_deferred_space.space.get(&cap_id),
+            Some(DefaultDeferredCap { in_progress_cap: Some(InProgressCap { input: None, output: (m_output_shm_cap_id, _) }) }) if *m_output_shm_cap_id == output_shm_cap_id,
+        ));
+    }
+
+    #[test]
+    fn get_blocking_ok_already_released() {
+        let mut default_deferred_space = DefaultDeferredSpace::new();
+
+        let cap_id = default_deferred_space.new_cap("test").expect("Should succeed");
+
+        let mut shm_space = ShmSpace::new();
+        let (output_shm_cap_id, _) = shm_space.new_shm_cap(ShmType::FourKiB, 1, CapType::AppCap).expect("Should succeed");
+
+        // Assert get_blocking succeeds even though cap not acquired
+        assert!(matches!(default_deferred_space.get_blocking("test", cap_id, output_shm_cap_id, &mut shm_space), Ok(())));
+
+        // Assert cap moved out
+        assert!(matches!(shm_space.get_shm_cap_app(output_shm_cap_id), Err(ShmSpaceError::CapNotFound)));
+        assert!(matches!(
+            default_deferred_space.space.get(&cap_id),
+            Some(DefaultDeferredCap { in_progress_cap: Some(InProgressCap { input: None, output: (m_output_shm_cap_id, _) }) }) if *m_output_shm_cap_id == output_shm_cap_id,
+        ));
+    }
+
+    #[test]
+    fn publish_blocking_shm_caps_invalid() {
+        let mut default_deferred_space = DefaultDeferredSpace::new();
+
+        let cap_id = default_deferred_space.new_cap("test").expect("Should succeed");
+
+        let mut shm_space = ShmSpace::new();
+
+        // Assert publish_blocking fails, when provided with invalid SHM cap IDs
+        assert!(matches!(default_deferred_space.publish_blocking("test", cap_id, 123, 456, &mut shm_space), Err(DeferredSpaceError::ShmCapNotFound { id }) if id == 123));
+    }
+
+    #[test]
+    fn publish_blocking_output_cap_invalid_rolls_back() {
+        let mut default_deferred_space = DefaultDeferredSpace::new();
+
+        let cap_id = default_deferred_space.new_cap("test").expect("Should succeed");
+
+        let mut shm_space = ShmSpace::new();
+        let (input_shm_cap_id, _) = shm_space.new_shm_cap(ShmType::FourKiB, 1, CapType::AppCap).expect("Should succeed");
+        shm_space.acquire_shm_cap_app(input_shm_cap_id, 0x1000).expect("Should succeed");
+
+        // Assert publish_blocking fails, when provided with invalid output SHM cap ID
+        assert!(matches!(default_deferred_space.publish_blocking("test", cap_id, input_shm_cap_id, 456, &mut shm_space), Err(DeferredSpaceError::ShmCapNotFound { id }) if id == 456));
+
+        // Assert input cap is still acquired, i.e. the release that temporarily occurred was rolled back.
+        assert!(matches!(shm_space.walk(0x1000), Ok(_)));
+    }
+
+    #[test]
+    fn publish_blocking_output_cap_invalid_rolls_back_noop() {
+        let mut default_deferred_space = DefaultDeferredSpace::new();
+
+        let cap_id = default_deferred_space.new_cap("test").expect("Should succeed");
+
+        let mut shm_space = ShmSpace::new();
+        let (input_shm_cap_id, _) = shm_space.new_shm_cap(ShmType::FourKiB, 1, CapType::AppCap).expect("Should succeed");
+
+        // Assert publish_blocking fails with the expected error that the output
+        // cap was not found. As the input cap was not acquired, there is no
+        // input cap release to roll back.
+        assert!(matches!(default_deferred_space.publish_blocking("test", cap_id, input_shm_cap_id, 456, &mut shm_space), Err(DeferredSpaceError::ShmCapNotFound { id }) if id == 456));
+    }
+
+    #[test]
+    fn get_or_publish_blocking_error_if_not_found() {
+        let mut default_deferred_space = DefaultDeferredSpace::new();
+
+        let mut shm_space = ShmSpace::new();
+
+        assert!(matches!(default_deferred_space.get_or_publish_blocking("test", 0, Some(123), 456, &mut shm_space), Err(DeferredSpaceError::CapNotFound { context, id }) if context == "test" && id == 0));
+    }
+
+    #[test]
+    fn get_or_publish_blocking_error_if_in_progress() {
+        let mut default_deferred_space = DefaultDeferredSpace::new();
+
+        let cap_id = default_deferred_space.new_cap("test").expect("Should succeed");
+
+        let output_shm_cap = ShmCap::new(ShmType::FourKiB, NonZeroU64::new(1).expect("Should work"), MmapMut::map_anon(8).expect("Should work"), CapType::AppCap);
+        *default_deferred_space.space.get_mut(&cap_id).expect("Should exist") = DefaultDeferredCap { in_progress_cap: Some(InProgressCap::new(None, (0, output_shm_cap))) };
+
+        let mut shm_space = ShmSpace::new();
+
+        assert!(matches!(default_deferred_space.get_or_publish_blocking("test", 0, Some(123), 456, &mut shm_space), Err(DeferredSpaceError::InProgress { context }) if context == "test"));
     }
 }
