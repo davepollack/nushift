@@ -884,4 +884,47 @@ mod tests {
         let output_shm_cap = shm_space.get_shm_cap_app(output_shm_cap_id).expect("Should be moved back into space");
         assert!(matches!(postcard::from_bytes(output_shm_cap.backing()), Ok(DeferredOutput::<()>::Error(DeferredErrorWithMessage { deferred_error: DeferredError::DeserializeError, message })) if message == postcard::Error::DeserializeBadBool.to_string()));
     }
+
+    #[test]
+    fn get_deferred_ok() {
+        let mut default_deferred_space = DefaultDeferredSpace::new();
+
+        let cap_id = default_deferred_space.new_cap("test").expect("Should succeed");
+
+        let mut shm_space = ShmSpace::new();
+        let (output_shm_cap_id, _) = shm_space.new_shm_cap(ShmType::FourKiB, 1, CapType::AppCap).expect("Should succeed");
+
+        let output_shm_cap = shm_space.move_shm_cap_to_other_space(output_shm_cap_id).expect("Should succeed");
+
+        *default_deferred_space.space.get_mut(&cap_id).expect("Should exist") = DefaultDeferredCap { in_progress_cap: Some(InProgressCap::new(None, (output_shm_cap_id, output_shm_cap))) };
+
+        struct TestGet;
+
+        impl DeferredSpaceGet for TestGet {
+            fn get(&mut self, output_shm_cap: &mut ShmCap) {
+                print_success(output_shm_cap, "done");
+            }
+        }
+
+        assert!(matches!(default_deferred_space.get_deferred(&mut TestGet, cap_id, &mut shm_space), Ok(())));
+        let output_shm_cap = shm_space.get_shm_cap_app(output_shm_cap_id).expect("Should be moved back into space");
+        assert!(matches!(postcard::from_bytes(output_shm_cap.backing()), Ok(DeferredOutput::Success("done"))));
+    }
+
+    #[test]
+    fn get_deferred_internal_error() {
+        let mut default_deferred_space = DefaultDeferredSpace::new();
+
+        let mut shm_space = ShmSpace::new();
+
+        struct TestGet;
+
+        impl DeferredSpaceGet for TestGet {
+            fn get(&mut self, _output_shm_cap: &mut ShmCap) {
+                panic!("Should never get here")
+            }
+        }
+
+        assert!(matches!(default_deferred_space.get_deferred(&mut TestGet, 0, &mut shm_space), Err(())));
+    }
 }
