@@ -331,7 +331,7 @@ impl<I: IdPoolBacking> DefaultDeferredSpace<I> {
     {
         let (input_shm_cap, output_shm_cap) = match self.get_or_publish_deferred_prologue(cap_id) {
             PrologueReturn::ContinueCapsPublish(input_shm_cap, output_shm_cap) => (input_shm_cap, output_shm_cap),
-            PrologueReturn::ContinueCapsGet(..) => return Err(()), // Internal error. We must have started with a publish.
+            PrologueReturn::ContinueCapsGet(_) => return Err(()), // Internal error. We must have started with a publish.
             PrologueReturn::ReturnErr => return Err(()),
         };
 
@@ -355,7 +355,7 @@ impl<I: IdPoolBacking> DefaultDeferredSpace<I> {
         S: DeferredSpaceGet,
     {
         let output_shm_cap = match self.get_or_publish_deferred_prologue(cap_id) {
-            PrologueReturn::ContinueCapsPublish(..) => return Err(()), // Internal error. We must have started with a get.
+            PrologueReturn::ContinueCapsPublish(_, _) => return Err(()), // Internal error. We must have started with a get.
             PrologueReturn::ContinueCapsGet(output_shm_cap) => output_shm_cap,
             PrologueReturn::ReturnErr => return Err(()),
         };
@@ -379,7 +379,7 @@ pub fn print_success<T: Serialize>(output_shm_cap: &mut ShmCap, payload: T) {
 }
 
 pub fn print_error(output_shm_cap: &mut ShmCap, deferred_error: DeferredError, error: &dyn core::fmt::Display) {
-    let output = DeferredOutput::Error::<()>(DeferredErrorWithMessage::new(deferred_error, error.to_string()));
+    let output = DeferredOutput::<()>::Error(DeferredErrorWithMessage::new(deferred_error, error.to_string()));
 
     // The below might fail if, for example, the serialize buffer is full. Just
     // do nothing in this case.
@@ -404,13 +404,13 @@ pub enum DeferredSpaceError {
     GetOrPublishInternalError, // Should never occur, indicates a bug in Nushift's code
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 enum DeferredOutput<T> {
     Success(T),
     Error(DeferredErrorWithMessage),
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct DeferredErrorWithMessage {
     deferred_error: DeferredError,
     message: String,
@@ -422,7 +422,7 @@ impl DeferredErrorWithMessage {
     }
 }
 
-#[derive(IntoPrimitive, Debug, Serialize)]
+#[derive(IntoPrimitive, Debug, Deserialize, Serialize)]
 #[repr(u64)]
 pub enum DeferredError {
     DeserializeError = 0,
@@ -561,7 +561,7 @@ mod tests {
         let cap_id = default_deferred_space.new_cap("test").expect("Should succeed");
 
         let output_shm_cap = ShmCap::new(ShmType::FourKiB, NonZeroU64::new(1).expect("Should work"), MmapMut::map_anon(8).expect("Should work"), CapType::AppCap);
-        let input_shm_cap = ShmCap::new(ShmType::FourKiB, NonZeroU64::new(2).expect("Should work"), MmapMut::map_anon(8).expect("Should work"), CapType::AppCap);
+        let input_shm_cap = ShmCap::new(ShmType::FourKiB, NonZeroU64::new(1).expect("Should work"), MmapMut::map_anon(8).expect("Should work"), CapType::AppCap);
         *default_deferred_space.space.get_mut(&cap_id).expect("Should exist") = DefaultDeferredCap { in_progress_cap: Some(InProgressCap::new((1, input_shm_cap), (0, output_shm_cap))) };
 
         assert!(matches!(default_deferred_space.get_or_publish_deferred_prologue(cap_id), PrologueReturn::ContinueCapsPublish(_, _)));
@@ -799,5 +799,89 @@ mod tests {
         let mut shm_space = ShmSpace::new();
 
         assert!(matches!(default_deferred_space.get_or_publish_blocking("test", 0, Some(123), 456, &mut shm_space), Err(DeferredSpaceError::InProgress { context }) if context == "test"));
+    }
+
+    #[test]
+    fn publish_deferred_ok() {
+        let mut default_deferred_space = DefaultDeferredSpace::new();
+
+        let cap_id = default_deferred_space.new_cap("test").expect("Should succeed");
+
+        let mut shm_space = ShmSpace::new();
+        let (input_shm_cap_id, _) = shm_space.new_shm_cap(ShmType::FourKiB, 1, CapType::AppCap).expect("Should succeed");
+        let (output_shm_cap_id, _) = shm_space.new_shm_cap(ShmType::FourKiB, 1, CapType::AppCap).expect("Should succeed");
+
+        let mut input_shm_cap = shm_space.move_shm_cap_to_other_space(input_shm_cap_id).expect("Should succeed");
+        let output_shm_cap = shm_space.move_shm_cap_to_other_space(output_shm_cap_id).expect("Should succeed");
+        postcard::to_slice("test", input_shm_cap.backing_mut()).expect("Should work");
+
+        *default_deferred_space.space.get_mut(&cap_id).expect("Should exist") = DefaultDeferredCap { in_progress_cap: Some(InProgressCap::new((input_shm_cap_id, input_shm_cap), (output_shm_cap_id, output_shm_cap))) };
+
+        struct TestPublish;
+
+        impl DeferredSpacePublish for TestPublish {
+            type Payload<'de> = &'de str;
+
+            fn publish_cap_payload(&mut self, payload: Self::Payload<'_>, output_shm_cap: &mut ShmCap, cap_id: u64) {
+                assert_eq!("test", payload);
+                assert_eq!(0, cap_id);
+                print_success(output_shm_cap, "done");
+            }
+        }
+
+        assert!(matches!(default_deferred_space.publish_deferred(&mut TestPublish, cap_id, &mut shm_space), Ok(())));
+        let output_shm_cap = shm_space.get_shm_cap_app(output_shm_cap_id).expect("Should be moved back into space");
+        assert!(matches!(postcard::from_bytes(output_shm_cap.backing()), Ok(DeferredOutput::Success("done"))));
+    }
+
+    #[test]
+    fn publish_deferred_internal_error() {
+        let mut default_deferred_space = DefaultDeferredSpace::new();
+
+        let mut shm_space = ShmSpace::new();
+
+        struct TestPublish;
+
+        impl DeferredSpacePublish for TestPublish {
+            type Payload<'de> = ();
+
+            fn publish_cap_payload(&mut self, _payload: Self::Payload<'_>, _output_shm_cap: &mut ShmCap, _cap_id: u64) {
+                panic!("Should never get here")
+            }
+        }
+
+        assert!(matches!(default_deferred_space.publish_deferred(&mut TestPublish, 0, &mut shm_space), Err(())));
+    }
+
+    #[test]
+    fn publish_deferred_deserialize_error() {
+        let mut default_deferred_space = DefaultDeferredSpace::new();
+
+        let cap_id = default_deferred_space.new_cap("test").expect("Should succeed");
+
+        let mut shm_space = ShmSpace::new();
+        let (input_shm_cap_id, _) = shm_space.new_shm_cap(ShmType::FourKiB, 1, CapType::AppCap).expect("Should succeed");
+        let (output_shm_cap_id, _) = shm_space.new_shm_cap(ShmType::FourKiB, 1, CapType::AppCap).expect("Should succeed");
+
+        let mut input_shm_cap = shm_space.move_shm_cap_to_other_space(input_shm_cap_id).expect("Should succeed");
+        let output_shm_cap = shm_space.move_shm_cap_to_other_space(output_shm_cap_id).expect("Should succeed");
+        // Serialise invalid bool value
+        postcard::to_slice(&4, input_shm_cap.backing_mut()).expect("Should work");
+
+        *default_deferred_space.space.get_mut(&cap_id).expect("Should exist") = DefaultDeferredCap { in_progress_cap: Some(InProgressCap::new((input_shm_cap_id, input_shm_cap), (output_shm_cap_id, output_shm_cap))) };
+
+        struct TestPublish;
+
+        impl DeferredSpacePublish for TestPublish {
+            type Payload<'de> = bool;
+
+            fn publish_cap_payload(&mut self, _payload: Self::Payload<'_>, _output_shm_cap: &mut ShmCap, _cap_id: u64) {
+                panic!("Should never get here")
+            }
+        }
+
+        assert!(matches!(default_deferred_space.publish_deferred(&mut TestPublish, cap_id, &mut shm_space), Ok(())));
+        let output_shm_cap = shm_space.get_shm_cap_app(output_shm_cap_id).expect("Should be moved back into space");
+        assert!(matches!(postcard::from_bytes(output_shm_cap.backing()), Ok(DeferredOutput::<()>::Error(DeferredErrorWithMessage { deferred_error: DeferredError::DeserializeError, message })) if message == postcard::Error::DeserializeBadBool.to_string()));
     }
 }
