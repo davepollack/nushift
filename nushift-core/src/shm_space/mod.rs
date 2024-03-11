@@ -125,7 +125,7 @@ impl ShmSpace {
         }
     }
 
-    pub fn new_shm_cap(&mut self, shm_type: ShmType, length: u64, cap_type: CapType) -> Result<(ShmCapId, &ShmCap), ShmSpaceError> {
+    pub fn new_shm_cap(&mut self, shm_type: ShmType, length: u64, cap_type: CapType) -> Result<(ShmCapId, &mut ShmCap), ShmSpaceError> {
         let length = NonZeroU64::new(length).ok_or(InvalidLengthSnafu.build())?;
         let length_u64 = length.get();
 

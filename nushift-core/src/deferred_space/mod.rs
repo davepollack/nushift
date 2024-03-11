@@ -927,4 +927,35 @@ mod tests {
 
         assert!(matches!(default_deferred_space.get_deferred(&mut TestGet, 0, &mut shm_space), Err(())));
     }
+
+    #[test]
+    fn print_success_ok() {
+        let mut shm_space = ShmSpace::new();
+        let (_, shm_cap) = shm_space.new_shm_cap(ShmType::FourKiB, 1, CapType::AppCap).expect("Should succeed");
+
+        print_success(shm_cap, "test");
+
+        assert!(matches!(postcard::from_bytes(shm_cap.backing()), Ok(DeferredOutput::Success("test"))));
+    }
+
+    #[test]
+    fn print_success_serialize_error() {
+        let mut shm_space = ShmSpace::new();
+        let (_, shm_cap) = shm_space.new_shm_cap(ShmType::FourKiB, 1, CapType::AppCap).expect("Should succeed");
+
+        let too_big = vec![0u8; 8192];
+        print_success(shm_cap, too_big);
+
+        assert!(matches!(postcard::from_bytes(shm_cap.backing()), Ok(DeferredOutput::<()>::Error(DeferredErrorWithMessage { deferred_error: DeferredError::SerializeError, message })) if message == postcard::Error::SerializeBufferFull.to_string()));
+    }
+
+    #[test]
+    fn print_error_ok() {
+        let mut shm_space = ShmSpace::new();
+        let (_, shm_cap) = shm_space.new_shm_cap(ShmType::FourKiB, 1, CapType::AppCap).expect("Should succeed");
+
+        print_error(shm_cap, DeferredError::DeserializeError, &"some additional message");
+
+        assert!(matches!(postcard::from_bytes(shm_cap.backing()), Ok(DeferredOutput::<()>::Error(DeferredErrorWithMessage { deferred_error: DeferredError::DeserializeError, message })) if message == "some additional message"));
+    }
 }
