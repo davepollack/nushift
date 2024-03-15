@@ -8,6 +8,7 @@ use reusable_id_pool::{ReusableIdPoolManual, ReusableIdPoolError};
 use serde::{Deserialize, Serialize};
 use snafu::prelude::*;
 use snafu_cli_debug::SnafuCliDebug;
+
 #[cfg(test)]
 use mockall::automock;
 
