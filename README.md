@@ -461,7 +461,7 @@ It should be as easy to start a secure server serving Nushift programs as it is 
 
 ## Licence
 
-The `nushift` and `nushift-core` directories are licensed under the Apache License, Version 2.0.
+The `nsq`, `nushift`, and `nushift-core` directories are licensed under the Apache License, Version 2.0.
 
 The `reusable-id-pool` directory is licensed under the Apache License, Version 2.0 or the MIT license, at your option.
 

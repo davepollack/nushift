@@ -1032,6 +1032,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "nsq"
+version = "0.1.0"
+
+[[package]]
 name = "nu-ansi-term"
 version = "0.46.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

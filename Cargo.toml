@@ -2,6 +2,7 @@
 resolver = "2"
 
 members = [
+    "nsq",
     "nushift",
     "nushift-core",
     "reusable-id-pool",
