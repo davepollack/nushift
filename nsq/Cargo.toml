@@ -8,3 +8,6 @@ license = "Apache-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+rand = "0.7.3"
+snow = { version = "0.9.6", features = ["pqclean_kyber1024"] }
+x448 = "0.6.0"
