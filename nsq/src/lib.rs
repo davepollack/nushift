@@ -4,6 +4,7 @@
 use snow::resolvers::{BoxedCryptoResolver, DefaultResolver, FallbackResolver};
 use x448_resolver::X448Resolver;
 
+mod quinn_snow;
 mod x448_resolver;
 
 // TODO: Remove warning suppression when this is used by other parts of the lib code

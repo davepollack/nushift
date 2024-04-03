@@ -10,7 +10,7 @@ pub struct RollbackChain<'a, T> {
 impl<'a, T> RollbackChain<'a, T> {
     pub fn new(target: &'a mut T) -> Self {
         RollbackChain {
-            rollbacks: Vec::new(),
+            rollbacks: vec![],
             target,
             all_succeeded: false,
         }
