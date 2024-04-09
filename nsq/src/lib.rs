@@ -2,15 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use snow::resolvers::{BoxedCryptoResolver, DefaultResolver, FallbackResolver};
-use x448_resolver::X448Resolver;
+use snow_x448_resolver::SnowX448Resolver;
 
-mod quinn_snow;
-mod x448_resolver;
+mod quinn_noise;
+mod snow_x448_resolver;
 
 // TODO: Remove warning suppression when this is used by other parts of the lib code
 #[allow(dead_code)]
 fn nsq_resolver() -> BoxedCryptoResolver {
-    Box::new(FallbackResolver::new(Box::new(DefaultResolver), Box::new(X448Resolver)))
+    Box::new(FallbackResolver::new(Box::new(DefaultResolver), Box::new(SnowX448Resolver)))
 }
 
 // TODO: Remove warning suppression when this is used by other parts of the lib code

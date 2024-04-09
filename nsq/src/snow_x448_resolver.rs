@@ -10,16 +10,16 @@ use snow::{
 };
 use x448::{PublicKey, Secret};
 
-pub(crate) struct X448Resolver;
+pub(crate) struct SnowX448Resolver;
 
-impl CryptoResolver for X448Resolver {
+impl CryptoResolver for SnowX448Resolver {
     fn resolve_rng(&self) -> Option<Box<dyn Random>> {
         None
     }
 
     fn resolve_dh(&self, choice: &DHChoice) -> Option<Box<dyn Dh>> {
         match choice {
-            DHChoice::Ed448 => Some(Box::new(X448Keypair::new())),
+            DHChoice::Ed448 => Some(Box::new(SnowX448Keypair::new())),
             _ => None,
         }
     }
@@ -33,17 +33,17 @@ impl CryptoResolver for X448Resolver {
     }
 }
 
-pub(crate) struct X448Keypair(Option<(PublicKey, Secret)>);
+pub(crate) struct SnowX448Keypair(Option<(PublicKey, Secret)>);
 
 pub(crate) const TRAIT_METHODS_CALLED_INCORRECTLY: [u8; 56] = [1u8; 56];
 
-impl X448Keypair {
+impl SnowX448Keypair {
     fn new() -> Self {
         Self(None)
     }
 }
 
-impl Dh for X448Keypair {
+impl Dh for SnowX448Keypair {
     fn name(&self) -> &'static str {
         "448"
     }

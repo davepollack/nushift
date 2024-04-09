@@ -8,8 +8,11 @@ license = "Apache-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bytes = "1"
+# TODO: I would like to not explicitly import aead here. Remove it if/when
+# chacha20poly1305 re-exports the aead/bytes feature as bytes
+aead = { version = "0.5.2", features = ["bytes"] }
+chacha20poly1305 = "0.10.1"
 quinn-proto = { version = "0.10.6", default-features = false, features = ["log"] }
 rand = "0.7.3"
-snow = { version = "0.9.6", features = ["pqclean_kyber1024"] }
+snow = { version = "0.9.6", features = ["pqclean_kyber1024", "risky-raw-split"] }
 x448 = "0.6.0"
