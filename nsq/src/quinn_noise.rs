@@ -3,6 +3,10 @@
 
 use std::any::Any;
 
+use chacha20::{
+    cipher::{typenum::U10, KeyIvInit, StreamCipherCore, StreamCipherSeekCore},
+    ChaChaCore,
+};
 use chacha20poly1305::{
     aead::{bytes::BytesMut, generic_array::typenum::Unsigned, AeadInPlace, Buffer, Error as AeadError, Result as AeadResult},
     AeadCore,
@@ -21,7 +25,7 @@ use snow::HandshakeState;
 #[allow(dead_code)]
 pub(crate) enum NoiseSession {
     SnowHandshaking(HandshakeState),
-    Transport(TransportKeys),
+    Transport(Keys),
 }
 
 impl NoiseSession {
@@ -87,12 +91,117 @@ impl Session for NoiseSession {
     }
 }
 
-pub(crate) struct TransportKeys {
-    encryption_construction: ChaCha20Poly1305,
-    decryption_construction: ChaCha20Poly1305,
+struct TransportHeaderKey {
+    /// Should be already derived from HKDF and the label "quic hp"
+    hp_key: [u8; 32],
 }
 
-impl PacketKey for TransportKeys {
+impl TransportHeaderKey {
+    /// The "header_protection" function from RFC 9001 (QUIC-TLS). It requires
+    /// use of the raw ChaCha20 function.
+    fn header_protection(hp_key: [u8; 32], sample: [u8; 16]) -> [u8; 5] {
+        let counter = sample[..4].try_into().expect("Should be of length 4");
+        let nonce = &sample[4..];
+        let mut mask = [0u8; 5];
+
+        let mut chacha20_core = ChaChaCore::<U10>::new(&hp_key.into(), nonce.into());
+        let int_counter = u32::from_le_bytes(counter);
+        chacha20_core.set_block_pos(int_counter);
+        chacha20_core.apply_keystream_partial((&mut mask[..]).into());
+
+        mask
+    }
+
+    fn get_sample<const SL: usize>(pn_offset: usize, packet: &[u8]) -> Result<[u8; SL], ()> {
+        let sample_offset = pn_offset.checked_add(4).ok_or(())?;
+        let sample_end = sample_offset.checked_add(SL).ok_or(())?;
+        Ok(packet.get(sample_offset..sample_end).ok_or(())?.try_into().map_err(|_| ())?)
+    }
+
+    /// The "sample algorithm for applying header protection" from RFC 9001
+    /// (QUIC-TLS)
+    fn encrypt_fallible(&self, pn_offset: usize, packet: &mut [u8]) -> Result<(), ()> {
+        let sample = Self::get_sample(pn_offset, packet)?;
+        let mask = Self::header_protection(self.hp_key, sample);
+
+        // Get packet number length before masking it and preceding bits
+        let packet_first_byte = packet.get_mut(0).ok_or(())?;
+        let pn_length = (*packet_first_byte & 0x03).checked_add(1).ok_or(())?;
+
+        // Mask packet number length and preceding bits
+        if *packet_first_byte & 0x80 == 0x80 {
+            // Long header: 4 bits masked
+            *packet_first_byte ^= mask[0] & 0x0f;
+        } else {
+            // Short header: 5 bits masked
+            *packet_first_byte ^= mask[0] & 0x1f;
+        }
+
+        // Obtain reference to packet number bytes
+        let pn_end = pn_offset.checked_add(pn_length as usize).ok_or(())?;
+        let pn_bytes = packet.get_mut(pn_offset..pn_end).ok_or(())?;
+
+        // Mask the packet number
+        pn_bytes.iter_mut()
+            .zip(mask[1..(1 + pn_length as usize)].iter())
+            .for_each(|(pn_byte, m)| *pn_byte ^= m);
+
+        Ok(())
+    }
+
+    /// The "sample algorithm for applying header protection" (decrypt version)
+    /// from RFC 9001 (QUIC-TLS)
+    fn decrypt_fallible(&self, pn_offset: usize, packet: &mut [u8]) -> Result<(), ()> {
+        let sample = Self::get_sample(pn_offset, packet)?;
+        let mask = Self::header_protection(self.hp_key, sample);
+
+        // First mask packet number length and preceding bits
+        let packet_first_byte = packet.get_mut(0).ok_or(())?;
+        if *packet_first_byte & 0x80 == 0x80 {
+            // Long header: 4 bits masked
+            *packet_first_byte ^= mask[0] & 0x0f;
+        } else {
+            // Short header: 5 bits masked
+            *packet_first_byte ^= mask[0] & 0x1f;
+        }
+
+        // Now get unprotected packet number length
+        let pn_length = (*packet_first_byte & 0x03).checked_add(1).ok_or(())?;
+
+        // Obtain reference to protected packet number bytes
+        let pn_end = pn_offset.checked_add(pn_length as usize).ok_or(())?;
+        let pn_bytes = packet.get_mut(pn_offset..pn_end).ok_or(())?;
+
+        // Mask the packet number
+        pn_bytes.iter_mut()
+            .zip(mask[1..(1 + pn_length as usize)].iter())
+            .for_each(|(pn_byte, m)| *pn_byte ^= m);
+
+        Ok(())
+    }
+}
+
+impl HeaderKey for TransportHeaderKey {
+    fn decrypt(&self, pn_offset: usize, packet: &mut [u8]) {
+        if let Err(_) = self.decrypt_fallible(pn_offset, packet) {
+            packet.fill(0);
+        }
+    }
+
+    fn encrypt(&self, pn_offset: usize, packet: &mut [u8]) {
+        if let Err(_) = self.encrypt_fallible(pn_offset, packet) {
+            packet.fill(0);
+        }
+    }
+
+    fn sample_size(&self) -> usize {
+        16
+    }
+}
+
+struct TransportPacketKey(ChaCha20Poly1305);
+
+impl PacketKey for TransportPacketKey {
     fn encrypt(&self, packet: u64, buf: &mut [u8], header_len: usize) {
         let Some(payload_end_index) = buf.len().checked_sub(self.tag_len()) else {
             buf.fill(0);
@@ -114,7 +223,7 @@ impl PacketKey for TransportKeys {
         nonce[4..].copy_from_slice(&packet.to_le_bytes());
         let nonce = nonce.into();
 
-        if let Err(_) = self.encryption_construction.encrypt_in_place(&nonce, header, &mut fixed_buffer) {
+        if let Err(_) = self.0.encrypt_in_place(&nonce, header, &mut fixed_buffer) {
             buf.fill(0);
             return;
         }
@@ -132,7 +241,7 @@ impl PacketKey for TransportKeys {
         nonce[4..].copy_from_slice(&packet.to_le_bytes());
         let nonce = nonce.into();
 
-        self.decryption_construction.decrypt_in_place(&nonce, header, payload).map_err(|_| CryptoError)
+        self.0.decrypt_in_place(&nonce, header, payload).map_err(|_| CryptoError)
     }
 
     fn tag_len(&self) -> usize {

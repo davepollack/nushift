@@ -11,6 +11,7 @@ license = "Apache-2.0"
 # TODO: I would like to not explicitly import aead here. Remove it if/when
 # chacha20poly1305 re-exports the aead/bytes feature as bytes
 aead = { version = "0.5.2", features = ["bytes"] }
+chacha20 = "0.9.1"
 chacha20poly1305 = "0.10.1"
 quinn-proto = { version = "0.10.6", default-features = false, features = ["log"] }
 rand = "0.7.3"
