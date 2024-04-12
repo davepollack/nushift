@@ -1,14 +1,14 @@
 // Copyright 2024 The Nushift Authors.
 // SPDX-License-Identifier: Apache-2.0
 
-pub struct RollbackChain<'a, T> {
+pub struct RollbackChain<'target, T> {
     rollbacks: Vec<Box<dyn FnOnce(&mut T)>>,
-    target: &'a mut T,
+    target: &'target mut T,
     all_succeeded: bool,
 }
 
-impl<'a, T> RollbackChain<'a, T> {
-    pub fn new(target: &'a mut T) -> Self {
+impl<'target, T> RollbackChain<'target, T> {
+    pub fn new(target: &'target mut T) -> Self {
         RollbackChain {
             rollbacks: vec![],
             target,
@@ -35,7 +35,7 @@ impl<'a, T> RollbackChain<'a, T> {
     }
 }
 
-impl<'a, T> Drop for RollbackChain<'a, T> {
+impl<T> Drop for RollbackChain<'_, T> {
     fn drop(&mut self) {
         if !self.all_succeeded {
             for rollback in self.rollbacks.drain(..).rev() {
