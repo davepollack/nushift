@@ -8,10 +8,12 @@ use chacha20::{
     ChaChaCore,
 };
 use chacha20poly1305::{
-    aead::{bytes::BytesMut, generic_array::typenum::Unsigned, AeadInPlace, Buffer, Error as AeadError, Result as AeadResult},
+    aead::{bytes::BytesMut, generic_array::typenum::Unsigned, AeadInPlace, Buffer, Error as AeadError, KeyInit, Result as AeadResult},
     AeadCore,
     ChaCha20Poly1305,
 };
+use hex_literal::hex;
+use hkdf::Hkdf;
 use quinn_proto::{
     crypto::{CryptoError, ExportKeyingMaterialError, HeaderKey, KeyPair, Keys, PacketKey, Session},
     transport_parameters::TransportParameters,
@@ -19,6 +21,7 @@ use quinn_proto::{
     Side,
     TransportError,
 };
+use sha2::Sha256;
 use snow::HandshakeState;
 
 // TODO: Remove when this is used
@@ -37,8 +40,54 @@ impl NoiseSession {
 }
 
 impl Session for NoiseSession {
-    fn initial_keys(&self, _dst_cid: &ConnectionId, _side: Side) -> Keys {
-        todo!()
+    fn initial_keys(&self, dst_cid: &ConnectionId, side: Side) -> Keys {
+        const RFC_9001_INITIAL_SALT: [u8; 20] = hex!("38762cf7f55934b34d179ae6a4c80cadccbb7f0a");
+        const CLIENT_INITIAL_INFO: &str = "client in";
+        const SERVER_INITIAL_INFO: &str = "server in";
+        const KEY_INFO: &str = "quic key";
+        const HP_KEY_INFO: &str = "quic hp";
+
+        let hk = Hkdf::<Sha256>::new(Some(&RFC_9001_INITIAL_SALT), &dst_cid);
+        let mut client_initial_secret = [0u8; 32];
+        let mut server_initial_secret = [0u8; 32];
+        hk.expand(CLIENT_INITIAL_INFO.as_bytes(), &mut client_initial_secret).expect("Length 32 should be a valid output");
+        hk.expand(SERVER_INITIAL_INFO.as_bytes(), &mut server_initial_secret).expect("Length 32 should be a valid output");
+
+        let hk_client_keys = Hkdf::<Sha256>::from_prk(&client_initial_secret).expect("Should be a valid PRK length");
+        let mut client_key = [0u8; 32];
+        let mut client_hp_key = [0u8; 32];
+        hk_client_keys.expand(KEY_INFO.as_bytes(), &mut client_key).expect("Length 32 should be a valid output");
+        hk_client_keys.expand(HP_KEY_INFO.as_bytes(), &mut client_hp_key).expect("Length 32 should be a valid output");
+
+        let hk_server_keys = Hkdf::<Sha256>::from_prk(&server_initial_secret).expect("Should be a valid PRK length");
+        let mut server_key = [0u8; 32];
+        let mut server_hp_key = [0u8; 32];
+        hk_server_keys.expand(KEY_INFO.as_bytes(), &mut server_key).expect("Length 32 should be a valid output");
+        hk_server_keys.expand(HP_KEY_INFO.as_bytes(), &mut server_hp_key).expect("Length 32 should be a valid output");
+
+        match side {
+            Side::Client => Keys {
+                header: KeyPair {
+                    local: Box::new(TransportHeaderKey::new(client_hp_key)),
+                    remote: Box::new(TransportHeaderKey::new(server_hp_key)),
+                },
+                packet: KeyPair {
+                    local: Box::new(TransportPacketKey::new(client_key)),
+                    remote: Box::new(TransportPacketKey::new(server_key)),
+                },
+            },
+
+            Side::Server => Keys {
+                header: KeyPair {
+                    local: Box::new(TransportHeaderKey::new(server_hp_key)),
+                    remote: Box::new(TransportHeaderKey::new(client_hp_key)),
+                },
+                packet: KeyPair {
+                    local: Box::new(TransportPacketKey::new(server_key)),
+                    remote: Box::new(TransportPacketKey::new(client_key)),
+                },
+            },
+        }
     }
 
     fn handshake_data(&self) -> Option<Box<dyn Any>> {
@@ -97,6 +146,10 @@ struct TransportHeaderKey {
 }
 
 impl TransportHeaderKey {
+    fn new(hp_key: [u8; 32]) -> Self {
+        Self { hp_key }
+    }
+
     /// The "header_protection" function from RFC 9001 (QUIC-TLS). It requires
     /// use of the raw ChaCha20 function.
     fn header_protection(hp_key: [u8; 32], sample: [u8; 16]) -> [u8; 5] {
@@ -200,6 +253,12 @@ impl HeaderKey for TransportHeaderKey {
 }
 
 struct TransportPacketKey(ChaCha20Poly1305);
+
+impl TransportPacketKey {
+    fn new(key: [u8; 32]) -> Self {
+        Self(ChaCha20Poly1305::new(&key.into()))
+    }
+}
 
 impl PacketKey for TransportPacketKey {
     fn encrypt(&self, packet: u64, buf: &mut [u8], header_len: usize) {
