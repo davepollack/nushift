@@ -83,10 +83,11 @@ impl Session for NoiseSession {
     }
 
     fn handshake_data(&self) -> Option<Box<dyn Any>> {
-        // Always return None for now, as we are currently never emitting
-        // HandshakeDataReady and don't have any handshake info we would wish to
-        // share with the user of nsq/quinn at the moment.
-        None
+        match self {
+            Self::SnowHandshaking(handshake_state) if handshake_state.is_handshake_finished() => Some(Box::new(())),
+            Self::Transport => Some(Box::new(())),
+            _ => None,
+        }
     }
 
     fn peer_identity(&self) -> Option<Box<dyn Any>> {
@@ -124,11 +125,11 @@ impl Session for NoiseSession {
         // read_handshake finished the handshake, rather than storing some extra
         // state here for that method to interpret.
 
-        // Always return Ok(false) for now. We are not keeping track of if we've
-        // populated handshake data (we would need to as you always have to
-        // return false after you return true), and don't have any handshake
-        // info we would wish to share with the user of nsq/quinn at the moment.
-        Ok(false)
+        // If the handshake is finished, notify quinn that the handshake data is
+        // ready. We're meant to return Ok(false) after we initially return
+        // Ok(true) here, but read_handshake should never be called again after
+        // this.
+        Ok(handshake_state.is_handshake_finished())
     }
 
     fn transport_parameters(&self) -> Result<Option<TransportParameters>, TransportError> {
