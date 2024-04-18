@@ -20,15 +20,22 @@ use quinn_proto::{
     ConnectionId,
     Side,
     TransportError,
+    TransportErrorCode,
 };
 use sha2::Sha256;
-use snow::HandshakeState;
+use snow::{Error as SnowError, HandshakeState};
+
+const RFC_9001_INITIAL_SALT: [u8; 20] = hex!("38762cf7f55934b34d179ae6a4c80cadccbb7f0a");
+const CLIENT_INITIAL_INFO: &str = "client in";
+const SERVER_INITIAL_INFO: &str = "server in";
+const KEY_INFO: &str = "quic key";
+const HP_KEY_INFO: &str = "quic hp";
 
 // TODO: Remove when this is used
 #[allow(dead_code)]
 pub(crate) enum NoiseSession {
     SnowHandshaking(HandshakeState),
-    Transport(Keys),
+    Transport,
 }
 
 impl NoiseSession {
@@ -41,12 +48,6 @@ impl NoiseSession {
 
 impl Session for NoiseSession {
     fn initial_keys(&self, dst_cid: &ConnectionId, side: Side) -> Keys {
-        const RFC_9001_INITIAL_SALT: [u8; 20] = hex!("38762cf7f55934b34d179ae6a4c80cadccbb7f0a");
-        const CLIENT_INITIAL_INFO: &str = "client in";
-        const SERVER_INITIAL_INFO: &str = "server in";
-        const KEY_INFO: &str = "quic key";
-        const HP_KEY_INFO: &str = "quic hp";
-
         let hk = Hkdf::<Sha256>::new(Some(&RFC_9001_INITIAL_SALT), &dst_cid);
         let mut client_initial_secret = [0u8; 32];
         let mut server_initial_secret = [0u8; 32];
@@ -54,44 +55,38 @@ impl Session for NoiseSession {
         hk.expand(SERVER_INITIAL_INFO.as_bytes(), &mut server_initial_secret).expect("Length 32 should be a valid output");
 
         let hk_client_keys = Hkdf::<Sha256>::from_prk(&client_initial_secret).expect("Should be a valid PRK length");
-        let mut client_key = [0u8; 32];
-        let mut client_hp_key = [0u8; 32];
-        hk_client_keys.expand(KEY_INFO.as_bytes(), &mut client_key).expect("Length 32 should be a valid output");
-        hk_client_keys.expand(HP_KEY_INFO.as_bytes(), &mut client_hp_key).expect("Length 32 should be a valid output");
-
         let hk_server_keys = Hkdf::<Sha256>::from_prk(&server_initial_secret).expect("Should be a valid PRK length");
-        let mut server_key = [0u8; 32];
-        let mut server_hp_key = [0u8; 32];
-        hk_server_keys.expand(KEY_INFO.as_bytes(), &mut server_key).expect("Length 32 should be a valid output");
-        hk_server_keys.expand(HP_KEY_INFO.as_bytes(), &mut server_hp_key).expect("Length 32 should be a valid output");
 
         match side {
             Side::Client => Keys {
                 header: KeyPair {
-                    local: Box::new(TransportHeaderKey::new(client_hp_key)),
-                    remote: Box::new(TransportHeaderKey::new(server_hp_key)),
+                    local: Box::new(TransportHeaderKey::from_initial_prk(&hk_client_keys)),
+                    remote: Box::new(TransportHeaderKey::from_initial_prk(&hk_server_keys)),
                 },
                 packet: KeyPair {
-                    local: Box::new(TransportPacketKey::new(client_key)),
-                    remote: Box::new(TransportPacketKey::new(server_key)),
+                    local: Box::new(TransportPacketKey::from_initial_prk(&hk_client_keys)),
+                    remote: Box::new(TransportPacketKey::from_initial_prk(&hk_server_keys)),
                 },
             },
 
             Side::Server => Keys {
                 header: KeyPair {
-                    local: Box::new(TransportHeaderKey::new(server_hp_key)),
-                    remote: Box::new(TransportHeaderKey::new(client_hp_key)),
+                    local: Box::new(TransportHeaderKey::from_initial_prk(&hk_server_keys)),
+                    remote: Box::new(TransportHeaderKey::from_initial_prk(&hk_client_keys)),
                 },
                 packet: KeyPair {
-                    local: Box::new(TransportPacketKey::new(server_key)),
-                    remote: Box::new(TransportPacketKey::new(client_key)),
+                    local: Box::new(TransportPacketKey::from_initial_prk(&hk_server_keys)),
+                    remote: Box::new(TransportPacketKey::from_initial_prk(&hk_client_keys)),
                 },
             },
         }
     }
 
     fn handshake_data(&self) -> Option<Box<dyn Any>> {
-        todo!()
+        // Always return None for now, as we are currently never emitting
+        // HandshakeDataReady and don't have any handshake info we would wish to
+        // share with the user of nsq/quinn at the moment.
+        None
     }
 
     fn peer_identity(&self) -> Option<Box<dyn Any>> {
@@ -99,27 +94,76 @@ impl Session for NoiseSession {
     }
 
     fn early_crypto(&self) -> Option<(Box<dyn HeaderKey>, Box<dyn PacketKey>)> {
-        todo!()
+        // TODO: Implement 0-RTT?
+        None
     }
 
     fn early_data_accepted(&self) -> Option<bool> {
-        todo!()
+        // TODO: Implement 0-RTT?
+        None
     }
 
     fn is_handshaking(&self) -> bool {
-        todo!()
+        matches!(self, Self::SnowHandshaking(_))
     }
 
-    fn read_handshake(&mut self, _buf: &[u8]) -> Result<bool, TransportError> {
-        todo!()
+    fn read_handshake(&mut self, buf: &[u8]) -> Result<bool, TransportError> {
+        let Self::SnowHandshaking(handshake_state) = self else { panic!("Expected to be handshaking when reading handshake"); };
+
+        let mut payload = [];
+
+        // The payload is expected to be zero-length, and `SnowError::Decrypt` will happen if it is not.
+        handshake_state.read_message(buf, &mut payload).map_err(|snow_error| match snow_error {
+            SnowError::Decrypt => TransportError { code: TransportErrorCode::PROTOCOL_VIOLATION, frame: None, reason: "Snow decryption failed".into() },
+            _ => panic!("An internal error occurred when reading handshake"),
+        })?;
+
+        // The handshake is possibly finished at this point. write_handshake is
+        // always called after read_handshake, and that needs to return the new
+        // keys in this case. We let that method handle the case where
+        // read_handshake finished the handshake, rather than storing some extra
+        // state here for that method to interpret.
+
+        // Always return Ok(false) for now. We are not keeping track of if we've
+        // populated handshake data (we would need to as you always have to
+        // return false after you return true), and don't have any handshake
+        // info we would wish to share with the user of nsq/quinn at the moment.
+        Ok(false)
     }
 
     fn transport_parameters(&self) -> Result<Option<TransportParameters>, TransportError> {
         todo!()
     }
 
-    fn write_handshake(&mut self, _buf: &mut Vec<u8>) -> Option<Keys> {
-        todo!()
+    fn write_handshake(&mut self, buf: &mut Vec<u8>) -> Option<Keys> {
+        // Even though at intermediate points in this handshake we have better
+        // keys, we can't really get them from the Snow state without calling
+        // dangerously_get_raw_split, which we shouldn't call until the end. So
+        // continue to return None until then.
+
+        let Self::SnowHandshaking(handshake_state) = self else { panic!("Expected to be handshaking when writing handshake"); };
+
+        // If the read_handshake that occurred right before this write_handshake
+        // caused the handshake to be finished, then detect that here and return
+        // (and *don't* call Snow write_message which would fail).
+        if let Some(keys) = if_handshake_finished_then_get_keys(handshake_state) {
+            *self = Self::Transport;
+            return Some(keys);
+        }
+
+        const MAX_HANDSHAKE_MSG_LEN: usize = 4096;
+        let mut handshake_msg_buffer = [0u8; MAX_HANDSHAKE_MSG_LEN];
+
+        let message_len = handshake_state.write_message(&[], &mut handshake_msg_buffer).expect("Snow state machine unexpectedly errored when writing handshake");
+        buf.extend_from_slice(&handshake_msg_buffer[..message_len]);
+
+        // Now check again whether the handshake is finished.
+        if let Some(keys) = if_handshake_finished_then_get_keys(handshake_state) {
+            *self = Self::Transport;
+            Some(keys)
+        } else {
+            None
+        }
     }
 
     fn next_1rtt_keys(&mut self) -> Option<KeyPair<Box<dyn PacketKey>>> {
@@ -140,14 +184,59 @@ impl Session for NoiseSession {
     }
 }
 
-struct TransportHeaderKey {
-    /// Should be already derived from HKDF and the label "quic hp"
-    hp_key: [u8; 32],
+fn if_handshake_finished_then_get_keys(handshake_state: &mut HandshakeState) -> Option<Keys> {
+    if handshake_state.is_handshake_finished() {
+        let (i_to_r_cipherstate_key, r_to_i_cipherstate_key) = handshake_state.dangerously_get_raw_split();
+
+        if handshake_state.is_initiator() {
+            Some(
+                Keys {
+                    header: KeyPair {
+                        local: Box::new(TransportHeaderKey::from_cs_key(i_to_r_cipherstate_key)),
+                        remote: Box::new(TransportHeaderKey::from_cs_key(r_to_i_cipherstate_key)),
+                    },
+                    packet: KeyPair {
+                        local: Box::new(TransportPacketKey::from_cs_key(i_to_r_cipherstate_key)),
+                        remote: Box::new(TransportPacketKey::from_cs_key(r_to_i_cipherstate_key)),
+                    },
+                }
+            )
+        } else {
+            Some(
+                Keys {
+                    header: KeyPair {
+                        local: Box::new(TransportHeaderKey::from_cs_key(r_to_i_cipherstate_key)),
+                        remote: Box::new(TransportHeaderKey::from_cs_key(i_to_r_cipherstate_key)),
+                    },
+                    packet: KeyPair {
+                        local: Box::new(TransportPacketKey::from_cs_key(r_to_i_cipherstate_key)),
+                        remote: Box::new(TransportPacketKey::from_cs_key(i_to_r_cipherstate_key)),
+                    },
+                }
+            )
+        }
+    } else {
+        None
+    }
 }
 
+struct TransportHeaderKey([u8; 32]);
+
 impl TransportHeaderKey {
-    fn new(hp_key: [u8; 32]) -> Self {
-        Self { hp_key }
+    fn from_initial_prk(hk: &Hkdf<Sha256>) -> Self {
+        let mut hp_key = [0u8; 32];
+        hk.expand(HP_KEY_INFO.as_bytes(), &mut hp_key).expect("Length 32 should be a valid output");
+
+        Self(hp_key)
+    }
+
+    fn from_cs_key(cs_key: [u8; 32]) -> Self {
+        let hk = Hkdf::<Sha256>::from_prk(&cs_key).expect("Should be a valid PRK length");
+
+        let mut hp_key = [0u8; 32];
+        hk.expand(HP_KEY_INFO.as_bytes(), &mut hp_key).expect("Length 32 should be a valid output");
+
+        Self(hp_key)
     }
 
     /// The "header_protection" function from RFC 9001 (QUIC-TLS). It requires
@@ -175,7 +264,7 @@ impl TransportHeaderKey {
     /// (QUIC-TLS)
     fn encrypt_fallible(&self, pn_offset: usize, packet: &mut [u8]) -> Result<(), ()> {
         let sample = Self::get_sample(pn_offset, packet)?;
-        let mask = Self::header_protection(self.hp_key, sample);
+        let mask = Self::header_protection(self.0, sample);
 
         // Get packet number length before masking it and preceding bits
         let packet_first_byte = packet.get_mut(0).ok_or(())?;
@@ -206,7 +295,7 @@ impl TransportHeaderKey {
     /// from RFC 9001 (QUIC-TLS)
     fn decrypt_fallible(&self, pn_offset: usize, packet: &mut [u8]) -> Result<(), ()> {
         let sample = Self::get_sample(pn_offset, packet)?;
-        let mask = Self::header_protection(self.hp_key, sample);
+        let mask = Self::header_protection(self.0, sample);
 
         // First mask packet number length and preceding bits
         let packet_first_byte = packet.get_mut(0).ok_or(())?;
@@ -255,7 +344,19 @@ impl HeaderKey for TransportHeaderKey {
 struct TransportPacketKey(ChaCha20Poly1305);
 
 impl TransportPacketKey {
-    fn new(key: [u8; 32]) -> Self {
+    fn from_initial_prk(hk: &Hkdf<Sha256>) -> Self {
+        let mut key = [0u8; 32];
+        hk.expand(KEY_INFO.as_bytes(), &mut key).expect("Length 32 should be a valid output");
+
+        Self(ChaCha20Poly1305::new(&key.into()))
+    }
+
+    fn from_cs_key(cs_key: [u8; 32]) -> Self {
+        let hk = Hkdf::<Sha256>::from_prk(&cs_key).expect("Should be a valid PRK length");
+
+        let mut key = [0u8; 32];
+        hk.expand(KEY_INFO.as_bytes(), &mut key).expect("Length 32 should be a valid output");
+
         Self(ChaCha20Poly1305::new(&key.into()))
     }
 }
