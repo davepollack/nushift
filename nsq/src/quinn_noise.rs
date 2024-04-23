@@ -1,7 +1,7 @@
 // Copyright 2024 The Nushift Authors.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::any::Any;
+use std::{any::Any, sync::Arc};
 
 use chacha20::{
     cipher::{typenum::U10, KeyIvInit, StreamCipherCore, StreamCipherSeekCore},
@@ -15,8 +15,9 @@ use chacha20poly1305::{
 use hex_literal::hex;
 use hkdf::Hkdf;
 use quinn_proto::{
-    crypto::{CryptoError, ExportKeyingMaterialError, HeaderKey, KeyPair, Keys, PacketKey, Session},
+    crypto::{ClientConfig, CryptoError, ExportKeyingMaterialError, HeaderKey, KeyPair, Keys, PacketKey, Session},
     transport_parameters::TransportParameters,
+    ConnectError,
     ConnectionId,
     Side,
     TransportError,
@@ -31,18 +32,42 @@ const SERVER_INITIAL_INFO: &str = "server in";
 const KEY_INFO: &str = "quic key";
 const HP_KEY_INFO: &str = "quic hp";
 
-// TODO: Remove when this is used
-#[allow(dead_code)]
-pub(crate) enum NoiseSession {
-    SnowHandshaking(HandshakeState),
-    Transport,
+pub(crate) struct NoiseConfig;
+
+fn connect_and_get_handshake_state() -> Result<HandshakeState, ConnectError> {
+    todo!()
+}
+
+impl ClientConfig for NoiseConfig {
+    fn start_session(
+        self: Arc<Self>,
+        _version: u32,
+        _server_name: &str,
+        params: &TransportParameters,
+    ) -> Result<Box<dyn Session>, ConnectError> {
+        Ok(Box::new(NoiseSession::new_handshaking(connect_and_get_handshake_state()?, *params)))
+    }
+}
+
+enum NoiseSession {
+    SnowHandshaking {
+        handshake_state: HandshakeState,
+        // TODO: Remove when this is used
+        #[allow(dead_code)]
+        local_transport_parameters: TransportParameters,
+        // TODO: Remove when this is used
+        #[allow(dead_code)]
+        remote_transport_parameters: Option<TransportParameters>,
+    },
+    Transport {
+        // TODO: When reading remote transport parameters is implemented, remove Option
+        remote_transport_parameters: Option<TransportParameters>,
+    },
 }
 
 impl NoiseSession {
-    // TODO: Remove when this is used
-    #[allow(dead_code)]
-    pub fn new(handshake_state: HandshakeState) -> Self {
-        Self::SnowHandshaking(handshake_state)
+    pub fn new_handshaking(handshake_state: HandshakeState, local_transport_parameters: TransportParameters) -> Self {
+        Self::SnowHandshaking { handshake_state, local_transport_parameters, remote_transport_parameters: None }
     }
 }
 
@@ -84,8 +109,8 @@ impl Session for NoiseSession {
 
     fn handshake_data(&self) -> Option<Box<dyn Any>> {
         match self {
-            Self::SnowHandshaking(handshake_state) if handshake_state.is_handshake_finished() => Some(Box::new(())),
-            Self::Transport => Some(Box::new(())),
+            Self::SnowHandshaking { handshake_state, .. } if handshake_state.is_handshake_finished() => Some(Box::new(())),
+            Self::Transport { .. } => Some(Box::new(())),
             _ => None,
         }
     }
@@ -105,11 +130,11 @@ impl Session for NoiseSession {
     }
 
     fn is_handshaking(&self) -> bool {
-        matches!(self, Self::SnowHandshaking(_))
+        matches!(self, Self::SnowHandshaking { .. })
     }
 
     fn read_handshake(&mut self, buf: &[u8]) -> Result<bool, TransportError> {
-        let Self::SnowHandshaking(handshake_state) = self else { panic!("Expected to be handshaking when reading handshake"); };
+        let Self::SnowHandshaking { handshake_state, .. } = self else { panic!("Expected to be handshaking when reading handshake"); };
 
         let mut payload = [];
 
@@ -133,7 +158,12 @@ impl Session for NoiseSession {
     }
 
     fn transport_parameters(&self) -> Result<Option<TransportParameters>, TransportError> {
-        todo!()
+        // TODO: Store if an error occurred getting the transport parameters
+        // from the peer, and forward it to here?
+        match self {
+            Self::Transport { remote_transport_parameters: Some(remote_transport_parameters) } => Ok(Some(*remote_transport_parameters)),
+            _ => Ok(None),
+        }
     }
 
     fn write_handshake(&mut self, buf: &mut Vec<u8>) -> Option<Keys> {
@@ -142,13 +172,14 @@ impl Session for NoiseSession {
         // dangerously_get_raw_split, which we shouldn't call until the end. So
         // continue to return None until then.
 
-        let Self::SnowHandshaking(handshake_state) = self else { panic!("Expected to be handshaking when writing handshake"); };
+        let Self::SnowHandshaking { handshake_state, .. } = self else { panic!("Expected to be handshaking when writing handshake"); };
 
         // If the read_handshake that occurred right before this write_handshake
         // caused the handshake to be finished, then detect that here and return
         // (and *don't* call Snow write_message which would fail).
         if let Some(keys) = if_handshake_finished_then_get_keys(handshake_state) {
-            *self = Self::Transport;
+            // TODO: Actually read remote transport parameters
+            *self = Self::Transport { remote_transport_parameters: None };
             return Some(keys);
         }
 
@@ -160,7 +191,8 @@ impl Session for NoiseSession {
 
         // Now check again whether the handshake is finished.
         if let Some(keys) = if_handshake_finished_then_get_keys(handshake_state) {
-            *self = Self::Transport;
+            // TODO: Actually read remote transport parameters
+            *self = Self::Transport { remote_transport_parameters: None };
             Some(keys)
         } else {
             None
