@@ -45,6 +45,7 @@ impl ClientConfig for NoiseConfig {
         _server_name: &str,
         params: &TransportParameters,
     ) -> Result<Box<dyn Session>, ConnectError> {
+        // TODO: Probably include the version in the network traffic?
         Ok(Box::new(NoiseSession::new_handshaking(connect_and_get_handshake_state()?, *params)))
     }
 }
@@ -52,22 +53,33 @@ impl ClientConfig for NoiseConfig {
 enum NoiseSession {
     SnowHandshaking {
         handshake_state: HandshakeState,
-        // TODO: Remove when this is used
-        #[allow(dead_code)]
-        local_transport_parameters: TransportParameters,
-        // TODO: Remove when this is used
-        #[allow(dead_code)]
-        remote_transport_parameters: Option<TransportParameters>,
+        local_transport_parameters: LocalTransportParameters,
+        remote_transport_parameters: RemoteTransportParameters,
     },
     Transport {
-        // TODO: When reading remote transport parameters is implemented, remove Option
-        remote_transport_parameters: Option<TransportParameters>,
+        remote_transport_parameters: RemoteTransportParameters,
     },
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+enum LocalTransportParameters {
+    Unsent(TransportParameters),
+    Sent,
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+enum RemoteTransportParameters {
+    Received(TransportParameters),
+    NotReceived,
 }
 
 impl NoiseSession {
     pub fn new_handshaking(handshake_state: HandshakeState, local_transport_parameters: TransportParameters) -> Self {
-        Self::SnowHandshaking { handshake_state, local_transport_parameters, remote_transport_parameters: None }
+        Self::SnowHandshaking {
+            handshake_state,
+            local_transport_parameters: LocalTransportParameters::Unsent(local_transport_parameters),
+            remote_transport_parameters: RemoteTransportParameters::NotReceived,
+        }
     }
 }
 
@@ -134,15 +146,37 @@ impl Session for NoiseSession {
     }
 
     fn read_handshake(&mut self, buf: &[u8]) -> Result<bool, TransportError> {
-        let Self::SnowHandshaking { handshake_state, .. } = self else { panic!("Expected to be handshaking when reading handshake"); };
+        let Self::SnowHandshaking { handshake_state, remote_transport_parameters, .. } = self else { panic!("Expected to be handshaking when reading handshake"); };
 
-        let mut payload = [];
+        // If the remote transport parameters are not received, then this is the
+        // first call of read_handshake, and receive them. Otherwise, expect an
+        // empty payload.
+        let mut payload = if let RemoteTransportParameters::NotReceived = remote_transport_parameters {
+            const MAX_TP_PAYLOAD_MSG_LEN: usize = 1024;
+            vec![0u8; MAX_TP_PAYLOAD_MSG_LEN]
+        } else {
+            vec![]
+        };
 
-        // The payload is expected to be zero-length, and `SnowError::Decrypt` will happen if it is not.
-        handshake_state.read_message(buf, &mut payload).map_err(|snow_error| match snow_error {
+        // If our expected buffer length cannot contain the decrypted payload, `SnowError::Decrypt` will happen.
+        let payload_len = handshake_state.read_message(buf, &mut payload).map_err(|snow_error| match snow_error {
             SnowError::Decrypt => TransportError { code: TransportErrorCode::PROTOCOL_VIOLATION, frame: None, reason: "Snow decryption failed".into() },
             _ => panic!("An internal error occurred when reading handshake"),
         })?;
+
+        // If expecting to receive the transport parameters, read them.
+        if let RemoteTransportParameters::NotReceived = remote_transport_parameters {
+            let side = if handshake_state.is_initiator() { Side::Client } else { Side::Server };
+
+            *remote_transport_parameters = RemoteTransportParameters::Received(
+                TransportParameters::read(side, &mut &payload[..payload_len])
+                    .map_err(|tp_error| TransportError {
+                        code: TransportErrorCode::TRANSPORT_PARAMETER_ERROR,
+                        frame: None,
+                        reason: format!("Error while receiving transport parameters: {}", tp_error),
+                    })?
+            );
+        }
 
         // The handshake is possibly finished at this point. write_handshake is
         // always called after read_handshake, and that needs to return the new
@@ -158,10 +192,10 @@ impl Session for NoiseSession {
     }
 
     fn transport_parameters(&self) -> Result<Option<TransportParameters>, TransportError> {
-        // TODO: Store if an error occurred getting the transport parameters
-        // from the peer, and forward it to here?
         match self {
-            Self::Transport { remote_transport_parameters: Some(remote_transport_parameters) } => Ok(Some(*remote_transport_parameters)),
+            Self::Transport {
+                remote_transport_parameters: RemoteTransportParameters::Received(remote_transport_parameters),
+            } => Ok(Some(*remote_transport_parameters)),
             _ => Ok(None),
         }
     }
@@ -172,27 +206,39 @@ impl Session for NoiseSession {
         // dangerously_get_raw_split, which we shouldn't call until the end. So
         // continue to return None until then.
 
-        let Self::SnowHandshaking { handshake_state, .. } = self else { panic!("Expected to be handshaking when writing handshake"); };
+        let Self::SnowHandshaking { handshake_state, local_transport_parameters, remote_transport_parameters } = self else { panic!("Expected to be handshaking when writing handshake"); };
 
         // If the read_handshake that occurred right before this write_handshake
         // caused the handshake to be finished, then detect that here and return
         // (and *don't* call Snow write_message which would fail).
         if let Some(keys) = if_handshake_finished_then_get_keys(handshake_state) {
-            // TODO: Actually read remote transport parameters
-            *self = Self::Transport { remote_transport_parameters: None };
+            *self = Self::Transport { remote_transport_parameters: *remote_transport_parameters };
             return Some(keys);
         }
 
         const MAX_HANDSHAKE_MSG_LEN: usize = 4096;
         let mut handshake_msg_buffer = [0u8; MAX_HANDSHAKE_MSG_LEN];
 
-        let message_len = handshake_state.write_message(&[], &mut handshake_msg_buffer).expect("Snow state machine unexpectedly errored when writing handshake");
+        // If the local transport parameters have not been sent yet, that means
+        // this is the first message in the handshake, and send them. Otherwise,
+        // use an empty payload.
+        let payload = if let LocalTransportParameters::Unsent(unwrapped_local_transport_parameters) = local_transport_parameters {
+            let mut payload = vec![];
+            unwrapped_local_transport_parameters.write(&mut payload);
+
+            *local_transport_parameters = LocalTransportParameters::Sent;
+
+            payload
+        } else {
+            vec![]
+        };
+
+        let message_len = handshake_state.write_message(&payload, &mut handshake_msg_buffer).expect("Snow state machine unexpectedly errored when writing handshake");
         buf.extend_from_slice(&handshake_msg_buffer[..message_len]);
 
         // Now check again whether the handshake is finished.
         if let Some(keys) = if_handshake_finished_then_get_keys(handshake_state) {
-            // TODO: Actually read remote transport parameters
-            *self = Self::Transport { remote_transport_parameters: None };
+            *self = Self::Transport { remote_transport_parameters: *remote_transport_parameters };
             Some(keys)
         } else {
             None
