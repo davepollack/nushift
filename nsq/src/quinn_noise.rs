@@ -57,6 +57,7 @@ enum NoiseSession {
         remote_transport_parameters: RemoteTransportParameters,
     },
     Transport {
+        remote_static_key: Option<Vec<u8>>,
         remote_transport_parameters: RemoteTransportParameters,
     },
 }
@@ -128,7 +129,10 @@ impl Session for NoiseSession {
     }
 
     fn peer_identity(&self) -> Option<Box<dyn Any>> {
-        todo!()
+        match self {
+            Self::SnowHandshaking { handshake_state, .. } => handshake_state.get_remote_static().map(|slice| Box::new(slice.to_vec()) as Box<dyn Any>),
+            Self::Transport { remote_static_key, .. } => remote_static_key.as_ref().map(|vec| Box::new(vec.clone()) as Box<dyn Any>),
+        }
     }
 
     fn early_crypto(&self) -> Option<(Box<dyn HeaderKey>, Box<dyn PacketKey>)> {
@@ -195,6 +199,7 @@ impl Session for NoiseSession {
         match self {
             Self::Transport {
                 remote_transport_parameters: RemoteTransportParameters::Received(remote_transport_parameters),
+                ..
             } => Ok(Some(*remote_transport_parameters)),
             _ => Ok(None),
         }
@@ -212,7 +217,10 @@ impl Session for NoiseSession {
         // caused the handshake to be finished, then detect that here and return
         // (and *don't* call Snow write_message which would fail).
         if let Some(keys) = if_handshake_finished_then_get_keys(handshake_state) {
-            *self = Self::Transport { remote_transport_parameters: *remote_transport_parameters };
+            *self = Self::Transport {
+                remote_static_key: handshake_state.get_remote_static().map(|slice| slice.into()),
+                remote_transport_parameters: *remote_transport_parameters,
+            };
             return Some(keys);
         }
 
@@ -238,7 +246,10 @@ impl Session for NoiseSession {
 
         // Now check again whether the handshake is finished.
         if let Some(keys) = if_handshake_finished_then_get_keys(handshake_state) {
-            *self = Self::Transport { remote_transport_parameters: *remote_transport_parameters };
+            *self = Self::Transport {
+                remote_static_key: handshake_state.get_remote_static().map(|slice| slice.into()),
+                remote_transport_parameters: *remote_transport_parameters,
+            };
             Some(keys)
         } else {
             None
