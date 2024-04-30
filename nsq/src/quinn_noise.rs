@@ -31,6 +31,7 @@ const CLIENT_INITIAL_INFO: &str = "client in";
 const SERVER_INITIAL_INFO: &str = "server in";
 const KEY_INFO: &str = "quic key";
 const HP_KEY_INFO: &str = "quic hp";
+const KEY_UPDATE_INFO: &str = "quic ku";
 
 pub(crate) struct NoiseConfig;
 
@@ -59,6 +60,8 @@ enum NoiseSession {
     Transport {
         remote_static_key: Option<Vec<u8>>,
         remote_transport_parameters: RemoteTransportParameters,
+        current_secrets: CurrentSecrets,
+        is_initiator: bool,
     },
 }
 
@@ -72,6 +75,11 @@ enum LocalTransportParameters {
 enum RemoteTransportParameters {
     Received(TransportParameters),
     NotReceived,
+}
+
+struct CurrentSecrets {
+    i_to_r_cipherstate_key: [u8; 32],
+    r_to_i_cipherstate_key: [u8; 32],
 }
 
 impl NoiseSession {
@@ -216,10 +224,12 @@ impl Session for NoiseSession {
         // If the read_handshake that occurred right before this write_handshake
         // caused the handshake to be finished, then detect that here and return
         // (and *don't* call Snow write_message which would fail).
-        if let Some(keys) = if_handshake_finished_then_get_keys(handshake_state) {
+        if let Some((current_secrets, keys)) = if_handshake_finished_then_get_keys(handshake_state) {
             *self = Self::Transport {
                 remote_static_key: handshake_state.get_remote_static().map(|slice| slice.into()),
                 remote_transport_parameters: *remote_transport_parameters,
+                current_secrets,
+                is_initiator: handshake_state.is_initiator(),
             };
             return Some(keys);
         }
@@ -245,10 +255,12 @@ impl Session for NoiseSession {
         buf.extend_from_slice(&handshake_msg_buffer[..message_len]);
 
         // Now check again whether the handshake is finished.
-        if let Some(keys) = if_handshake_finished_then_get_keys(handshake_state) {
+        if let Some((current_secrets, keys)) = if_handshake_finished_then_get_keys(handshake_state) {
             *self = Self::Transport {
                 remote_static_key: handshake_state.get_remote_static().map(|slice| slice.into()),
                 remote_transport_parameters: *remote_transport_parameters,
+                current_secrets,
+                is_initiator: handshake_state.is_initiator(),
             };
             Some(keys)
         } else {
@@ -257,7 +269,35 @@ impl Session for NoiseSession {
     }
 
     fn next_1rtt_keys(&mut self) -> Option<KeyPair<Box<dyn PacketKey>>> {
-        todo!()
+        let Self::Transport { current_secrets, is_initiator, .. } = self else { return None; };
+
+        let mut new_i_to_r_cipherstate_key = [0u8; 32];
+        let mut new_r_to_i_cipherstate_key = [0u8; 32];
+        let hk_i_to_r = Hkdf::<Sha256>::from_prk(&current_secrets.i_to_r_cipherstate_key).expect("Should be a valid PRK length");
+        let hk_r_to_i = Hkdf::<Sha256>::from_prk(&current_secrets.r_to_i_cipherstate_key).expect("Should be a valid PRK length");
+        hk_i_to_r.expand(&KEY_UPDATE_INFO.as_bytes(), &mut new_i_to_r_cipherstate_key).expect("Length 32 should be a valid output");
+        hk_r_to_i.expand(&KEY_UPDATE_INFO.as_bytes(), &mut new_r_to_i_cipherstate_key).expect("Length 32 should be a valid output");
+
+        *current_secrets = CurrentSecrets {
+            i_to_r_cipherstate_key: new_i_to_r_cipherstate_key,
+            r_to_i_cipherstate_key: new_r_to_i_cipherstate_key,
+        };
+
+        if *is_initiator {
+            Some(
+                KeyPair {
+                    local: Box::new(TransportPacketKey::from_cs_key(new_i_to_r_cipherstate_key)),
+                    remote: Box::new(TransportPacketKey::from_cs_key(new_r_to_i_cipherstate_key)),
+                }
+            )
+        } else {
+            Some(
+                KeyPair {
+                    local: Box::new(TransportPacketKey::from_cs_key(new_r_to_i_cipherstate_key)),
+                    remote: Box::new(TransportPacketKey::from_cs_key(new_i_to_r_cipherstate_key)),
+                }
+            )
+        }
     }
 
     fn is_valid_retry(&self, _orig_dst_cid: &ConnectionId, _header: &[u8], _payload: &[u8]) -> bool {
@@ -274,12 +314,13 @@ impl Session for NoiseSession {
     }
 }
 
-fn if_handshake_finished_then_get_keys(handshake_state: &mut HandshakeState) -> Option<Keys> {
+fn if_handshake_finished_then_get_keys(handshake_state: &mut HandshakeState) -> Option<(CurrentSecrets, Keys)> {
     if handshake_state.is_handshake_finished() {
         let (i_to_r_cipherstate_key, r_to_i_cipherstate_key) = handshake_state.dangerously_get_raw_split();
 
         if handshake_state.is_initiator() {
-            Some(
+            Some((
+                CurrentSecrets { i_to_r_cipherstate_key, r_to_i_cipherstate_key },
                 Keys {
                     header: KeyPair {
                         local: Box::new(TransportHeaderKey::from_cs_key(i_to_r_cipherstate_key)),
@@ -289,10 +330,11 @@ fn if_handshake_finished_then_get_keys(handshake_state: &mut HandshakeState) -> 
                         local: Box::new(TransportPacketKey::from_cs_key(i_to_r_cipherstate_key)),
                         remote: Box::new(TransportPacketKey::from_cs_key(r_to_i_cipherstate_key)),
                     },
-                }
-            )
+                },
+            ))
         } else {
-            Some(
+            Some((
+                CurrentSecrets { i_to_r_cipherstate_key, r_to_i_cipherstate_key },
                 Keys {
                     header: KeyPair {
                         local: Box::new(TransportHeaderKey::from_cs_key(r_to_i_cipherstate_key)),
@@ -302,8 +344,8 @@ fn if_handshake_finished_then_get_keys(handshake_state: &mut HandshakeState) -> 
                         local: Box::new(TransportPacketKey::from_cs_key(r_to_i_cipherstate_key)),
                         remote: Box::new(TransportPacketKey::from_cs_key(i_to_r_cipherstate_key)),
                     },
-                }
-            )
+                },
+            ))
         }
     } else {
         None
