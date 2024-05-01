@@ -62,7 +62,7 @@ impl NoStdFreeList {
             Some(item) => {
                 self.free_tree.remove(&item);
                 Some(item)
-            },
+            }
             None => None,
         }
     }

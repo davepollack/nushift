@@ -26,9 +26,9 @@ An ID is released by dropping — when all its `ArcId`s are dropped. `ArcId` dro
 
 ## ReusableIdPoolManual
 
-A struct that hands out `u64` IDs. This should be used instead of `ReusableIdPool` when the ID needs to be serialised, for example over a binary ABI, as `nushift-core` needs to do.
+A struct that hands out `u64` IDs. This should be used instead of `ReusableIdPool` when the ID needs to be serialised, for example over a binary ABI, as `nushift-core` needs to do. The IDs must be manually returned to the pool.
 
-`#![no_std]` is supported (set `default-features = false` if this is required), but `alloc` is required.
+`#![no_std]` is supported for `ReusableIdPoolManual` (set `default-features = false` if this is required), but `alloc` is required.
 
 ## Time complexity
 
