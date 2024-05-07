@@ -337,11 +337,20 @@ impl Session for NoiseSession {
 
     fn export_keying_material(
         &self,
-        _output: &mut [u8],
-        _label: &[u8],
-        _context: &[u8],
+        output: &mut [u8],
+        label: &[u8],
+        context: &[u8],
     ) -> Result<(), ExportKeyingMaterialError> {
-        todo!()
+        // We need to have finished the handshake to export keying material.
+        // Even though `ExportKeyingMaterialError` is meant to be used for
+        // output length too large, quinn itself, for TLS, also uses it for the
+        // case of not finished the handshake.
+        let Self::Transport { current_secrets, .. } = self else { return Err(ExportKeyingMaterialError); };
+
+        let ikm = [current_secrets.i_to_r_cipherstate_key, current_secrets.r_to_i_cipherstate_key].concat();
+
+        let hk = Hkdf::<Sha256>::new(None, &ikm);
+        hk.expand_multi_info(&[label, context], output).map_err(|_| ExportKeyingMaterialError)
     }
 }
 
