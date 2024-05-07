@@ -488,13 +488,13 @@ impl TransportHeaderKey {
 
 impl HeaderKey for TransportHeaderKey {
     fn decrypt(&self, pn_offset: usize, packet: &mut [u8]) {
-        if let Err(_) = self.decrypt_fallible(pn_offset, packet) {
+        if self.decrypt_fallible(pn_offset, packet).is_err() {
             packet.fill(0);
         }
     }
 
     fn encrypt(&self, pn_offset: usize, packet: &mut [u8]) {
-        if let Err(_) = self.encrypt_fallible(pn_offset, packet) {
+        if self.encrypt_fallible(pn_offset, packet).is_err() {
             packet.fill(0);
         }
     }
@@ -546,7 +546,7 @@ impl PacketKey for TransportPacketKey {
         nonce[4..].copy_from_slice(&packet.to_le_bytes());
         let nonce = nonce.into();
 
-        if let Err(_) = self.0.encrypt_in_place(&nonce, header, &mut fixed_buffer) {
+        if self.0.encrypt_in_place(&nonce, header, &mut fixed_buffer).is_err() {
             buf.fill(0);
             return;
         }
