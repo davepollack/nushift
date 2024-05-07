@@ -33,6 +33,17 @@ const KEY_INFO: &str = "quic key";
 const HP_KEY_INFO: &str = "quic hp";
 const KEY_UPDATE_INFO: &str = "quic ku";
 
+/// Derived by calling HKDF-Expand (*not* TLS 1.3 HKDF-Expand-Label), with
+/// 0xd9c9943e6101fd200021506bcc02814c73030f25c79d71ce876eca876e6fca8e (retry
+/// secret from RFC 9001) as PRK, 32 as length, "quic key" as info, and SHA-256
+/// as the HMAC hash function
+const RETRY_KEY: [u8; 32] = hex!("3337597c92ceb8fa6351d223fad8a795140f8976c25b9589f65c95740b1cd08b");
+/// Derived by calling HKDF-Expand (*not* TLS 1.3 HKDF-Expand-Label), with
+/// 0xd9c9943e6101fd200021506bcc02814c73030f25c79d71ce876eca876e6fca8e (retry
+/// secret from RFC 9001) as PRK, 12 as length, "quic iv" as info, and SHA-256
+/// as the HMAC hash function
+const RETRY_NONCE: [u8; 12] = hex!("433b6818e1af1874007a4df3");
+
 pub(crate) struct NoiseConfig;
 
 fn connect_and_get_handshake_state() -> Result<HandshakeState, ConnectError> {
@@ -300,8 +311,28 @@ impl Session for NoiseSession {
         }
     }
 
-    fn is_valid_retry(&self, _orig_dst_cid: &ConnectionId, _header: &[u8], _payload: &[u8]) -> bool {
-        todo!()
+    fn is_valid_retry(&self, orig_dst_cid: &ConnectionId, header: &[u8], payload: &[u8]) -> bool {
+        // Verify retry integrity using ChaCha20-Poly1305 as an AEAD, instead of
+        // AES-256-GCM as in the RFC 9001 spec, but otherwise, follow the RFC
+        // 9001 spec. This needs to be paired with an implementation of
+        // ServerConfig that uses ChaCha20-Poly1305 to generate the tag.
+
+        // TODO: Change to split_at_checked when that is stabilised
+        const RETRY_TAG_LEN: usize = 16;
+        if RETRY_TAG_LEN > payload.len() {
+            return false;
+        }
+        let (retry_token, retry_tag) = payload.split_at(payload.len().checked_sub(RETRY_TAG_LEN).expect("Cannot underflow because was just checked in the above if condition"));
+        let mut retry_tag = Vec::from(retry_tag);
+
+        let mut retry_pseudo_packet = vec![];
+        retry_pseudo_packet.push(orig_dst_cid.len().try_into().expect("is_valid_retry: ODCID len must be u8"));
+        retry_pseudo_packet.extend_from_slice(orig_dst_cid);
+        retry_pseudo_packet.extend_from_slice(header);
+        retry_pseudo_packet.extend_from_slice(retry_token);
+
+        let cipher = ChaCha20Poly1305::new(&RETRY_KEY.into());
+        cipher.decrypt_in_place(&RETRY_NONCE.into(), &retry_pseudo_packet, &mut retry_tag).is_ok()
     }
 
     fn export_keying_material(
