@@ -181,7 +181,7 @@ impl Session for NoiseSession {
             vec![]
         };
 
-        // If our expected buffer length cannot contain the decrypted payload, `SnowError::Decrypt` will happen.
+        // If our expected `payload` length cannot contain the decrypted payload, `SnowError::Decrypt` will happen.
         let payload_len = handshake_state.read_message(buf, &mut payload).map_err(|snow_error| match snow_error {
             SnowError::Decrypt => TransportError { code: TransportErrorCode::PROTOCOL_VIOLATION, frame: None, reason: "Snow decryption failed".into() },
             _ => panic!("An internal error occurred when reading handshake"),
