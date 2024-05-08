@@ -61,7 +61,7 @@ impl Dh for SnowX448Keypair {
         // trait signature `fn pubkey(&self) -> &[u8]` which has to return a
         // reference to the current struct.
         self.0 = Secret::from_bytes(privkey)
-            .and_then(|secret| Some((PublicKey::from(&secret), secret)));
+            .map(|secret| (PublicKey::from(&secret), secret));
     }
 
     fn generate(&mut self, _rng: &mut dyn Random) {

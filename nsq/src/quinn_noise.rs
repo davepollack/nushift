@@ -105,7 +105,7 @@ impl NoiseSession {
 
 impl Session for NoiseSession {
     fn initial_keys(&self, dst_cid: &ConnectionId, side: Side) -> Keys {
-        let hk = Hkdf::<Sha256>::new(Some(&RFC_9001_INITIAL_SALT), &dst_cid);
+        let hk = Hkdf::<Sha256>::new(Some(&RFC_9001_INITIAL_SALT), dst_cid);
         let mut client_initial_secret = [0u8; 32];
         let mut server_initial_secret = [0u8; 32];
         hk.expand(CLIENT_INITIAL_INFO.as_bytes(), &mut client_initial_secret).expect("Length 32 should be a valid output");
@@ -286,8 +286,8 @@ impl Session for NoiseSession {
         let mut new_r_to_i_cipherstate_key = [0u8; 32];
         let hk_i_to_r = Hkdf::<Sha256>::from_prk(&current_secrets.i_to_r_cipherstate_key).expect("Should be a valid PRK length");
         let hk_r_to_i = Hkdf::<Sha256>::from_prk(&current_secrets.r_to_i_cipherstate_key).expect("Should be a valid PRK length");
-        hk_i_to_r.expand(&KEY_UPDATE_INFO.as_bytes(), &mut new_i_to_r_cipherstate_key).expect("Length 32 should be a valid output");
-        hk_r_to_i.expand(&KEY_UPDATE_INFO.as_bytes(), &mut new_r_to_i_cipherstate_key).expect("Length 32 should be a valid output");
+        hk_i_to_r.expand(KEY_UPDATE_INFO.as_bytes(), &mut new_i_to_r_cipherstate_key).expect("Length 32 should be a valid output");
+        hk_r_to_i.expand(KEY_UPDATE_INFO.as_bytes(), &mut new_r_to_i_cipherstate_key).expect("Length 32 should be a valid output");
 
         *current_secrets = CurrentSecrets {
             i_to_r_cipherstate_key: new_i_to_r_cipherstate_key,
@@ -429,7 +429,7 @@ impl TransportHeaderKey {
     fn get_sample<const SL: usize>(pn_offset: usize, packet: &[u8]) -> Result<[u8; SL], ()> {
         let sample_offset = pn_offset.checked_add(4).ok_or(())?;
         let sample_end = sample_offset.checked_add(SL).ok_or(())?;
-        Ok(packet.get(sample_offset..sample_end).ok_or(())?.try_into().map_err(|_| ())?)
+        packet.get(sample_offset..sample_end).ok_or(())?.try_into().map_err(|_| ())
     }
 
     /// The "sample algorithm for applying header protection" from RFC 9001
@@ -531,19 +531,13 @@ impl TransportPacketKey {
 
         Self(ChaCha20Poly1305::new(&key.into()))
     }
-}
 
-impl PacketKey for TransportPacketKey {
-    fn encrypt(&self, packet: u64, buf: &mut [u8], header_len: usize) {
-        let Some(payload_end_index) = buf.len().checked_sub(self.tag_len()) else {
-            buf.fill(0);
-            return;
-        };
+    fn encrypt_fallible(&self, packet: u64, buf: &mut [u8], header_len: usize) -> Result<(), ()> {
+        let payload_end_index = buf.len().checked_sub(self.tag_len()).ok_or(())?;
 
         // TODO: Change to split_at_mut_checked when that is stabilised
         if header_len > buf.len() {
-            buf.fill(0);
-            return;
+            return Err(());
         }
         let (header, payload_and_tag) = buf.split_at_mut(header_len);
 
@@ -555,9 +549,14 @@ impl PacketKey for TransportPacketKey {
         nonce[4..].copy_from_slice(&packet.to_le_bytes());
         let nonce = nonce.into();
 
-        if self.0.encrypt_in_place(&nonce, header, &mut fixed_buffer).is_err() {
+        self.0.encrypt_in_place(&nonce, header, &mut fixed_buffer).map_err(|_| ())
+    }
+}
+
+impl PacketKey for TransportPacketKey {
+    fn encrypt(&self, packet: u64, buf: &mut [u8], header_len: usize) {
+        if self.encrypt_fallible(packet, buf, header_len).is_err() {
             buf.fill(0);
-            return;
         }
     }
 
