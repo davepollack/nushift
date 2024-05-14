@@ -25,7 +25,9 @@ use quinn_proto::{
 };
 use rand::{rngs::OsRng, RngCore};
 use sha2::Sha256;
-use snow::{Error as SnowError, HandshakeState};
+use snow::{Builder, Error as SnowError, HandshakeState};
+
+use crate::{nsq_resolver, NSQ_PROTOCOL_STRING};
 
 // TODO: Ensure a wrapper function that creates a client endpoint config for the
 // user, uses this version, and if appropriate, server configs too.
@@ -50,28 +52,53 @@ const RETRY_KEY: [u8; 32] = hex!("3337597c92ceb8fa6351d223fad8a795140f8976c25b95
 /// as the HMAC hash function
 const RETRY_NONCE: [u8; 12] = hex!("433b6818e1af1874007a4df3");
 
-pub(crate) struct NoiseConfig;
-
-fn connect_and_get_handshake_state() -> Result<HandshakeState, ConnectError> {
-    todo!()
+pub(crate) struct NoiseConfig<LS> {
+    local_static_secret: LS,
 }
 
-fn accept_and_get_handshake_state() -> HandshakeState {
-    todo!()
+impl<LS> NoiseConfig<LS>
+where
+    LS: AsRef<[u8]>,
+{
+    // TODO: Remove when this is used
+    #[allow(dead_code)]
+    pub(crate) fn new(local_static_secret: LS) -> Self {
+        Self { local_static_secret }
+    }
+
+    fn new_initiator_handshake_state(&self) -> HandshakeState {
+        Builder::with_resolver(NSQ_PROTOCOL_STRING.parse().expect("Protocol string should be valid"), nsq_resolver())
+            .local_private_key(self.local_static_secret.as_ref())
+            .build_initiator()
+            .expect("Builder configuration should be valid")
+    }
+
+    fn new_responder_handshake_state(&self) -> HandshakeState {
+        Builder::with_resolver(NSQ_PROTOCOL_STRING.parse().expect("Protocol string should be valid"), nsq_resolver())
+            .local_private_key(self.local_static_secret.as_ref())
+            .build_responder()
+            .expect("Builder configuration should be valid")
+    }
 }
 
-impl ClientConfig for NoiseConfig {
+impl<LS> ClientConfig for NoiseConfig<LS>
+where
+    LS: Send + Sync + AsRef<[u8]>,
+{
     fn start_session(
         self: Arc<Self>,
         _version: u32,
         _server_name: &str,
         params: &TransportParameters,
     ) -> Result<Box<dyn Session>, ConnectError> {
-        Ok(Box::new(NoiseSession::new_handshaking(connect_and_get_handshake_state()?, *params)))
+        Ok(Box::new(NoiseSession::new_handshaking(self.new_initiator_handshake_state(), *params)))
     }
 }
 
-impl ServerConfig for NoiseConfig {
+impl<LS> ServerConfig for NoiseConfig<LS>
+where
+    LS: Send + Sync + AsRef<[u8]>,
+{
     fn initial_keys(&self, version: u32, dst_cid: &ConnectionId, side: Side) -> Result<Keys, UnsupportedVersion> {
         NoiseSession::initial_keys(version, dst_cid, side)
     }
@@ -94,7 +121,7 @@ impl ServerConfig for NoiseConfig {
     }
 
     fn start_session(self: Arc<Self>, _version: u32, params: &TransportParameters) -> Box<dyn Session> {
-        Box::new(NoiseSession::new_handshaking(accept_and_get_handshake_state(), *params))
+        Box::new(NoiseSession::new_handshaking(self.new_responder_handshake_state(), *params))
     }
 }
 

@@ -7,21 +7,17 @@ use snow_x448_resolver::SnowX448Resolver;
 mod quinn_noise;
 mod snow_x448_resolver;
 
-// TODO: Remove warning suppression when this is used by other parts of the lib code
-#[allow(dead_code)]
 fn nsq_resolver() -> BoxedCryptoResolver {
     Box::new(FallbackResolver::new(Box::new(DefaultResolver), Box::new(SnowX448Resolver)))
 }
 
-// TODO: Remove warning suppression when this is used by other parts of the lib code
-#[allow(dead_code)]
 const NSQ_PROTOCOL_STRING: &str = "Noise_XXhfs_448+Kyber1024_ChaChaPoly_BLAKE2b";
 
 #[cfg(test)]
 mod tests {
     use rand::rngs::OsRng;
     use snow::Builder;
-    use x448::{PublicKey, Secret};
+    use x448::Secret;
 
     use super::*;
 
@@ -32,13 +28,11 @@ mod tests {
 
         let mut initiator = Builder::with_resolver(NSQ_PROTOCOL_STRING.parse().expect("Should parse"), nsq_resolver())
             .local_private_key(initiator_static_secret.as_bytes())
-            .remote_public_key(PublicKey::from(&responder_static_secret).as_bytes())
             .build_initiator()
             .expect("Should build");
 
         let mut responder = Builder::with_resolver(NSQ_PROTOCOL_STRING.parse().expect("Should parse"), nsq_resolver())
             .local_private_key(responder_static_secret.as_bytes())
-            .remote_public_key(PublicKey::from(&initiator_static_secret).as_bytes())
             .build_responder()
             .expect("Should build");
 
