@@ -105,7 +105,7 @@ where
 
     fn retry_tag(&self, _version: u32, orig_dst_cid: &ConnectionId, packet: &[u8]) -> [u8; 16] {
         // Generate retry tag using ChaCha20-Poly1305 as an AEAD, instead of
-        // AES-256-GCM as in the RFC 9001 spec, but otherwise, follow the RFC
+        // AES-128-GCM as in the RFC 9001 spec, but otherwise, follow the RFC
         // 9001 spec. This needs to be paired with an implementation of
         // is_valid_retry that uses ChaCha20-Poly1305 to verify the tag.
 
@@ -388,7 +388,7 @@ impl Session for NoiseSession {
 
     fn is_valid_retry(&self, orig_dst_cid: &ConnectionId, header: &[u8], payload: &[u8]) -> bool {
         // Verify retry integrity using ChaCha20-Poly1305 as an AEAD, instead of
-        // AES-256-GCM as in the RFC 9001 spec, but otherwise, follow the RFC
+        // AES-128-GCM as in the RFC 9001 spec, but otherwise, follow the RFC
         // 9001 spec. This needs to be paired with an implementation of
         // ServerConfig that uses ChaCha20-Poly1305 to generate the tag.
 
