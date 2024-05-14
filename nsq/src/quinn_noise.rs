@@ -15,7 +15,7 @@ use chacha20poly1305::{
 use hex_literal::hex;
 use hkdf::Hkdf;
 use quinn_proto::{
-    crypto::{AeadKey, ClientConfig, CryptoError, ExportKeyingMaterialError, HandshakeTokenKey, HeaderKey, KeyPair, Keys, PacketKey, Session},
+    crypto::{AeadKey, ClientConfig, CryptoError, ExportKeyingMaterialError, HandshakeTokenKey, HeaderKey, KeyPair, Keys, PacketKey, ServerConfig, Session, UnsupportedVersion},
     transport_parameters::TransportParameters,
     ConnectError,
     ConnectionId,
@@ -26,6 +26,11 @@ use quinn_proto::{
 use rand::{rngs::OsRng, RngCore};
 use sha2::Sha256;
 use snow::{Error as SnowError, HandshakeState};
+
+// TODO: Ensure a wrapper function that creates a client endpoint config for the
+// user, uses this version, and if appropriate, server configs too.
+// TODO: Register range with QUIC WG.
+const NSQ_QUIC_VERSION: u32 = 0x6e737100; // "nsq" + 0[0-f]
 
 const RFC_9001_INITIAL_SALT: [u8; 20] = hex!("38762cf7f55934b34d179ae6a4c80cadccbb7f0a");
 const CLIENT_INITIAL_INFO: &str = "client in";
@@ -51,6 +56,10 @@ fn connect_and_get_handshake_state() -> Result<HandshakeState, ConnectError> {
     todo!()
 }
 
+fn accept_and_get_handshake_state() -> HandshakeState {
+    todo!()
+}
+
 impl ClientConfig for NoiseConfig {
     fn start_session(
         self: Arc<Self>,
@@ -58,8 +67,34 @@ impl ClientConfig for NoiseConfig {
         _server_name: &str,
         params: &TransportParameters,
     ) -> Result<Box<dyn Session>, ConnectError> {
-        // TODO: Probably include the version in the network traffic?
         Ok(Box::new(NoiseSession::new_handshaking(connect_and_get_handshake_state()?, *params)))
+    }
+}
+
+impl ServerConfig for NoiseConfig {
+    fn initial_keys(&self, version: u32, dst_cid: &ConnectionId, side: Side) -> Result<Keys, UnsupportedVersion> {
+        NoiseSession::initial_keys(version, dst_cid, side)
+    }
+
+    fn retry_tag(&self, _version: u32, orig_dst_cid: &ConnectionId, packet: &[u8]) -> [u8; 16] {
+        // Generate retry tag using ChaCha20-Poly1305 as an AEAD, instead of
+        // AES-256-GCM as in the RFC 9001 spec, but otherwise, follow the RFC
+        // 9001 spec. This needs to be paired with an implementation of
+        // is_valid_retry that uses ChaCha20-Poly1305 to verify the tag.
+
+        let mut retry_pseudo_packet = vec![];
+        retry_pseudo_packet.push(orig_dst_cid.len().try_into().expect("retry_tag: ODCID len must be u8"));
+        retry_pseudo_packet.extend_from_slice(orig_dst_cid);
+        retry_pseudo_packet.extend_from_slice(packet);
+
+        let cipher = ChaCha20Poly1305::new(&RETRY_KEY.into());
+        cipher.encrypt_in_place_detached(&RETRY_NONCE.into(), &retry_pseudo_packet, &mut [])
+            .expect("Should succeed, as the packet constructed by us (server) should not be pathologically long")
+            .into()
+    }
+
+    fn start_session(self: Arc<Self>, _version: u32, params: &TransportParameters) -> Box<dyn Session> {
+        Box::new(NoiseSession::new_handshaking(accept_and_get_handshake_state(), *params))
     }
 }
 
@@ -102,10 +137,12 @@ impl NoiseSession {
             remote_transport_parameters: RemoteTransportParameters::NotReceived,
         }
     }
-}
 
-impl Session for NoiseSession {
-    fn initial_keys(&self, dst_cid: &ConnectionId, side: Side) -> Keys {
+    fn initial_keys(version: u32, dst_cid: &ConnectionId, side: Side) -> Result<Keys, UnsupportedVersion> {
+        if version != NSQ_QUIC_VERSION {
+            return Err(UnsupportedVersion);
+        }
+
         let hk = Hkdf::<Sha256>::new(Some(&RFC_9001_INITIAL_SALT), dst_cid);
         let mut client_initial_secret = [0u8; 32];
         let mut server_initial_secret = [0u8; 32];
@@ -116,28 +153,38 @@ impl Session for NoiseSession {
         let hk_server_keys = Hkdf::<Sha256>::from_prk(&server_initial_secret).expect("Should be a valid PRK length");
 
         match side {
-            Side::Client => Keys {
-                header: KeyPair {
-                    local: Box::new(TransportHeaderKey::from_initial_prk(&hk_client_keys)),
-                    remote: Box::new(TransportHeaderKey::from_initial_prk(&hk_server_keys)),
-                },
-                packet: KeyPair {
-                    local: Box::new(TransportPacketKey::from_initial_prk(&hk_client_keys)),
-                    remote: Box::new(TransportPacketKey::from_initial_prk(&hk_server_keys)),
-                },
-            },
+            Side::Client => Ok(
+                Keys {
+                    header: KeyPair {
+                        local: Box::new(TransportHeaderKey::from_initial_prk(&hk_client_keys)),
+                        remote: Box::new(TransportHeaderKey::from_initial_prk(&hk_server_keys)),
+                    },
+                    packet: KeyPair {
+                        local: Box::new(TransportPacketKey::from_initial_prk(&hk_client_keys)),
+                        remote: Box::new(TransportPacketKey::from_initial_prk(&hk_server_keys)),
+                    },
+                }
+            ),
 
-            Side::Server => Keys {
-                header: KeyPair {
-                    local: Box::new(TransportHeaderKey::from_initial_prk(&hk_server_keys)),
-                    remote: Box::new(TransportHeaderKey::from_initial_prk(&hk_client_keys)),
-                },
-                packet: KeyPair {
-                    local: Box::new(TransportPacketKey::from_initial_prk(&hk_server_keys)),
-                    remote: Box::new(TransportPacketKey::from_initial_prk(&hk_client_keys)),
-                },
-            },
+            Side::Server => Ok(
+                Keys {
+                    header: KeyPair {
+                        local: Box::new(TransportHeaderKey::from_initial_prk(&hk_server_keys)),
+                        remote: Box::new(TransportHeaderKey::from_initial_prk(&hk_client_keys)),
+                    },
+                    packet: KeyPair {
+                        local: Box::new(TransportPacketKey::from_initial_prk(&hk_server_keys)),
+                        remote: Box::new(TransportPacketKey::from_initial_prk(&hk_client_keys)),
+                    },
+                }
+            ),
         }
+    }
+}
+
+impl Session for NoiseSession {
+    fn initial_keys(&self, dst_cid: &ConnectionId, side: Side) -> Keys {
+        Self::initial_keys(NSQ_QUIC_VERSION, dst_cid, side).expect("Version should be supported")
     }
 
     fn handshake_data(&self) -> Option<Box<dyn Any>> {
@@ -318,13 +365,9 @@ impl Session for NoiseSession {
         // 9001 spec. This needs to be paired with an implementation of
         // ServerConfig that uses ChaCha20-Poly1305 to generate the tag.
 
-        // TODO: Change to split_at_checked when that is stabilised
-        const RETRY_TAG_LEN: usize = 16;
-        if RETRY_TAG_LEN > payload.len() {
+        let Some((retry_token, retry_tag)) = payload.split_last_chunk() else {
             return false;
-        }
-        let (retry_token, retry_tag) = payload.split_at(payload.len().checked_sub(RETRY_TAG_LEN).expect("Cannot underflow because was just checked in the above if condition"));
-        let mut retry_tag = Vec::from(retry_tag);
+        };
 
         let mut retry_pseudo_packet = vec![];
         retry_pseudo_packet.push(orig_dst_cid.len().try_into().expect("is_valid_retry: ODCID len must be u8"));
@@ -333,7 +376,8 @@ impl Session for NoiseSession {
         retry_pseudo_packet.extend_from_slice(retry_token);
 
         let cipher = ChaCha20Poly1305::new(&RETRY_KEY.into());
-        cipher.decrypt_in_place(&RETRY_NONCE.into(), &retry_pseudo_packet, &mut retry_tag).is_ok()
+        cipher.decrypt_in_place_detached(&RETRY_NONCE.into(), &retry_pseudo_packet, &mut [], retry_tag.into())
+            .is_ok()
     }
 
     fn export_keying_material(
