@@ -3,20 +3,17 @@
 
 use std::sync::Arc;
 
-use chacha20poly1305::{
-    aead::{AeadInPlace, KeyInit},
-    ChaCha20Poly1305,
-};
-use hkdf::Hkdf;
+use chacha20poly1305::{aead::{AeadInPlace, KeyInit}, ChaCha20Poly1305};
+use hkdf::{hmac::{Hmac, Mac}, Hkdf};
 use quinn_proto::{
-    crypto::{AeadKey, ClientConfig, CryptoError, HandshakeTokenKey, Keys, ServerConfig, Session, UnsupportedVersion},
+    crypto::{AeadKey, ClientConfig, CryptoError, HandshakeTokenKey, HmacKey, Keys, ServerConfig, Session, UnsupportedVersion},
     transport_parameters::TransportParameters,
     ConnectError,
     ConnectionId,
     Side,
 };
 use rand::{rngs::OsRng, RngCore};
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 use snow::{Builder, HandshakeState};
 
 use crate::{nsq_resolver, NSQ_PROTOCOL_STRING};
@@ -129,5 +126,36 @@ impl AeadKey for NoiseHandshakeTokenAeadKey {
         self.0.decrypt_in_place(&[0u8; 12].into(), additional_data, &mut fixed_buffer)
             .map(|_| fixed_buffer.into_mut_slice())
             .map_err(|_| CryptoError)
+    }
+}
+
+struct NoiseHmacKey([u8; 64]);
+
+impl NoiseHmacKey {
+    /// Initialises a reset key from random bytes.
+    // TODO: Remove when this is used
+    #[allow(dead_code)]
+    fn new() -> Self {
+        let mut key = [0u8; 64];
+        OsRng.fill_bytes(&mut key);
+        Self(key)
+    }
+}
+
+impl HmacKey for NoiseHmacKey {
+    fn sign(&self, data: &[u8], signature_out: &mut [u8]) {
+        let mut mac = <Hmac<Sha256> as Mac>::new(&self.0.into());
+        mac.update(data);
+        signature_out.copy_from_slice(&mac.finalize().into_bytes());
+    }
+
+    fn signature_len(&self) -> usize {
+        Sha256::output_size()
+    }
+
+    fn verify(&self, data: &[u8], signature: &[u8]) -> Result<(), CryptoError> {
+        let mut mac = <Hmac<Sha256> as Mac>::new(&self.0.into());
+        mac.update(data);
+        mac.verify_slice(signature).map_err(|_| CryptoError)
     }
 }
