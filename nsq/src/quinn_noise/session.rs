@@ -28,11 +28,11 @@ use snow::{Error as SnowError, HandshakeState};
 use super::{fixed_buffer::FixedBuffer, NSQ_QUIC_VERSION, RETRY_KEY, RETRY_NONCE};
 
 const RFC_9001_INITIAL_SALT: [u8; 20] = hex!("38762cf7f55934b34d179ae6a4c80cadccbb7f0a");
-const CLIENT_INITIAL_INFO: &str = "client in";
-const SERVER_INITIAL_INFO: &str = "server in";
-const KEY_INFO: &str = "quic key";
-const HP_KEY_INFO: &str = "quic hp";
-const KEY_UPDATE_INFO: &str = "quic ku";
+const CLIENT_INITIAL_INFO: &[u8] = b"client in";
+const SERVER_INITIAL_INFO: &[u8] = b"server in";
+const KEY_INFO: &[u8] = b"quic key";
+const HP_KEY_INFO: &[u8] = b"quic hp";
+const KEY_UPDATE_INFO: &[u8] = b"quic ku";
 
 pub(crate) enum NoiseSession {
     SnowHandshaking {
@@ -82,8 +82,8 @@ impl NoiseSession {
         let hk = Hkdf::<Sha256>::new(Some(&RFC_9001_INITIAL_SALT), dst_cid);
         let mut client_initial_secret = [0u8; 32];
         let mut server_initial_secret = [0u8; 32];
-        hk.expand(CLIENT_INITIAL_INFO.as_bytes(), &mut client_initial_secret).expect("Length 32 should be a valid output");
-        hk.expand(SERVER_INITIAL_INFO.as_bytes(), &mut server_initial_secret).expect("Length 32 should be a valid output");
+        hk.expand(CLIENT_INITIAL_INFO, &mut client_initial_secret).expect("Length 32 should be a valid output");
+        hk.expand(SERVER_INITIAL_INFO, &mut server_initial_secret).expect("Length 32 should be a valid output");
 
         let hk_client_keys = Hkdf::<Sha256>::from_prk(&client_initial_secret).expect("Should be a valid PRK length");
         let hk_server_keys = Hkdf::<Sha256>::from_prk(&server_initial_secret).expect("Should be a valid PRK length");
@@ -270,8 +270,8 @@ impl Session for NoiseSession {
         let mut new_r_to_i_cipherstate_key = [0u8; 32];
         let hk_i_to_r = Hkdf::<Sha256>::from_prk(&current_secrets.i_to_r_cipherstate_key).expect("Should be a valid PRK length");
         let hk_r_to_i = Hkdf::<Sha256>::from_prk(&current_secrets.r_to_i_cipherstate_key).expect("Should be a valid PRK length");
-        hk_i_to_r.expand(KEY_UPDATE_INFO.as_bytes(), &mut new_i_to_r_cipherstate_key).expect("Length 32 should be a valid output");
-        hk_r_to_i.expand(KEY_UPDATE_INFO.as_bytes(), &mut new_r_to_i_cipherstate_key).expect("Length 32 should be a valid output");
+        hk_i_to_r.expand(KEY_UPDATE_INFO, &mut new_i_to_r_cipherstate_key).expect("Length 32 should be a valid output");
+        hk_r_to_i.expand(KEY_UPDATE_INFO, &mut new_r_to_i_cipherstate_key).expect("Length 32 should be a valid output");
 
         *current_secrets = CurrentSecrets {
             i_to_r_cipherstate_key: new_i_to_r_cipherstate_key,
@@ -378,7 +378,7 @@ struct TransportHeaderKey([u8; 32]);
 impl TransportHeaderKey {
     fn from_initial_prk(hk: &Hkdf<Sha256>) -> Self {
         let mut hp_key = [0u8; 32];
-        hk.expand(HP_KEY_INFO.as_bytes(), &mut hp_key).expect("Length 32 should be a valid output");
+        hk.expand(HP_KEY_INFO, &mut hp_key).expect("Length 32 should be a valid output");
 
         Self(hp_key)
     }
@@ -387,7 +387,7 @@ impl TransportHeaderKey {
         let hk = Hkdf::<Sha256>::from_prk(&cs_key).expect("Should be a valid PRK length");
 
         let mut hp_key = [0u8; 32];
-        hk.expand(HP_KEY_INFO.as_bytes(), &mut hp_key).expect("Length 32 should be a valid output");
+        hk.expand(HP_KEY_INFO, &mut hp_key).expect("Length 32 should be a valid output");
 
         Self(hp_key)
     }
@@ -499,7 +499,7 @@ struct TransportPacketKey(ChaCha20Poly1305);
 impl TransportPacketKey {
     fn from_initial_prk(hk: &Hkdf<Sha256>) -> Self {
         let mut key = [0u8; 32];
-        hk.expand(KEY_INFO.as_bytes(), &mut key).expect("Length 32 should be a valid output");
+        hk.expand(KEY_INFO, &mut key).expect("Length 32 should be a valid output");
 
         Self(ChaCha20Poly1305::new(&key.into()))
     }
@@ -508,7 +508,7 @@ impl TransportPacketKey {
         let hk = Hkdf::<Sha256>::from_prk(&cs_key).expect("Should be a valid PRK length");
 
         let mut key = [0u8; 32];
-        hk.expand(KEY_INFO.as_bytes(), &mut key).expect("Length 32 should be a valid output");
+        hk.expand(KEY_INFO, &mut key).expect("Length 32 should be a valid output");
 
         Self(ChaCha20Poly1305::new(&key.into()))
     }
