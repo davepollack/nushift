@@ -35,13 +35,13 @@ impl CryptoResolver for SnowX448Resolver {
 
 pub(crate) struct SnowX448Keypair(Option<(PublicKey, Secret)>);
 
-pub(crate) const TRAIT_METHODS_CALLED_INCORRECTLY: [u8; 56] = [1u8; 56];
-
 impl SnowX448Keypair {
     fn new() -> Self {
         Self(None)
     }
 }
+
+pub(crate) const TRAIT_METHODS_CALLED_INCORRECTLY: [u8; 56] = [1u8; 56];
 
 impl Dh for SnowX448Keypair {
     fn name(&self) -> &'static str {
