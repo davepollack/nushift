@@ -3,14 +3,14 @@
 
 use hex_literal::hex;
 
-mod config;
-mod session;
-mod fixed_buffer;
+pub(crate) mod config;
+pub(crate) mod session;
+pub(crate) mod fixed_buffer;
 
 // TODO: Ensure a wrapper function that creates a client endpoint config for the
 // user, uses this version, and if appropriate, server configs too.
 // TODO: Register range with QUIC WG.
-const NSQ_QUIC_VERSION: u32 = 0x6e737100; // "nsq" + 0[0-f]
+pub(crate) const NSQ_QUIC_VERSION: u32 = 0x6e737100; // "nsq" + 0[0-f]
 
 /// Derived by calling HKDF-Expand (*not* TLS 1.3 HKDF-Expand-Label), with
 /// 0xd9c9943e6101fd200021506bcc02814c73030f25c79d71ce876eca876e6fca8e (retry

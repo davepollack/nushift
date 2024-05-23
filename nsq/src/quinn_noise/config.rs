@@ -28,8 +28,6 @@ impl<LS> NoiseConfig<LS>
 where
     LS: AsRef<[u8]>,
 {
-    // TODO: Remove when this is used
-    #[allow(dead_code)]
     pub(crate) fn new(local_static_secret: LS) -> Self {
         Self { local_static_secret }
     }
@@ -51,7 +49,7 @@ where
 
 impl<LS> ClientConfig for NoiseConfig<LS>
 where
-    LS: Send + Sync + AsRef<[u8]>,
+    LS: AsRef<[u8]> + Send + Sync,
 {
     fn start_session(
         self: Arc<Self>,
@@ -65,10 +63,10 @@ where
 
 impl<LS> ServerConfig for NoiseConfig<LS>
 where
-    LS: Send + Sync + AsRef<[u8]>,
+    LS: AsRef<[u8]> + Send + Sync,
 {
-    fn initial_keys(&self, version: u32, dst_cid: &ConnectionId, side: Side) -> Result<Keys, UnsupportedVersion> {
-        NoiseSession::initial_keys(version, dst_cid, side)
+    fn initial_keys(&self, version: u32, dst_cid: &ConnectionId) -> Result<Keys, UnsupportedVersion> {
+        NoiseSession::initial_keys(version, dst_cid, Side::Server)
     }
 
     fn retry_tag(&self, _version: u32, orig_dst_cid: &ConnectionId, packet: &[u8]) -> [u8; 16] {
@@ -93,13 +91,11 @@ where
     }
 }
 
-struct NoiseHandshakeTokenKey(Hkdf<Sha256>);
+pub(crate) struct NoiseHandshakeTokenKey(Hkdf<Sha256>);
 
 impl NoiseHandshakeTokenKey {
     /// Initialises a handshake token key from random bytes.
-    // TODO: Remove when this is used
-    #[allow(dead_code)]
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let mut secret = [0u8; 64];
         OsRng.fill_bytes(&mut secret);
         Self(Hkdf::<Sha256>::new(None, &secret))
@@ -129,13 +125,11 @@ impl AeadKey for NoiseHandshakeTokenAeadKey {
     }
 }
 
-struct NoiseHmacKey([u8; 64]);
+pub(crate) struct NoiseHmacKey([u8; 64]);
 
 impl NoiseHmacKey {
     /// Initialises a reset key from random bytes.
-    // TODO: Remove when this is used
-    #[allow(dead_code)]
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let mut key = [0u8; 64];
         OsRng.fill_bytes(&mut key);
         Self(key)
