@@ -153,28 +153,30 @@ impl NsqClient {
     where
         LS: AsRef<[u8]> + Send + Sync + 'static,
     {
-        let mut endpoint = Endpoint::new(
+        Endpoint::new(
             NsqEndpointConfig::new().endpoint_config(),
             None,
             socket,
             runtime,
-        )?;
-        endpoint.set_default_client_config(NsqClientConfig::new(local_static_secret).client_config());
-        Ok(Self(endpoint))
+        ).map(|mut endpoint| {
+            endpoint.set_default_client_config(NsqClientConfig::new(local_static_secret).client_config());
+            Self(endpoint)
+        })
     }
 
     pub fn new_with_abstract_socket<LS>(local_static_secret: LS, socket: Arc<dyn AsyncUdpSocket>, runtime: Arc<dyn Runtime>) -> io::Result<Self>
     where
         LS: AsRef<[u8]> + Send + Sync + 'static,
     {
-        let mut endpoint = Endpoint::new_with_abstract_socket(
+        Endpoint::new_with_abstract_socket(
             NsqEndpointConfig::new().endpoint_config(),
             None,
             socket,
             runtime,
-        )?;
-        endpoint.set_default_client_config(NsqClientConfig::new(local_static_secret).client_config());
-        Ok(Self(endpoint))
+        ).map(|mut endpoint| {
+            endpoint.set_default_client_config(NsqClientConfig::new(local_static_secret).client_config());
+            Self(endpoint)
+        })
     }
 
     pub fn endpoint(self) -> Endpoint {
