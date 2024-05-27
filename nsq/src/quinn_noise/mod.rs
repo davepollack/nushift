@@ -7,8 +7,6 @@ pub(crate) mod config;
 pub(crate) mod session;
 pub(crate) mod fixed_buffer;
 
-// TODO: Ensure a wrapper function that creates a client endpoint config for the
-// user, uses this version, and if appropriate, server configs too.
 // TODO: Register range with QUIC WG.
 pub(crate) const NSQ_QUIC_VERSION: u32 = 0x6e737100; // "nsq" + 0[0-f]
 
