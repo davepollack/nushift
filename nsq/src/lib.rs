@@ -1,11 +1,12 @@
 // Copyright 2024 The Nushift Authors.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::future::Future;
 use std::io;
-use std::net::UdpSocket;
+use std::net::{SocketAddr, UdpSocket};
 use std::sync::Arc;
 
-use quinn::{AsyncUdpSocket, ClientConfig, Endpoint, EndpointConfig, Runtime, ServerConfig};
+use quinn::{AsyncUdpSocket, ClientConfig, ConnectError, Connection, ConnectionError, Endpoint, EndpointConfig, Runtime, ServerConfig, VarInt};
 
 use crate::quinn_noise::config::{NoiseConfig, NoiseHandshakeTokenKey, NoiseHmacKey};
 use crate::quinn_noise::NSQ_QUIC_VERSION;
@@ -185,5 +186,70 @@ impl NsqClient {
 
     pub fn endpoint_as_ref(&self) -> &Endpoint {
         &self.0
+    }
+
+    pub async fn connect_with_tofu<TS: TofuStore>(&self, mut tofu_store: TS, addr: SocketAddr, server_name: &str) -> Result<Connection, ConnectWithTofuError> {
+        let (connection, remote_static_key) = self.connect_with_tofu_prologue(addr, server_name).await?;
+
+        if !tofu_store.is_known_key(&remote_static_key).await {
+            return Self::connect_with_tofu_unknown_key_error(&connection, remote_static_key);
+        }
+
+        Ok(connection)
+    }
+
+    pub async fn connect_with_local_tofu<TS: LocalTofuStore>(&self, mut tofu_store: TS, addr: SocketAddr, server_name: &str) -> Result<Connection, ConnectWithTofuError> {
+        let (connection, remote_static_key) = self.connect_with_tofu_prologue(addr, server_name).await?;
+
+        if !tofu_store.is_known_key(&remote_static_key).await {
+            return Self::connect_with_tofu_unknown_key_error(&connection, remote_static_key);
+        }
+
+        Ok(connection)
+    }
+
+    async fn connect_with_tofu_prologue(&self, addr: SocketAddr, server_name: &str) -> Result<(Connection, Vec<u8>), ConnectWithTofuError> {
+        let connection = self.0.connect(addr, server_name)?.await?;
+
+        let remote_static_key = connection.peer_identity()
+            .expect("Remote static key must exist after the handshake, otherwise a TransportError would have occurred before this")
+            .downcast::<Vec<u8>>()
+            .expect("Our Session peer_identity implementation returns a Vec<u8>");
+
+        Ok((connection, *remote_static_key))
+    }
+
+    fn connect_with_tofu_unknown_key_error(connection: &Connection, remote_static_key: Vec<u8>) -> Result<Connection, ConnectWithTofuError> {
+        // Close the connection
+        const APPLICATION_UNKNOWN_KEY: VarInt = VarInt::from_u32(1u32);
+        const APPLICATION_UNKNOWN_KEY_REASON: &[u8] = b"Unknown key";
+        connection.close(APPLICATION_UNKNOWN_KEY, APPLICATION_UNKNOWN_KEY_REASON);
+
+        Err(ConnectWithTofuError::UnknownKey { remote_static_key })
+    }
+}
+
+#[trait_variant::make(TofuStore: Send)]
+pub trait LocalTofuStore {
+    fn is_known_key<'key>(&mut self, remote_static_key: &'key [u8]) -> impl Future<Output = bool>;
+}
+
+pub enum ConnectWithTofuError {
+    ConnectError(ConnectError),
+    ConnectionError(ConnectionError),
+    UnknownKey {
+        remote_static_key: Vec<u8>,
+    },
+}
+
+impl From<ConnectError> for ConnectWithTofuError {
+    fn from(connect_error: ConnectError) -> Self {
+        Self::ConnectError(connect_error)
+    }
+}
+
+impl From<ConnectionError> for ConnectWithTofuError {
+    fn from(connection_error: ConnectionError) -> Self {
+        Self::ConnectionError(connection_error)
     }
 }
