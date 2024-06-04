@@ -198,10 +198,10 @@ impl NsqClient {
         Ok(connection)
     }
 
-    pub async fn connect_with_local_tofu<TS: LocalTofuStore>(&self, mut tofu_store: TS, addr: SocketAddr, server_name: &str) -> Result<Connection, ConnectWithTofuError> {
+    pub async fn connect_with_local_tofu<TS: LocalTofuStore>(&self, mut local_tofu_store: TS, addr: SocketAddr, server_name: &str) -> Result<Connection, ConnectWithTofuError> {
         let (connection, remote_static_key) = self.connect_with_tofu_prologue(addr, server_name).await?;
 
-        if !tofu_store.is_known_key(&remote_static_key).await {
+        if !local_tofu_store.is_known_key(&remote_static_key).await {
             return Self::connect_with_tofu_unknown_key_error(&connection, remote_static_key);
         }
 
