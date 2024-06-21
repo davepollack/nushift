@@ -101,7 +101,7 @@ impl Dh for SnowX448Keypair {
         } else {
             // Really wish there was a fallible version of copy_from_slice
             // instead of the len check happening twice
-            out.copy_from_slice(shared_secret.as_bytes());
+            out.copy_from_slice(shared_secret_bytes);
             Ok(())
         }
     }
