@@ -59,7 +59,10 @@ enum Machine<R> {
 #[derive(Copy, Clone, Debug)]
 pub enum ExitReason {
     NotExited,
-    UserExit { exit_reason: u64 },
+    UserExit {
+        #[allow(dead_code)] // Allow field that isn't used in code, but is printed to the console
+        exit_reason: u64,
+    },
 }
 
 impl<R> ProcessControlBlock<R>
