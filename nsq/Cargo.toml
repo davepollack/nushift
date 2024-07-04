@@ -15,9 +15,8 @@ chacha20 = "0.9.1"
 chacha20poly1305 = "0.10.1"
 hex-literal = "0.4.1"
 hkdf = "0.12.4"
-# TODO: Upgrade? (all quinn references in this file including dev-dependencies)
-quinn = { version = "0.11.0", default-features = false, features = ["log"] }
-quinn-proto = { version = "0.11.1", default-features = false, features = ["log"] }
+quinn = { version = "0.11.2", default-features = false, features = ["log"] }
+quinn-proto = { version = "0.11.3", default-features = false, features = ["log"] }
 rand = "0.7.3"
 sha2 = "0.10.8"
 snow = { version = "0.9.6", features = ["pqclean_kyber1024", "risky-raw-split"] }
@@ -30,6 +29,6 @@ h3 = "0.0.6"
 h3-quinn = "0.0.7"
 http = "1"
 postcard = { version = "1.0.8", features = ["use-std"] }
-quinn = { version = "0.11.0", default-features = false, features = ["log", "runtime-smol"] }
+quinn = { version = "0.11.2", default-features = false, features = ["log", "runtime-smol"] }
 serde = { version = "1", features = ["derive", "std"] }
 smol = "2"
