@@ -1667,8 +1667,11 @@ dependencies = [
  "quinn-proto",
  "rand 0.7.3",
  "serde",
+ "serde-big-array",
  "sha2",
  "smol",
+ "snafu",
+ "snafu-cli-debug",
  "snow",
  "trait-variant",
  "x448",
@@ -2376,6 +2379,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "30e27d1e4fd7659406c492fd6cfaf2066ba8773de45ca75e855590f856dc34a9"
 dependencies = [
  "serde_derive",
+]
+
+[[package]]
+name = "serde-big-array"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "11fc7cc2c76d73e0f27ee52abbd64eec84d46f370c88371120433196934e4b7f"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

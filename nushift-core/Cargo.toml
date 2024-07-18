@@ -19,6 +19,7 @@ postcard = "1.0.8"
 reusable-id-pool = { path = "../reusable-id-pool" }
 ron = "0.8"
 serde = { version = "1", features = ["derive"] }
+# TODO: Upgrade snafu across workspace, and add report (?)
 snafu = "0.7.1"
 snafu-cli-debug = "0.1.1"
 tracing = "0.1.37"

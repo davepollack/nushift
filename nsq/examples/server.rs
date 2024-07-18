@@ -9,6 +9,7 @@ use http::{Response, StatusCode};
 use nsq::NsqServer;
 use quinn::{AsyncTimer, AsyncUdpSocket, Runtime, SmolRuntime};
 use serde::{Deserialize, Serialize};
+use serde_big_array::BigArray;
 use smol::{fs::File, prelude::*, Executor};
 
 /// Use a global executor, because a `quinn::Runtime` must be `'static`. We
@@ -18,9 +19,9 @@ static EXECUTOR: Executor<'_> = Executor::new();
 
 fn main() -> Result<(), Box<dyn Error>> {
     smol::block_on(EXECUTOR.run(async {
-        let mut file = File::open("your_secret.postcard")
+        let mut file = File::open("your_server_secret.postcard")
             .await
-            .map_err(|_| "A secret file your_secret.postcard was not found or couldn't be opened. Please generate it using generate_your_secret.rs.")?;
+            .map_err(|_| "A secret file your_server_secret.postcard was not found or couldn't be opened. Please generate it using generate_your_secrets.rs.")?;
 
         // Use postcard::from_bytes, not postcard::from_io, because the latter
         // requires a buffer anyway (that is as large as the file).
@@ -30,7 +31,11 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         let runtime = Arc::new(SmolExplicitRuntime);
 
-        let endpoint = NsqServer::new_v6(secret_file.secret, runtime)?.endpoint();
+        let endpoint = NsqServer::new_with_socket(
+            secret_file.secret,
+            UdpSocket::bind("[::1]:45777")?, // Only listen on localhost for this example
+            runtime,
+        )?.endpoint();
 
         println!("Server started. Waiting for connections...");
 
@@ -142,5 +147,6 @@ impl Runtime for SmolExplicitRuntime {
 #[derive(Serialize, Deserialize)]
 struct SecretFile {
     version: u64,
-    secret: Vec<u8>,
+    #[serde(with = "BigArray")]
+    secret: [u8; 56],
 }

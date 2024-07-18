@@ -19,6 +19,9 @@ quinn = { version = "0.11.2", default-features = false, features = ["log"] }
 quinn-proto = { version = "0.11.3", default-features = false, features = ["log"] }
 rand = "0.7.3"
 sha2 = "0.10.8"
+# TODO: Upgrade snafu across workspace, and add report (?)
+snafu = "0.7.1"
+snafu-cli-debug = "0.1.1"
 snow = { version = "0.9.6", features = ["pqclean_kyber1024", "risky-raw-split"] }
 trait-variant = "0.1.2"
 x448 = "0.6.0"
@@ -31,4 +34,5 @@ http = "1"
 postcard = { version = "1.0.8", features = ["use-std"] }
 quinn = { version = "0.11.2", default-features = false, features = ["log", "runtime-smol"] }
 serde = { version = "1", features = ["derive", "std"] }
+serde-big-array = "0.5.1"
 smol = "2"
