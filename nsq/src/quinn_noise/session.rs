@@ -168,7 +168,7 @@ impl Session for NoiseSession {
         // If our expected `payload` length cannot contain the decrypted payload, `SnowError::Decrypt` will happen.
         let payload_len = handshake_state.read_message(buf, &mut payload).map_err(|snow_error| match snow_error {
             SnowError::Decrypt => TransportError { code: TransportErrorCode::PROTOCOL_VIOLATION, frame: None, reason: "Snow decryption failed".into() },
-            _ => panic!("An internal error occurred when reading handshake"),
+            other_err => panic!("An internal error occurred when reading handshake: {other_err:?}"),
         })?;
 
         // If expecting to receive the transport parameters, read them.
@@ -209,11 +209,6 @@ impl Session for NoiseSession {
     }
 
     fn write_handshake(&mut self, buf: &mut Vec<u8>) -> Option<Keys> {
-        // Even though at intermediate points in this handshake we have better
-        // keys, we can't really get them from the Snow state without calling
-        // dangerously_get_raw_split, which we shouldn't call until the end. So
-        // continue to return None until then.
-
         let Self::SnowHandshaking { handshake_state, local_transport_parameters, remote_transport_parameters } = self else { panic!("Expected to be handshaking when writing handshake"); };
 
         // If the read_handshake that occurred right before this write_handshake
@@ -227,6 +222,13 @@ impl Session for NoiseSession {
                 is_initiator: handshake_state.is_initiator(),
             };
             return Some(keys);
+        }
+
+        // quinn-proto calls write_handshake again after we just wrote to see if
+        // we have any more to write, but we don't, so return without filling
+        // `buf` which will cause it to stop calling us.
+        if !handshake_state.is_my_turn() {
+            return None;
         }
 
         const MAX_HANDSHAKE_MSG_LEN: usize = 4096;
@@ -260,6 +262,13 @@ impl Session for NoiseSession {
             Some(keys)
         } else {
             None
+            // TODO
+            // Even though at intermediate points in this handshake we have
+            // better keys, we can't really get them from the Snow state without
+            // calling dangerously_get_raw_split, which we shouldn't call until
+            // the end. So return the initial keys to quinn-proto again (which
+            // expects us to transition into a handshake keys state).
+            // TODO: Some(...)
         }
     }
 
@@ -514,15 +523,14 @@ impl TransportPacketKey {
     }
 
     fn encrypt_fallible(&self, packet: u64, buf: &mut [u8], header_len: usize) -> Result<(), ()> {
-        let payload_end_index = buf.len().checked_sub(self.tag_len()).ok_or(())?;
+        let payload_len = buf.len()
+            .checked_sub(self.tag_len())
+            .and_then(|num| num.checked_sub(header_len))
+            .ok_or(())?;
 
-        // TODO: Change to split_at_mut_checked when that is stabilised
-        if header_len > buf.len() {
-            return Err(());
-        }
         let (header, payload_and_tag) = buf.split_at_mut(header_len);
 
-        let mut fixed_buffer = FixedBuffer::new(payload_and_tag, payload_end_index);
+        let mut fixed_buffer = FixedBuffer::new(payload_and_tag, payload_len);
 
         // Construct nonce as in the Noise specification, but using the packet
         // number for n instead of internal state n
