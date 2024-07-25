@@ -16,6 +16,8 @@ use self::memory_inefficient_tofu_store::MemoryInefficientTofuStore;
 use self::smol_explicit_runtime::{EXECUTOR, SmolExplicitRuntime};
 
 fn main() -> Result<(), Box<dyn Error>> {
+    tracing_subscriber::fmt::init();
+
     smol::block_on(EXECUTOR.run(async {
         let mut file = File::open("your_client_secret.postcard")
             .await

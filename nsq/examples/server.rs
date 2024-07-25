@@ -18,6 +18,8 @@ use smol::{fs::File, prelude::*, Executor};
 static EXECUTOR: Executor<'_> = Executor::new();
 
 fn main() -> Result<(), Box<dyn Error>> {
+    tracing_subscriber::fmt::init();
+
     smol::block_on(EXECUTOR.run(async {
         let mut file = File::open("your_server_secret.postcard")
             .await

@@ -1,7 +1,7 @@
 // Copyright 2024 The Nushift Authors.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::any::Any;
+use std::{any::Any, num::NonZeroUsize};
 
 use chacha20::{
     cipher::{typenum::U10, KeyIvInit, StreamCipherCore, StreamCipherSeekCore},
@@ -36,7 +36,9 @@ const KEY_UPDATE_INFO: &[u8] = b"quic ku";
 
 pub(crate) enum NoiseSession {
     SnowHandshaking {
-        handshake_state: HandshakeState,
+        handshake_state: Box<HandshakeState>,
+        read_handshake_state: ReadHandshakeState,
+        read_handshake_buffer: Vec<u8>,
         local_transport_parameters: LocalTransportParameters,
         remote_transport_parameters: RemoteTransportParameters,
     },
@@ -46,6 +48,74 @@ pub(crate) enum NoiseSession {
         current_secrets: CurrentSecrets,
         is_initiator: bool,
     },
+}
+
+/// This is a duplicate of information stored in `HandshakeState`, but which it
+/// does not make publicly accessible
+pub(crate) enum ReadHandshakeState {
+    ResponderXxhfsMessage1,
+    ResponderXxhfsMessage3,
+    InitiatorXxhfsMessage2,
+    Finished,
+}
+
+impl ReadHandshakeState {
+    fn new_responder() -> Self {
+        Self::ResponderXxhfsMessage1
+    }
+
+    fn new_initiator() -> Self {
+        Self::InitiatorXxhfsMessage2
+    }
+
+    fn next_expected_message_len(&self) -> Option<NonZeroUsize> {
+        const X448_PUBLIC_KEY_LEN_BYTES: usize = 56;
+        const CHACHA20_POLY1305_TAG_LEN_BYTES: usize = 16;
+        const KYBER1024_PUBLIC_KEY_LEN_BYTES: usize = 1568;
+        const KYBER1024_CIPHERTEXT_LEN_BYTES: usize = 1568;
+
+        match self {
+            // e, e1
+            Self::ResponderXxhfsMessage1 => NonZeroUsize::new(const {
+                X448_PUBLIC_KEY_LEN_BYTES + KYBER1024_PUBLIC_KEY_LEN_BYTES
+            }),
+
+            // e, ee, ekem1 (encrypted), s (encrypted), es
+            Self::InitiatorXxhfsMessage2 => NonZeroUsize::new(const {
+                X448_PUBLIC_KEY_LEN_BYTES
+                    + KYBER1024_CIPHERTEXT_LEN_BYTES + CHACHA20_POLY1305_TAG_LEN_BYTES
+                    + X448_PUBLIC_KEY_LEN_BYTES + CHACHA20_POLY1305_TAG_LEN_BYTES
+            }),
+
+            // s (encrypted), se
+            Self::ResponderXxhfsMessage3 => NonZeroUsize::new(const {
+                X448_PUBLIC_KEY_LEN_BYTES + CHACHA20_POLY1305_TAG_LEN_BYTES
+            }),
+
+            Self::Finished => None,
+        }
+    }
+
+    fn advance(&mut self) -> Result<(), ()> {
+        match self {
+            Self::ResponderXxhfsMessage1 => {
+                *self = Self::ResponderXxhfsMessage3;
+                Ok(())
+            }
+
+            Self::ResponderXxhfsMessage3 => {
+                *self = Self::Finished;
+                Ok(())
+            }
+
+            Self::InitiatorXxhfsMessage2 => {
+                *self = Self::Finished;
+                Ok(())
+            }
+
+            Self::Finished => Err(()),
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -67,8 +137,12 @@ pub(crate) struct CurrentSecrets {
 
 impl NoiseSession {
     pub(crate) fn new_handshaking(handshake_state: HandshakeState, local_transport_parameters: TransportParameters) -> Self {
+        let is_initiator = handshake_state.is_initiator();
+
         Self::SnowHandshaking {
-            handshake_state,
+            handshake_state: Box::new(handshake_state),
+            read_handshake_state: if is_initiator { ReadHandshakeState::new_initiator() } else { ReadHandshakeState::new_responder() },
+            read_handshake_buffer: vec![],
             local_transport_parameters: LocalTransportParameters::Unsent(local_transport_parameters),
             remote_transport_parameters: RemoteTransportParameters::NotReceived,
         }
@@ -153,7 +227,20 @@ impl Session for NoiseSession {
     }
 
     fn read_handshake(&mut self, buf: &[u8]) -> Result<bool, TransportError> {
-        let Self::SnowHandshaking { handshake_state, remote_transport_parameters, .. } = self else { panic!("Expected to be handshaking when reading handshake"); };
+        let Self::SnowHandshaking { handshake_state, read_handshake_state, read_handshake_buffer, remote_transport_parameters, .. } = self else { panic!("Expected to be handshaking when reading handshake"); };
+
+        // This doesn't fill infinitely because the default max crypto buffer
+        // size (which we don't change) is 16 KiB and quinn will stop calling us
+        // if that is exceeded
+        read_handshake_buffer.extend_from_slice(buf);
+        if read_handshake_buffer.len()
+            < read_handshake_state
+                .next_expected_message_len()
+                .expect("Should not be in finished state if read_handshake is being called")
+                .get()
+        {
+            return Ok(false);
+        }
 
         // If the remote transport parameters are not received, then this is the
         // first call of read_handshake, and receive them. Otherwise, expect an
@@ -166,10 +253,13 @@ impl Session for NoiseSession {
         };
 
         // If our expected `payload` length cannot contain the decrypted payload, `SnowError::Decrypt` will happen.
-        let payload_len = handshake_state.read_message(buf, &mut payload).map_err(|snow_error| match snow_error {
+        let payload_len = handshake_state.read_message(read_handshake_buffer, &mut payload).map_err(|snow_error| match snow_error {
             SnowError::Decrypt => TransportError { code: TransportErrorCode::PROTOCOL_VIOLATION, frame: None, reason: "Snow decryption failed".into() },
             other_err => panic!("An internal error occurred when reading handshake: {other_err:?}"),
         })?;
+
+        // Since handshake_state.read_message() succeeded, advance the read_handshake_state.
+        read_handshake_state.advance().expect("Should not already be in finished state if read_handshake is being called");
 
         // If expecting to receive the transport parameters, read them.
         if let RemoteTransportParameters::NotReceived = remote_transport_parameters {
@@ -209,7 +299,7 @@ impl Session for NoiseSession {
     }
 
     fn write_handshake(&mut self, buf: &mut Vec<u8>) -> Option<Keys> {
-        let Self::SnowHandshaking { handshake_state, local_transport_parameters, remote_transport_parameters } = self else { panic!("Expected to be handshaking when writing handshake"); };
+        let Self::SnowHandshaking { handshake_state, local_transport_parameters, remote_transport_parameters, .. } = self else { panic!("Expected to be handshaking when writing handshake"); };
 
         // If the read_handshake that occurred right before this write_handshake
         // caused the handshake to be finished, then detect that here and return

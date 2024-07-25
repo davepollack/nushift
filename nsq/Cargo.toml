@@ -36,3 +36,4 @@ quinn = { version = "0.11.2", default-features = false, features = ["log", "runt
 serde = { version = "1", features = ["derive", "std"] }
 serde-big-array = "0.5.1"
 smol = "2"
+tracing-subscriber = "0.3"
