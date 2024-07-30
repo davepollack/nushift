@@ -43,6 +43,7 @@ pub(crate) enum NoiseSession {
         remote_transport_parameters: RemoteTransportParameters,
     },
     Transport {
+        quinn_crypto_state: QuinnCryptoState,
         remote_static_key: Option<Vec<u8>>,
         remote_transport_parameters: RemoteTransportParameters,
         current_secrets: CurrentSecrets,
@@ -130,9 +131,59 @@ pub(crate) enum RemoteTransportParameters {
     NotReceived,
 }
 
+/// Used at the end of the handshake where Quinn calls us multiple times in a
+/// loop and we upgrade it with the final keys
+pub(crate) enum QuinnCryptoState {
+    Handshake,
+    Data,
+}
+
+#[derive(Copy, Clone)]
 pub(crate) struct CurrentSecrets {
     i_to_r_cipherstate_key: [u8; 32],
     r_to_i_cipherstate_key: [u8; 32],
+}
+
+impl CurrentSecrets {
+    fn keys(&self, is_initiator: bool) -> Keys {
+        if is_initiator {
+            Keys {
+                header: KeyPair {
+                    local: Box::new(TransportHeaderKey::from_cs_key(self.i_to_r_cipherstate_key)),
+                    remote: Box::new(TransportHeaderKey::from_cs_key(self.r_to_i_cipherstate_key)),
+                },
+                packet: KeyPair {
+                    local: Box::new(TransportPacketKey::from_cs_key(self.i_to_r_cipherstate_key)),
+                    remote: Box::new(TransportPacketKey::from_cs_key(self.r_to_i_cipherstate_key)),
+                },
+            }
+        } else {
+            Keys {
+                header: KeyPair {
+                    local: Box::new(TransportHeaderKey::from_cs_key(self.r_to_i_cipherstate_key)),
+                    remote: Box::new(TransportHeaderKey::from_cs_key(self.i_to_r_cipherstate_key)),
+                },
+                packet: KeyPair {
+                    local: Box::new(TransportPacketKey::from_cs_key(self.r_to_i_cipherstate_key)),
+                    remote: Box::new(TransportPacketKey::from_cs_key(self.i_to_r_cipherstate_key)),
+                },
+            }
+        }
+    }
+
+    fn packet_keys_only(&self, is_initiator: bool) -> KeyPair<Box<dyn PacketKey>> {
+        if is_initiator {
+            KeyPair {
+                local: Box::new(TransportPacketKey::from_cs_key(self.i_to_r_cipherstate_key)),
+                remote: Box::new(TransportPacketKey::from_cs_key(self.r_to_i_cipherstate_key)),
+            }
+        } else {
+            KeyPair {
+                local: Box::new(TransportPacketKey::from_cs_key(self.r_to_i_cipherstate_key)),
+                remote: Box::new(TransportPacketKey::from_cs_key(self.i_to_r_cipherstate_key)),
+            }
+        }
+    }
 }
 
 impl NoiseSession {
@@ -258,6 +309,9 @@ impl Session for NoiseSession {
             other_err => panic!("An internal error occurred when reading handshake: {other_err:?}"),
         })?;
 
+        // Clear the buffer.
+        read_handshake_buffer.clear();
+
         // Since handshake_state.read_message() succeeded, advance the read_handshake_state.
         read_handshake_state.advance().expect("Should not already be in finished state if read_handshake is being called");
 
@@ -299,19 +353,42 @@ impl Session for NoiseSession {
     }
 
     fn write_handshake(&mut self, buf: &mut Vec<u8>) -> Option<Keys> {
-        let Self::SnowHandshaking { handshake_state, local_transport_parameters, remote_transport_parameters, .. } = self else { panic!("Expected to be handshaking when writing handshake"); };
+        let (handshake_state, local_transport_parameters, remote_transport_parameters) = match self {
+            Self::SnowHandshaking { handshake_state, local_transport_parameters, remote_transport_parameters, .. } => (handshake_state, local_transport_parameters, remote_transport_parameters),
+
+            // quinn calls write_handshake again immediately after we upgraded
+            // the keys after the handshake is finished to see if we have any
+            // more data to write, which we don't (and we've set the state to
+            // `Self::Transport` at this point). That first upgrade only
+            // provided keys for the `Handshake` packet space, but the handshake
+            // is finished, we now need to provide keys again for the `Data`
+            // packet space. We provide the same keys as `Handshake` because we
+            // don't actually use the `Handshake` packet space and those keys
+            // were always intended to be the final `Data` keys.
+            Self::Transport { quinn_crypto_state, current_secrets, is_initiator, .. } => match quinn_crypto_state {
+                QuinnCryptoState::Handshake => {
+                    *quinn_crypto_state = QuinnCryptoState::Data;
+                    return Some(current_secrets.keys(*is_initiator))
+                }
+                QuinnCryptoState::Data => return None,
+            }
+        };
 
         // If the read_handshake that occurred right before this write_handshake
         // caused the handshake to be finished, then detect that here and return
         // (and *don't* call Snow write_message which would fail).
-        if let Some((current_secrets, keys)) = if_handshake_finished_then_get_keys(handshake_state) {
+        if let Some(current_secrets) = if_handshake_finished_then_get_keys(handshake_state) {
+            let is_initiator = handshake_state.is_initiator();
+
             *self = Self::Transport {
+                quinn_crypto_state: QuinnCryptoState::Handshake,
                 remote_static_key: handshake_state.get_remote_static().map(|slice| slice.into()),
                 remote_transport_parameters: *remote_transport_parameters,
                 current_secrets,
-                is_initiator: handshake_state.is_initiator(),
+                is_initiator,
             };
-            return Some(keys);
+
+            return Some(current_secrets.keys(is_initiator));
         }
 
         // quinn-proto calls write_handshake again after we just wrote to see if
@@ -342,23 +419,24 @@ impl Session for NoiseSession {
         buf.extend_from_slice(&handshake_msg_buffer[..message_len]);
 
         // Now check again whether the handshake is finished.
-        if let Some((current_secrets, keys)) = if_handshake_finished_then_get_keys(handshake_state) {
+        if let Some(current_secrets) = if_handshake_finished_then_get_keys(handshake_state) {
+            let is_initiator = handshake_state.is_initiator();
+
             *self = Self::Transport {
+                quinn_crypto_state: QuinnCryptoState::Handshake,
                 remote_static_key: handshake_state.get_remote_static().map(|slice| slice.into()),
                 remote_transport_parameters: *remote_transport_parameters,
                 current_secrets,
-                is_initiator: handshake_state.is_initiator(),
+                is_initiator,
             };
-            Some(keys)
+
+            Some(current_secrets.keys(is_initiator))
         } else {
-            None
-            // TODO
             // Even though at intermediate points in this handshake we have
             // better keys, we can't really get them from the Snow state without
             // calling dangerously_get_raw_split, which we shouldn't call until
-            // the end. So return the initial keys to quinn-proto again (which
-            // expects us to transition into a handshake keys state).
-            // TODO: Some(...)
+            // the end. So continue to return None until then.
+            None
         }
     }
 
@@ -377,21 +455,7 @@ impl Session for NoiseSession {
             r_to_i_cipherstate_key: new_r_to_i_cipherstate_key,
         };
 
-        if *is_initiator {
-            Some(
-                KeyPair {
-                    local: Box::new(TransportPacketKey::from_cs_key(new_i_to_r_cipherstate_key)),
-                    remote: Box::new(TransportPacketKey::from_cs_key(new_r_to_i_cipherstate_key)),
-                }
-            )
-        } else {
-            Some(
-                KeyPair {
-                    local: Box::new(TransportPacketKey::from_cs_key(new_r_to_i_cipherstate_key)),
-                    remote: Box::new(TransportPacketKey::from_cs_key(new_i_to_r_cipherstate_key)),
-                }
-            )
-        }
+        Some(current_secrets.packet_keys_only(*is_initiator))
     }
 
     fn is_valid_retry(&self, orig_dst_cid: &ConnectionId, header: &[u8], payload: &[u8]) -> bool {
@@ -434,39 +498,11 @@ impl Session for NoiseSession {
     }
 }
 
-fn if_handshake_finished_then_get_keys(handshake_state: &mut HandshakeState) -> Option<(CurrentSecrets, Keys)> {
+fn if_handshake_finished_then_get_keys(handshake_state: &mut HandshakeState) -> Option<CurrentSecrets> {
     if handshake_state.is_handshake_finished() {
         let (i_to_r_cipherstate_key, r_to_i_cipherstate_key) = handshake_state.dangerously_get_raw_split();
 
-        if handshake_state.is_initiator() {
-            Some((
-                CurrentSecrets { i_to_r_cipherstate_key, r_to_i_cipherstate_key },
-                Keys {
-                    header: KeyPair {
-                        local: Box::new(TransportHeaderKey::from_cs_key(i_to_r_cipherstate_key)),
-                        remote: Box::new(TransportHeaderKey::from_cs_key(r_to_i_cipherstate_key)),
-                    },
-                    packet: KeyPair {
-                        local: Box::new(TransportPacketKey::from_cs_key(i_to_r_cipherstate_key)),
-                        remote: Box::new(TransportPacketKey::from_cs_key(r_to_i_cipherstate_key)),
-                    },
-                },
-            ))
-        } else {
-            Some((
-                CurrentSecrets { i_to_r_cipherstate_key, r_to_i_cipherstate_key },
-                Keys {
-                    header: KeyPair {
-                        local: Box::new(TransportHeaderKey::from_cs_key(r_to_i_cipherstate_key)),
-                        remote: Box::new(TransportHeaderKey::from_cs_key(i_to_r_cipherstate_key)),
-                    },
-                    packet: KeyPair {
-                        local: Box::new(TransportPacketKey::from_cs_key(r_to_i_cipherstate_key)),
-                        remote: Box::new(TransportPacketKey::from_cs_key(i_to_r_cipherstate_key)),
-                    },
-                },
-            ))
-        }
+        Some(CurrentSecrets { i_to_r_cipherstate_key, r_to_i_cipherstate_key })
     } else {
         None
     }

@@ -1,16 +1,14 @@
 // Copyright 2024 The Nushift Authors.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::io::{self, Read, Write};
-use std::{error::Error, sync::Arc};
+use std::{error::Error, io::{self, Read, Write}, sync::Arc};
 
 use bytes::Buf;
 use http::Request;
 use nsq::NsqClient;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
-use smol::future;
-use smol::{fs::File, prelude::*};
+use smol::{fs::File, future, prelude::*};
 
 use self::memory_inefficient_tofu_store::MemoryInefficientTofuStore;
 use self::smol_explicit_runtime::{EXECUTOR, SmolExplicitRuntime};
