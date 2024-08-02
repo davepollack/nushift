@@ -39,11 +39,11 @@ pub(crate) enum NoiseSession {
         handshake_state: Box<HandshakeState>,
         read_handshake_state: ReadHandshakeState,
         read_handshake_buffer: Vec<u8>,
+        quinn_crypto_state: QuinnCryptoState,
         local_transport_parameters: LocalTransportParameters,
         remote_transport_parameters: RemoteTransportParameters,
     },
     Transport {
-        quinn_crypto_state: QuinnCryptoState,
         remote_static_key: Option<Vec<u8>>,
         remote_transport_parameters: RemoteTransportParameters,
         current_secrets: CurrentSecrets,
@@ -131,11 +131,11 @@ pub(crate) enum RemoteTransportParameters {
     NotReceived,
 }
 
-/// Used at the end of the handshake where Quinn calls us multiple times in a
-/// loop and we upgrade it with the final keys
+/// Used where Quinn calls us multiple times in a loop and we upgrade it with
+/// the next keys
 pub(crate) enum QuinnCryptoState {
+    Initial,
     Handshake,
-    Data,
 }
 
 #[derive(Copy, Clone)]
@@ -194,6 +194,7 @@ impl NoiseSession {
             handshake_state: Box::new(handshake_state),
             read_handshake_state: if is_initiator { ReadHandshakeState::new_initiator() } else { ReadHandshakeState::new_responder() },
             read_handshake_buffer: vec![],
+            quinn_crypto_state: QuinnCryptoState::Initial,
             local_transport_parameters: LocalTransportParameters::Unsent(local_transport_parameters),
             remote_transport_parameters: RemoteTransportParameters::NotReceived,
         }
@@ -344,7 +345,11 @@ impl Session for NoiseSession {
 
     fn transport_parameters(&self) -> Result<Option<TransportParameters>, TransportError> {
         match self {
-            Self::Transport {
+            Self::SnowHandshaking {
+                remote_transport_parameters: RemoteTransportParameters::Received(remote_transport_parameters),
+                ..
+            }
+            | Self::Transport {
                 remote_transport_parameters: RemoteTransportParameters::Received(remote_transport_parameters),
                 ..
             } => Ok(Some(*remote_transport_parameters)),
@@ -353,25 +358,14 @@ impl Session for NoiseSession {
     }
 
     fn write_handshake(&mut self, buf: &mut Vec<u8>) -> Option<Keys> {
-        let (handshake_state, local_transport_parameters, remote_transport_parameters) = match self {
-            Self::SnowHandshaking { handshake_state, local_transport_parameters, remote_transport_parameters, .. } => (handshake_state, local_transport_parameters, remote_transport_parameters),
+        let (handshake_state, read_handshake_state, quinn_crypto_state, local_transport_parameters, remote_transport_parameters) = match self {
+            Self::SnowHandshaking { handshake_state, read_handshake_state, quinn_crypto_state, local_transport_parameters, remote_transport_parameters, .. } => (handshake_state, read_handshake_state, quinn_crypto_state, local_transport_parameters, remote_transport_parameters),
 
             // quinn calls write_handshake again immediately after we upgraded
             // the keys after the handshake is finished to see if we have any
             // more data to write, which we don't (and we've set the state to
-            // `Self::Transport` at this point). That first upgrade only
-            // provided keys for the `Handshake` packet space, but the handshake
-            // is finished, we now need to provide keys again for the `Data`
-            // packet space. We provide the same keys as `Handshake` because we
-            // don't actually use the `Handshake` packet space and those keys
-            // were always intended to be the final `Data` keys.
-            Self::Transport { quinn_crypto_state, current_secrets, is_initiator, .. } => match quinn_crypto_state {
-                QuinnCryptoState::Handshake => {
-                    *quinn_crypto_state = QuinnCryptoState::Data;
-                    return Some(current_secrets.keys(*is_initiator))
-                }
-                QuinnCryptoState::Data => return None,
-            }
+            // `Self::Transport` at this point).
+            Self::Transport { .. } => return None,
         };
 
         // If the read_handshake that occurred right before this write_handshake
@@ -381,7 +375,6 @@ impl Session for NoiseSession {
             let is_initiator = handshake_state.is_initiator();
 
             *self = Self::Transport {
-                quinn_crypto_state: QuinnCryptoState::Handshake,
                 remote_static_key: handshake_state.get_remote_static().map(|slice| slice.into()),
                 remote_transport_parameters: *remote_transport_parameters,
                 current_secrets,
@@ -389,6 +382,25 @@ impl Session for NoiseSession {
             };
 
             return Some(current_secrets.keys(is_initiator));
+        }
+
+        // If we are the client and are about to write the final message, first
+        // upgrade Quinn to the Handshake keys and allow it to loop and call us
+        // again, sending the final message as a Handshake packet.
+
+        // Similarly if we are the server and we have just written the
+        // second-last message, upgrade the keys so we can read the next (final)
+        // message from the client. This part will be at the end of this
+        // function.
+        if handshake_state.is_initiator()
+            && matches!(read_handshake_state, ReadHandshakeState::Finished)
+            && matches!(quinn_crypto_state, QuinnCryptoState::Initial)
+        {
+            *quinn_crypto_state = QuinnCryptoState::Handshake;
+            let (i_to_r_cipherstate_key, r_to_i_cipherstate_key) = handshake_state.dangerously_get_raw_split();
+            let current_secrets = CurrentSecrets { i_to_r_cipherstate_key, r_to_i_cipherstate_key };
+
+            return Some(current_secrets.keys(true));
         }
 
         // quinn-proto calls write_handshake again after we just wrote to see if
@@ -423,7 +435,6 @@ impl Session for NoiseSession {
             let is_initiator = handshake_state.is_initiator();
 
             *self = Self::Transport {
-                quinn_crypto_state: QuinnCryptoState::Handshake,
                 remote_static_key: handshake_state.get_remote_static().map(|slice| slice.into()),
                 remote_transport_parameters: *remote_transport_parameters,
                 current_secrets,
@@ -431,11 +442,16 @@ impl Session for NoiseSession {
             };
 
             Some(current_secrets.keys(is_initiator))
+        } else if !handshake_state.is_initiator() && matches!(read_handshake_state, ReadHandshakeState::ResponderXxhfsMessage3) {
+            // We are the server and we expect the next (and final) message to
+            // be from the client and using the upgraded Handshake keys, so
+            // switch Quinn on our end to those, too.
+            *quinn_crypto_state = QuinnCryptoState::Handshake;
+            let (i_to_r_cipherstate_key, r_to_i_cipherstate_key) = handshake_state.dangerously_get_raw_split();
+            let current_secrets = CurrentSecrets { i_to_r_cipherstate_key, r_to_i_cipherstate_key };
+
+            Some(current_secrets.keys(false))
         } else {
-            // Even though at intermediate points in this handshake we have
-            // better keys, we can't really get them from the Snow state without
-            // calling dangerously_get_raw_split, which we shouldn't call until
-            // the end. So continue to return None until then.
             None
         }
     }
