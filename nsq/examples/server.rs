@@ -84,7 +84,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                                     }
                                 }
 
-                                match stream.send_data(Bytes::from_static(b"Hello, world!")).await {
+                                match stream.send_data(Bytes::from_static(b"Hello, world!\n")).await {
                                     Ok(_) => {}
                                     Err(err) => {
                                         eprintln!("Failed to send response body to client: {err}");
@@ -97,6 +97,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                                         eprintln!("Failed to finish stream: {err}");
                                     }
                                 }
+
+                                println!("Response sent");
                             }).detach();
                         }
 
@@ -115,6 +117,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                         }
                     }
                 }
+
+                println!("Connection closed");
             }).detach();
         }
 

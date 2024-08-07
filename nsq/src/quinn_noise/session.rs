@@ -69,6 +69,12 @@ impl ReadHandshakeState {
         Self::InitiatorXxhfsMessage2
     }
 
+    /// TODO: This should return the length of the full Noise message, i.e. both
+    /// (encrypted, unencrypted) public keys *and* the payload, while at the
+    /// moment it only returns the length of the keys. E.g. QUIC transport
+    /// parameters are sometimes the payload. It just happens to work at the
+    /// moment because the datagram length is either 1 or 2 and the inclusion of
+    /// transport parameters doesn't push that over what it otherwise would be.
     fn next_expected_message_len(&self) -> Option<NonZeroUsize> {
         const X448_PUBLIC_KEY_LEN_BYTES: usize = 56;
         const CHACHA20_POLY1305_TAG_LEN_BYTES: usize = 16;
@@ -384,23 +390,26 @@ impl Session for NoiseSession {
             return Some(current_secrets.keys(is_initiator));
         }
 
-        // If we are the client and are about to write the final message, first
+        // If we are the server and are about to write the second message, first
         // upgrade Quinn to the Handshake keys and allow it to loop and call us
-        // again, sending the final message as a Handshake packet.
+        // again, sending the second message as a Handshake packet.
 
-        // Similarly if we are the server and we have just written the
-        // second-last message, upgrade the keys so we can read the next (final)
-        // message from the client. This part will be at the end of this
-        // function.
-        if handshake_state.is_initiator()
-            && matches!(read_handshake_state, ReadHandshakeState::Finished)
+        // The "Handshake keys" are kind of dumb - no key material has been
+        // mixed in - however we need to upgrade to them at this point in order
+        // to work with both the Quinn and Snow implementations.
+
+        // Similarly if we are the client and we have just written the first
+        // message, upgrade the keys so we can read the next (second) message
+        // from the server. This part will be at the end of this function.
+        if !handshake_state.is_initiator()
+            && matches!(read_handshake_state, ReadHandshakeState::ResponderXxhfsMessage3)
             && matches!(quinn_crypto_state, QuinnCryptoState::Initial)
         {
             *quinn_crypto_state = QuinnCryptoState::Handshake;
             let (i_to_r_cipherstate_key, r_to_i_cipherstate_key) = handshake_state.dangerously_get_raw_split();
             let current_secrets = CurrentSecrets { i_to_r_cipherstate_key, r_to_i_cipherstate_key };
 
-            return Some(current_secrets.keys(true));
+            return Some(current_secrets.keys(false));
         }
 
         // quinn-proto calls write_handshake again after we just wrote to see if
@@ -442,15 +451,15 @@ impl Session for NoiseSession {
             };
 
             Some(current_secrets.keys(is_initiator))
-        } else if !handshake_state.is_initiator() && matches!(read_handshake_state, ReadHandshakeState::ResponderXxhfsMessage3) {
-            // We are the server and we expect the next (and final) message to
-            // be from the client and using the upgraded Handshake keys, so
-            // switch Quinn on our end to those, too.
+        } else if handshake_state.is_initiator() && matches!(read_handshake_state, ReadHandshakeState::InitiatorXxhfsMessage2) {
+            // We are the client and we expect the next (second) message to be
+            // from the server and using the upgraded Handshake keys, so switch
+            // Quinn on our end to those, too.
             *quinn_crypto_state = QuinnCryptoState::Handshake;
             let (i_to_r_cipherstate_key, r_to_i_cipherstate_key) = handshake_state.dangerously_get_raw_split();
             let current_secrets = CurrentSecrets { i_to_r_cipherstate_key, r_to_i_cipherstate_key };
 
-            Some(current_secrets.keys(false))
+            Some(current_secrets.keys(true))
         } else {
             None
         }
