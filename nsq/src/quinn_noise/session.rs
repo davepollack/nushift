@@ -374,11 +374,13 @@ impl Session for NoiseSession {
             Self::Transport { .. } => return None,
         };
 
+        let is_initiator = handshake_state.is_initiator();
+
         // If the read_handshake that occurred right before this write_handshake
         // caused the handshake to be finished, then detect that here and return
         // (and *don't* call Snow write_message which would fail).
-        if let Some(current_secrets) = if_handshake_finished_then_get_keys(handshake_state) {
-            let is_initiator = handshake_state.is_initiator();
+        if handshake_state.is_handshake_finished() {
+            let (current_secrets, keys) = get_keys(handshake_state);
 
             *self = Self::Transport {
                 remote_static_key: handshake_state.get_remote_static().map(|slice| slice.into()),
@@ -387,7 +389,7 @@ impl Session for NoiseSession {
                 is_initiator,
             };
 
-            return Some(current_secrets.keys(is_initiator));
+            return Some(keys);
         }
 
         // If we are the server and are about to write the second message, first
@@ -401,15 +403,14 @@ impl Session for NoiseSession {
         // Similarly if we are the client and we have just written the first
         // message, upgrade the keys so we can read the next (second) message
         // from the server. This part will be at the end of this function.
-        if !handshake_state.is_initiator()
+        if !is_initiator
             && matches!(read_handshake_state, ReadHandshakeState::ResponderXxhfsMessage3)
             && matches!(quinn_crypto_state, QuinnCryptoState::Initial)
         {
             *quinn_crypto_state = QuinnCryptoState::Handshake;
-            let (i_to_r_cipherstate_key, r_to_i_cipherstate_key) = handshake_state.dangerously_get_raw_split();
-            let current_secrets = CurrentSecrets { i_to_r_cipherstate_key, r_to_i_cipherstate_key };
+            let (_current_secrets, keys) = get_keys(handshake_state);
 
-            return Some(current_secrets.keys(false));
+            return Some(keys);
         }
 
         // quinn-proto calls write_handshake again after we just wrote to see if
@@ -440,8 +441,8 @@ impl Session for NoiseSession {
         buf.extend_from_slice(&handshake_msg_buffer[..message_len]);
 
         // Now check again whether the handshake is finished.
-        if let Some(current_secrets) = if_handshake_finished_then_get_keys(handshake_state) {
-            let is_initiator = handshake_state.is_initiator();
+        if handshake_state.is_handshake_finished() {
+            let (current_secrets, keys) = get_keys(handshake_state);
 
             *self = Self::Transport {
                 remote_static_key: handshake_state.get_remote_static().map(|slice| slice.into()),
@@ -450,16 +451,15 @@ impl Session for NoiseSession {
                 is_initiator,
             };
 
-            Some(current_secrets.keys(is_initiator))
-        } else if handshake_state.is_initiator() && matches!(read_handshake_state, ReadHandshakeState::InitiatorXxhfsMessage2) {
+            Some(keys)
+        } else if is_initiator && matches!(read_handshake_state, ReadHandshakeState::InitiatorXxhfsMessage2) {
             // We are the client and we expect the next (second) message to be
             // from the server and using the upgraded Handshake keys, so switch
             // Quinn on our end to those, too.
             *quinn_crypto_state = QuinnCryptoState::Handshake;
-            let (i_to_r_cipherstate_key, r_to_i_cipherstate_key) = handshake_state.dangerously_get_raw_split();
-            let current_secrets = CurrentSecrets { i_to_r_cipherstate_key, r_to_i_cipherstate_key };
+            let (_current_secrets, keys) = get_keys(handshake_state);
 
-            Some(current_secrets.keys(true))
+            Some(keys)
         } else {
             None
         }
@@ -523,14 +523,13 @@ impl Session for NoiseSession {
     }
 }
 
-fn if_handshake_finished_then_get_keys(handshake_state: &mut HandshakeState) -> Option<CurrentSecrets> {
-    if handshake_state.is_handshake_finished() {
-        let (i_to_r_cipherstate_key, r_to_i_cipherstate_key) = handshake_state.dangerously_get_raw_split();
+fn get_keys(handshake_state: &mut HandshakeState) -> (CurrentSecrets, Keys) {
+    let (i_to_r_cipherstate_key, r_to_i_cipherstate_key) = handshake_state.dangerously_get_raw_split();
 
-        Some(CurrentSecrets { i_to_r_cipherstate_key, r_to_i_cipherstate_key })
-    } else {
-        None
-    }
+    let current_secrets = CurrentSecrets { i_to_r_cipherstate_key, r_to_i_cipherstate_key };
+    let keys = current_secrets.keys(handshake_state.is_initiator());
+
+    (current_secrets, keys)
 }
 
 struct TransportHeaderKey([u8; 32]);
