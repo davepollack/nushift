@@ -11,18 +11,17 @@ use quinn::{AsyncTimer, AsyncUdpSocket, Runtime, SmolRuntime};
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 use smol::{fs::File, prelude::*, Executor};
-use snafu::prelude::*;
+use snafu::{prelude::*, Report};
 
 /// Use a global executor, because a `quinn::Runtime` must be `'static`. We
 /// explicitly specify it (rather than using `smol::spawn` that uses an implicit
 /// default global executor) just to be more explicit.
 static EXECUTOR: Executor<'_> = Executor::new();
 
-#[snafu::report]
-fn main() -> Result<(), MainError> {
+fn main() -> Report<MainError> {
     tracing_subscriber::fmt::init();
 
-    smol::block_on(EXECUTOR.run(async {
+    Report::capture(|| smol::block_on(EXECUTOR.run(async {
         let mut file = File::open("your_server_secret.postcard")
             .await
             .map_err(|_| "A secret file your_server_secret.postcard was not found or couldn't be opened. Please generate it using generate_your_secrets.rs.")?;
@@ -132,7 +131,7 @@ fn main() -> Result<(), MainError> {
         println!("Server shut down.");
 
         Ok(())
-    })).map_err(|err: Box<dyn Error>| err.into())
+    })).map_err(|err: Box<dyn Error>| err.into()))
 }
 
 #[derive(Debug, Snafu)]

@@ -9,16 +9,15 @@ use nsq::NsqClient;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 use smol::{fs::File, future, prelude::*};
-use snafu::prelude::*;
+use snafu::{prelude::*, Report};
 
 use self::memory_inefficient_tofu_store::MemoryInefficientTofuStore;
 use self::smol_explicit_runtime::{EXECUTOR, SmolExplicitRuntime};
 
-#[snafu::report]
-fn main() -> Result<(), MainError> {
+fn main() -> Report<MainError> {
     tracing_subscriber::fmt::init();
 
-    smol::block_on(EXECUTOR.run(async {
+    Report::capture(|| smol::block_on(EXECUTOR.run(async {
         let mut file = File::open("your_client_secret.postcard")
             .await
             .map_err(|_| "A secret file your_client_secret.postcard was not found or couldn't be opened. Please generate it using generate_your_secrets.rs.")?;
@@ -73,7 +72,7 @@ fn main() -> Result<(), MainError> {
         client.endpoint().wait_idle().await;
 
         Ok(())
-    })).map_err(|err: Box<dyn Error>| err.into())
+    })).map_err(|err: Box<dyn Error>| err.into()))
 }
 
 #[derive(Debug, Snafu)]
