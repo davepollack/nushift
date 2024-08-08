@@ -5,87 +5,87 @@ use std::{error::Error, io::{self, Read, Write}, sync::Arc};
 
 use bytes::Buf;
 use http::Request;
-use nsq::NsqClient;
-use serde::{Deserialize, Serialize};
-use serde_big_array::BigArray;
-use smol::{fs::File, future, prelude::*};
-use snafu::{prelude::*, Report};
+use nsq::{ConnectWithTofuError, NsqClient};
+use smol::future;
+use snafu::{prelude::*, Report, Whatever};
 
 use self::memory_inefficient_tofu_store::MemoryInefficientTofuStore;
 use self::smol_explicit_runtime::{EXECUTOR, SmolExplicitRuntime};
 
+/// NOTE: You should NOT use this secret, you should randomly generate one. This
+/// is used in this example because messing around with secret files made these
+/// examples too hard to run.
+const CLIENT_STATIC_SECRET: [u8; 56] = [2u8; 56];
+
 fn main() -> Report<MainError> {
     tracing_subscriber::fmt::init();
 
-    Report::capture(|| smol::block_on(EXECUTOR.run(async {
-        let mut file = File::open("your_client_secret.postcard")
-            .await
-            .map_err(|_| "A secret file your_client_secret.postcard was not found or couldn't be opened. Please generate it using generate_your_secrets.rs.")?;
+    Report::capture(|| {
+        smol::block_on(EXECUTOR.run(async {
+            let runtime = Arc::new(SmolExplicitRuntime);
 
-        // Use postcard::from_bytes, not postcard::from_io, because the latter
-        // requires a buffer anyway (that is as large as the file).
-        let mut contents = vec![];
-        file.read_to_end(&mut contents).await?;
-        let secret_file: SecretFile = postcard::from_bytes(&contents)?;
+            let client = NsqClient::new_v6(CLIENT_STATIC_SECRET, runtime)?;
 
-        let runtime = Arc::new(SmolExplicitRuntime);
+            println!("Connecting to [::1]:45777...");
 
-        let client = NsqClient::new_v6(secret_file.secret, runtime)?;
-
-        println!("Connecting to [::1]:45777...");
-
-        let connection = client.connect_with_tofu(MemoryInefficientTofuStore, "[::1]:45777".parse()?, "localhost").await?;
-        let (mut connection, mut send_request) = h3::client::new(h3_quinn::Connection::new(connection)).await?;
-
-        println!("Connected. Sending request...");
-        println!();
-
-        let drive = async move {
-            future::poll_fn(|cx| connection.poll_close(cx))
+            let connection = client
+                .connect_with_tofu(MemoryInefficientTofuStore, "[::1]:45777".parse()?, "localhost")
                 .await
-                .map_err(|err| Box::new(err) as Box<dyn Error>)
-        };
+                .with_whatever_context::<_, &str, Whatever>(|connect_with_tofu_error| match connect_with_tofu_error {
+                    ConnectWithTofuError::UntrustedKey { .. } => "The remote static \
+                        key is untrusted, because a different one was seen before for \
+                        this host and is stored in tofu_store.postcard. Try deleting \
+                        tofu_store.postcard to reset it (for all hosts). However, this \
+                        error shouldn't occur if you didn't change the source code of \
+                        the examples.",
+                    _other_err => "Connect error",
+                })?;
 
-        let request = async move {
-            let request = Request::builder().uri("nsq://localhost/").body(())?;
-            let mut stream = send_request.send_request(request).await?;
-            stream.finish().await?;
+            let (mut connection, mut send_request) = h3::client::new(h3_quinn::Connection::new(connection)).await?;
 
-            let response = stream.recv_response().await?;
-
-            println!("{:?} {}", response.version(), response.status());
-            println!("{:#?}", response.headers());
+            println!("Connected. Sending request...");
             println!();
 
-            while let Some(chunk) = stream.recv_data().await? {
-                let mut contents = vec![];
-                chunk.reader().read_to_end(&mut contents)?;
-                io::stdout().write_all(&contents)?;
-            }
+            let drive = async move {
+                future::poll_fn(|cx| connection.poll_close(cx))
+                    .await
+                    .map_err(|err| Box::new(err) as Box<dyn Error>)
+            };
 
-            Ok::<(), Box<dyn Error>>(())
-        };
+            let request = async move {
+                let request = Request::builder().uri("nsq://localhost/").body(())?;
+                let mut stream = send_request.send_request(request).await?;
+                stream.finish().await?;
 
-        future::try_zip(drive, request).await?;
+                let response = stream.recv_response().await?;
 
-        // Wait for connection to be cleanly shut down
-        client.endpoint().wait_idle().await;
+                println!("{:?} {}", response.version(), response.status());
+                println!("{:#?}", response.headers());
+                println!();
 
-        Ok(())
-    })).map_err(|err: Box<dyn Error>| err.into()))
+                while let Some(chunk) = stream.recv_data().await? {
+                    let mut contents = vec![];
+                    chunk.reader().read_to_end(&mut contents)?;
+                    io::stdout().write_all(&contents)?;
+                }
+
+                Ok::<(), Box<dyn Error>>(())
+            };
+
+            future::try_zip(drive, request).await?;
+
+            // Wait for connection to be cleanly shut down
+            client.endpoint().wait_idle().await;
+
+            Ok(())
+        })).map_err(|err: Box<dyn Error>| err.into())
+    })
 }
 
 #[derive(Debug, Snafu)]
 #[snafu(transparent)]
 struct MainError {
     source: Box<dyn Error>,
-}
-
-#[derive(Serialize, Deserialize)]
-struct SecretFile {
-    version: u64,
-    #[serde(with = "BigArray")]
-    secret: [u8; 56],
 }
 
 mod smol_explicit_runtime {

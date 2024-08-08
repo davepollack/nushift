@@ -7,6 +7,7 @@ use std::io;
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::Arc;
 
+use itertools::Itertools;
 use quinn::{AsyncUdpSocket, ClientConfig, ConnectError, Connection, ConnectionError, Endpoint, EndpointConfig, Runtime, ServerConfig, VarInt};
 use snafu::prelude::*;
 use snafu_cli_debug::SnafuCliDebug;
@@ -268,7 +269,7 @@ pub enum ConnectWithTofuError {
     ConnectError { source: ConnectError },
     #[snafu(display("Connect error: {source}"))]
     ConnectionError { source: ConnectionError },
-    #[snafu(display("Untrusted key: {remote_static_key:#x?}"))]
+    #[snafu(display("Untrusted key: [{:#04x}]", remote_static_key.iter().format(", ")))]
     UntrustedKey {
         remote_static_key: Vec<u8>,
     },

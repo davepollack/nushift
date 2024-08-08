@@ -8,6 +8,11 @@ use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 use snafu::{prelude::*, Report};
 
+// This example generates secret files that used to be used by the server and
+// client examples, but no longer are as messing with files made the examples
+// too hard to run. This example is kept here as the secret generation code
+// might help later. It might also be deleted later.
+
 fn main() -> Report<MainError> {
     Report::capture(|| {
         generate_secret("your_server_secret.postcard")?;
