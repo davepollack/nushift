@@ -6,14 +6,22 @@ use std::{error::Error, fs::File};
 use rand::{rngs::OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
+use snafu::prelude::*;
 
-fn main() -> Result<(), Box<dyn Error>> {
+#[snafu::report]
+fn main() -> Result<(), MainError> {
     generate_secret("your_server_secret.postcard")?;
     generate_secret("your_client_secret.postcard")?;
 
     println!("Secrets generated! Located at your_server_secret.postcard and your_client_secret.postcard in the current directory");
 
     Ok(())
+}
+
+#[derive(Debug, Snafu)]
+#[snafu(transparent)]
+struct MainError {
+    source: Box<dyn Error>,
 }
 
 fn generate_secret(secret_file_name: impl AsRef<str>) -> Result<(), Box<dyn Error>> {

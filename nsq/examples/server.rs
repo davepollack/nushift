@@ -11,13 +11,15 @@ use quinn::{AsyncTimer, AsyncUdpSocket, Runtime, SmolRuntime};
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 use smol::{fs::File, prelude::*, Executor};
+use snafu::prelude::*;
 
 /// Use a global executor, because a `quinn::Runtime` must be `'static`. We
 /// explicitly specify it (rather than using `smol::spawn` that uses an implicit
 /// default global executor) just to be more explicit.
 static EXECUTOR: Executor<'_> = Executor::new();
 
-fn main() -> Result<(), Box<dyn Error>> {
+#[snafu::report]
+fn main() -> Result<(), MainError> {
     tracing_subscriber::fmt::init();
 
     smol::block_on(EXECUTOR.run(async {
@@ -130,7 +132,13 @@ fn main() -> Result<(), Box<dyn Error>> {
         println!("Server shut down.");
 
         Ok(())
-    }))
+    })).map_err(|err: Box<dyn Error>| err.into())
+}
+
+#[derive(Debug, Snafu)]
+#[snafu(transparent)]
+struct MainError {
+    source: Box<dyn Error>,
 }
 
 #[derive(Debug)]

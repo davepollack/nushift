@@ -9,11 +9,13 @@ use nsq::NsqClient;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 use smol::{fs::File, future, prelude::*};
+use snafu::prelude::*;
 
 use self::memory_inefficient_tofu_store::MemoryInefficientTofuStore;
 use self::smol_explicit_runtime::{EXECUTOR, SmolExplicitRuntime};
 
-fn main() -> Result<(), Box<dyn Error>> {
+#[snafu::report]
+fn main() -> Result<(), MainError> {
     tracing_subscriber::fmt::init();
 
     smol::block_on(EXECUTOR.run(async {
@@ -71,7 +73,13 @@ fn main() -> Result<(), Box<dyn Error>> {
         client.endpoint().wait_idle().await;
 
         Ok(())
-    }))
+    })).map_err(|err: Box<dyn Error>| err.into())
+}
+
+#[derive(Debug, Snafu)]
+#[snafu(transparent)]
+struct MainError {
+    source: Box<dyn Error>,
 }
 
 #[derive(Serialize, Deserialize)]
