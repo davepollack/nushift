@@ -20,66 +20,66 @@ const CLIENT_STATIC_SECRET: [u8; 56] = [2u8; 56];
 fn main() -> Report<MainError> {
     tracing_subscriber::fmt::init();
 
-    Report::capture(|| {
-        smol::block_on(EXECUTOR.run(async {
-            let runtime = Arc::new(SmolExplicitRuntime);
+    smol::block_on(EXECUTOR.run(async {
+        let runtime = Arc::new(SmolExplicitRuntime);
 
-            let client = NsqClient::new_v6(CLIENT_STATIC_SECRET, runtime)?;
+        let client = NsqClient::new_v6(CLIENT_STATIC_SECRET, runtime)?;
 
-            println!("Connecting to [::1]:45777...");
+        println!("Connecting to [::1]:45777...");
 
-            let connection = client
-                .connect_with_tofu(MemoryInefficientTofuStore, "[::1]:45777".parse()?, "localhost")
+        let connection = client
+            .connect_with_tofu(MemoryInefficientTofuStore, "[::1]:45777".parse()?, "localhost")
+            .await
+            .with_whatever_context::<_, &str, Whatever>(|connect_with_tofu_error| match connect_with_tofu_error {
+                ConnectWithTofuError::UntrustedKey { .. } => "The remote static \
+                    key is untrusted, because a different one was seen before for \
+                    this host and is stored in tofu_store.postcard. Try deleting \
+                    tofu_store.postcard to reset it (for all hosts). However, this \
+                    error shouldn't occur if you didn't change the source code of \
+                    the examples.",
+                _other_err => "Connect error",
+            })?;
+
+        let (mut connection, mut send_request) = h3::client::new(h3_quinn::Connection::new(connection)).await?;
+
+        println!("Connected. Sending request...");
+        println!();
+
+        let drive = async move {
+            future::poll_fn(|cx| connection.poll_close(cx))
                 .await
-                .with_whatever_context::<_, &str, Whatever>(|connect_with_tofu_error| match connect_with_tofu_error {
-                    ConnectWithTofuError::UntrustedKey { .. } => "The remote static \
-                        key is untrusted, because a different one was seen before for \
-                        this host and is stored in tofu_store.postcard. Try deleting \
-                        tofu_store.postcard to reset it (for all hosts). However, this \
-                        error shouldn't occur if you didn't change the source code of \
-                        the examples.",
-                    _other_err => "Connect error",
-                })?;
+                .map_err(|err| Box::new(err) as Box<dyn Error>)
+        };
 
-            let (mut connection, mut send_request) = h3::client::new(h3_quinn::Connection::new(connection)).await?;
+        let request = async move {
+            let request = Request::builder().uri("nsq://localhost/").body(())?;
+            let mut stream = send_request.send_request(request).await?;
+            stream.finish().await?;
 
-            println!("Connected. Sending request...");
+            let response = stream.recv_response().await?;
+
+            println!("{:?} {}", response.version(), response.status());
+            println!("{:#?}", response.headers());
             println!();
 
-            let drive = async move {
-                future::poll_fn(|cx| connection.poll_close(cx))
-                    .await
-                    .map_err(|err| Box::new(err) as Box<dyn Error>)
-            };
+            while let Some(chunk) = stream.recv_data().await? {
+                let mut contents = vec![];
+                chunk.reader().read_to_end(&mut contents)?;
+                io::stdout().write_all(&contents)?;
+            }
 
-            let request = async move {
-                let request = Request::builder().uri("nsq://localhost/").body(())?;
-                let mut stream = send_request.send_request(request).await?;
-                stream.finish().await?;
+            Ok::<(), Box<dyn Error>>(())
+        };
 
-                let response = stream.recv_response().await?;
+        future::try_zip(drive, request).await?;
 
-                println!("{:?} {}", response.version(), response.status());
-                println!("{:#?}", response.headers());
-                println!();
+        // Wait for connection to be cleanly shut down
+        client.endpoint().wait_idle().await;
 
-                while let Some(chunk) = stream.recv_data().await? {
-                    let mut contents = vec![];
-                    chunk.reader().read_to_end(&mut contents)?;
-                    io::stdout().write_all(&contents)?;
-                }
-
-                Ok::<(), Box<dyn Error>>(())
-            };
-
-            future::try_zip(drive, request).await?;
-
-            // Wait for connection to be cleanly shut down
-            client.endpoint().wait_idle().await;
-
-            Ok(())
-        })).map_err(|err: Box<dyn Error>| err.into())
-    })
+        Ok(())
+    }))
+        .map_err(|err: Box<dyn Error>| err.into())
+        .into()
 }
 
 #[derive(Debug, Snafu)]
