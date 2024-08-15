@@ -1,7 +1,7 @@
 // Copyright 2024 The Nushift Authors.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{any::Any, num::NonZeroUsize};
+use std::any::Any;
 
 use chacha20::{
     cipher::{typenum::U10, KeyIvInit, StreamCipherCore, StreamCipherSeekCore},
@@ -38,7 +38,7 @@ pub(crate) enum NoiseSession {
     SnowHandshaking {
         handshake_state: Box<HandshakeState>,
         read_handshake_state: ReadHandshakeState,
-        read_handshake_buffer: Vec<u8>,
+        read_handshake_buffer: ReadHandshakeBuffer,
         quinn_crypto_state: QuinnCryptoState,
         local_transport_parameters: LocalTransportParameters,
         remote_transport_parameters: RemoteTransportParameters,
@@ -69,40 +69,6 @@ impl ReadHandshakeState {
         Self::InitiatorXxhfsMessage2
     }
 
-    /// TODO: This should return the length of the full Noise message, i.e. both
-    /// (encrypted, unencrypted) public keys *and* the payload, while at the
-    /// moment it only returns the length of the keys. E.g. QUIC transport
-    /// parameters are sometimes the payload. It just happens to work at the
-    /// moment because the datagram length is either 1 or 2 and the inclusion of
-    /// transport parameters doesn't push that over what it otherwise would be.
-    fn next_expected_message_len(&self) -> Option<NonZeroUsize> {
-        const X448_PUBLIC_KEY_LEN_BYTES: usize = 56;
-        const CHACHA20_POLY1305_TAG_LEN_BYTES: usize = 16;
-        const KYBER1024_PUBLIC_KEY_LEN_BYTES: usize = 1568;
-        const KYBER1024_CIPHERTEXT_LEN_BYTES: usize = 1568;
-
-        match self {
-            // e, e1
-            Self::ResponderXxhfsMessage1 => NonZeroUsize::new(const {
-                X448_PUBLIC_KEY_LEN_BYTES + KYBER1024_PUBLIC_KEY_LEN_BYTES
-            }),
-
-            // e, ee, ekem1 (encrypted), s (encrypted), es
-            Self::InitiatorXxhfsMessage2 => NonZeroUsize::new(const {
-                X448_PUBLIC_KEY_LEN_BYTES
-                    + KYBER1024_CIPHERTEXT_LEN_BYTES + CHACHA20_POLY1305_TAG_LEN_BYTES
-                    + X448_PUBLIC_KEY_LEN_BYTES + CHACHA20_POLY1305_TAG_LEN_BYTES
-            }),
-
-            // s (encrypted), se
-            Self::ResponderXxhfsMessage3 => NonZeroUsize::new(const {
-                X448_PUBLIC_KEY_LEN_BYTES + CHACHA20_POLY1305_TAG_LEN_BYTES
-            }),
-
-            Self::Finished => None,
-        }
-    }
-
     fn advance(&mut self) -> Result<(), ()> {
         match self {
             Self::ResponderXxhfsMessage1 => {
@@ -125,6 +91,28 @@ impl ReadHandshakeState {
     }
 }
 
+pub(crate) enum ReadHandshakeBuffer {
+    ZeroBytesOfLengthRead,
+    OneByteOfLengthRead(u8),
+    LengthRead {
+        noise_message_len: u16,
+        buffer: Vec<u8>,
+    },
+}
+
+impl ReadHandshakeBuffer {
+    fn new() -> Self {
+        Self::ZeroBytesOfLengthRead
+    }
+}
+
+/// Used where Quinn calls us multiple times in a loop and we upgrade it with
+/// the next keys
+pub(crate) enum QuinnCryptoState {
+    Initial,
+    Handshake,
+}
+
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub(crate) enum LocalTransportParameters {
     Unsent(TransportParameters),
@@ -135,13 +123,6 @@ pub(crate) enum LocalTransportParameters {
 pub(crate) enum RemoteTransportParameters {
     Received(TransportParameters),
     NotReceived,
-}
-
-/// Used where Quinn calls us multiple times in a loop and we upgrade it with
-/// the next keys
-pub(crate) enum QuinnCryptoState {
-    Initial,
-    Handshake,
 }
 
 #[derive(Copy, Clone)]
@@ -199,7 +180,7 @@ impl NoiseSession {
         Self::SnowHandshaking {
             handshake_state: Box::new(handshake_state),
             read_handshake_state: if is_initiator { ReadHandshakeState::new_initiator() } else { ReadHandshakeState::new_responder() },
-            read_handshake_buffer: vec![],
+            read_handshake_buffer: ReadHandshakeBuffer::new(),
             quinn_crypto_state: QuinnCryptoState::Initial,
             local_transport_parameters: LocalTransportParameters::Unsent(local_transport_parameters),
             remote_transport_parameters: RemoteTransportParameters::NotReceived,
@@ -284,19 +265,50 @@ impl Session for NoiseSession {
         matches!(self, Self::SnowHandshaking { .. })
     }
 
-    fn read_handshake(&mut self, buf: &[u8]) -> Result<bool, TransportError> {
+    fn read_handshake(&mut self, mut buf: &[u8]) -> Result<bool, TransportError> {
         let Self::SnowHandshaking { handshake_state, read_handshake_state, read_handshake_buffer, remote_transport_parameters, .. } = self else { panic!("Expected to be handshaking when reading handshake"); };
+
+        // Try to read the Noise message length first (if we haven't already).
+        // If we don't even have those two bytes, return and wait for more data
+        match read_handshake_buffer {
+            ReadHandshakeBuffer::ZeroBytesOfLengthRead => {
+                if let Some((first_two_bytes, remainder)) = buf.split_first_chunk() {
+                    let noise_message_len = u16::from_be_bytes(*first_two_bytes);
+                    buf = remainder;
+                    *read_handshake_buffer = ReadHandshakeBuffer::LengthRead { noise_message_len, buffer: vec![] };
+                } else if let Some(first_byte) = buf.first() {
+                    *read_handshake_buffer = ReadHandshakeBuffer::OneByteOfLengthRead(*first_byte);
+                    return Ok(false);
+                } else {
+                    return Ok(false);
+                }
+            },
+
+            ReadHandshakeBuffer::OneByteOfLengthRead(first_len_byte) => {
+                if let Some((second_len_byte, remainder)) = buf.split_first() {
+                    let noise_message_len = u16::from_be_bytes([*first_len_byte, *second_len_byte]);
+                    buf = remainder;
+                    *read_handshake_buffer = ReadHandshakeBuffer::LengthRead { noise_message_len, buffer: vec![] };
+                } else {
+                    return Ok(false);
+                }
+            },
+
+            ReadHandshakeBuffer::LengthRead { .. } => {},
+        }
+
+        let ReadHandshakeBuffer::LengthRead { noise_message_len, buffer: read_handshake_buffer_inner_buf } = read_handshake_buffer else {
+            panic!("read_handshake_buffer must be in `LengthRead` state after the above match statement");
+        };
 
         // This doesn't fill infinitely because the default max crypto buffer
         // size (which we don't change) is 16 KiB and quinn will stop calling us
         // if that is exceeded
-        read_handshake_buffer.extend_from_slice(buf);
-        if read_handshake_buffer.len()
-            < read_handshake_state
-                .next_expected_message_len()
-                .expect("Should not be in finished state if read_handshake is being called")
-                .get()
-        {
+        read_handshake_buffer_inner_buf.extend_from_slice(buf);
+
+        // If we don't have the full Noise message yet, return and wait for more
+        // data
+        if read_handshake_buffer_inner_buf.len() < (*noise_message_len).into() {
             return Ok(false);
         }
 
@@ -311,13 +323,13 @@ impl Session for NoiseSession {
         };
 
         // If our expected `payload` length cannot contain the decrypted payload, `SnowError::Decrypt` will happen.
-        let payload_len = handshake_state.read_message(read_handshake_buffer, &mut payload).map_err(|snow_error| match snow_error {
+        let payload_len = handshake_state.read_message(read_handshake_buffer_inner_buf, &mut payload).map_err(|snow_error| match snow_error {
             SnowError::Decrypt => TransportError { code: TransportErrorCode::PROTOCOL_VIOLATION, frame: None, reason: "Snow decryption failed".into() },
             other_err => panic!("An internal error occurred when reading handshake: {other_err:?}"),
         })?;
 
         // Clear the buffer.
-        read_handshake_buffer.clear();
+        *read_handshake_buffer = ReadHandshakeBuffer::new();
 
         // Since handshake_state.read_message() succeeded, advance the read_handshake_state.
         read_handshake_state.advance().expect("Should not already be in finished state if read_handshake is being called");
@@ -438,6 +450,8 @@ impl Session for NoiseSession {
         };
 
         let message_len = handshake_state.write_message(&payload, &mut handshake_msg_buffer).expect("Snow state machine unexpectedly errored when writing handshake");
+        let message_len_be_bytes = u16::try_from(message_len).expect("Snow should return a message_len in u16 range otherwise it would have returned Error::Input").to_be_bytes();
+        buf.extend_from_slice(&message_len_be_bytes);
         buf.extend_from_slice(&handshake_msg_buffer[..message_len]);
 
         // Now check again whether the handshake is finished.
