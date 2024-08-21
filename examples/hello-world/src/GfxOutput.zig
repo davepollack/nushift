@@ -33,7 +33,7 @@ fn readGfxOutput(self: *GfxOutput, reader: anytype) Error!void {
         return error.UnsupportedDimensions;
     }
     for (0..scale_length) |i| {
-        self.scale[i] = @bitCast(try reader.readIntLittle(u64));
+        self.scale[i] = @bitCast(try reader.readInt(u64, .little));
     }
 }
 

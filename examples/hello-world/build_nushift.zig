@@ -10,9 +10,10 @@ pub fn build(
     b: *std.Build,
     app_name: []const u8,
     main_path: []const u8,
-    strip: bool,
-    exe_callback: ?*const fn (b: *std.Build, exe: *std.Build.Step.Compile) void,
+    exe_callback: ?*const fn (b: *std.Build, exe: *std.Build.Step.Compile, main_module: *std.Build.Module) void,
 ) void {
+    const strip = b.option(bool, "strip", "Strip debug info") orelse true;
+
     // Standard target options allows the person running `zig build` to choose
     // what target to build for. Here we set a default target. Other options for
     // restricting supported target set are available.
@@ -33,16 +34,13 @@ pub fn build(
     const optimize = b.standardOptimizeOption(.{});
 
     const os_nushift_module = b.createModule(.{
-        .source_file = .{ .path = "../../nulib/src/os_nushift.zig" },
-        .dependencies = &.{},
+        .root_source_file = .{ .path = "../../nulib/src/os_nushift.zig" },
     });
 
     const main_module = b.createModule(.{
-        .source_file = .{ .path = main_path },
-        .dependencies = &.{
-            .{ .name = "os_nushift", .module = os_nushift_module },
-        },
+        .root_source_file = .{ .path = main_path },
     });
+    main_module.addImport("os_nushift", os_nushift_module);
 
     const exe = b.addExecutable(.{
         .name = app_name,
@@ -50,11 +48,11 @@ pub fn build(
         .target = target,
         .optimize = optimize,
     });
-    exe.addModule("main", main_module);
-    exe.addModule("os_nushift", os_nushift_module);
-    exe.strip = strip;
+    exe.root_module.addImport("main", main_module);
+    exe.root_module.addImport("os_nushift", os_nushift_module);
+    exe.root_module.strip = strip;
     if (exe_callback) |present_exe_callback| {
-        present_exe_callback(b, exe);
+        present_exe_callback(b, exe, main_module);
     }
     b.installArtifact(exe);
 
