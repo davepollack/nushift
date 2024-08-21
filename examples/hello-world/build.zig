@@ -5,10 +5,10 @@
 // https://www.boost.org/LICENSE_1_0.txt)
 
 const std = @import("std");
-const build_nushift = @import("./build_nushift.zig");
+const nulib = @import("nulib");
 
 pub fn build(b: *std.Build) void {
-    build_nushift.build(b, "hello-world", "src/main.zig", addDependencies);
+    nulib.build_nushift(b, "hello-world", "src/main.zig", addDependencies);
 }
 
 fn addDependencies(b: *std.Build, exe: *std.Build.Step.Compile, main_module: *std.Build.Module) void {

@@ -1,4 +1,4 @@
-// Copyright 2023 The Nushift Authors.
+// Copyright 2024 The Nushift Authors.
 //
 // Distributed under the Boost Software License, Version 1.0.
 // (See accompanying file LICENSE or copy at
@@ -6,12 +6,18 @@
 
 const std = @import("std");
 
-pub fn build(
+pub fn build(b: *std.Build) void {
+    _ = b.addModule("os_nushift", .{ .root_source_file = b.path("src/os_nushift.zig") });
+    _ = b.addModule("start_nushift", .{ .root_source_file = b.path("src/start_nushift.zig") });
+}
+
+/// This function is used by Nushift apps to encapsulate common logic for
+/// building Nushift apps.
+pub fn build_nushift(
     b: *std.Build,
     app_name: []const u8,
     main_path: []const u8,
-    strip: bool,
-    exe_callback: ?*const fn (b: *std.Build, exe: *std.Build.Step.Compile) void,
+    exe_callback: ?*const fn (b: *std.Build, exe: *std.Build.Step.Compile, main_module: *std.Build.Module) void,
 ) void {
     // Standard target options allows the person running `zig build` to choose
     // what target to build for. Here we set a default target. Other options for
@@ -32,29 +38,26 @@ pub fn build(
     // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall.
     const optimize = b.standardOptimizeOption(.{});
 
-    const os_nushift_module = b.createModule(.{
-        .source_file = .{ .path = "../../nulib/src/os_nushift.zig" },
-        .dependencies = &.{},
-    });
+    const strip = b.option(bool, "strip", "Strip debug info") orelse true;
+
+    const this_dep = b.dependencyFromBuildZig(@This(), .{});
 
     const main_module = b.createModule(.{
-        .source_file = .{ .path = main_path },
-        .dependencies = &.{
-            .{ .name = "os_nushift", .module = os_nushift_module },
-        },
+        .root_source_file = b.path(main_path),
     });
+    main_module.addImport("os_nushift", this_dep.module("os_nushift"));
 
     const exe = b.addExecutable(.{
         .name = app_name,
-        .root_source_file = .{ .path = "../../nulib/src/start_nushift.zig" },
+        .root_source_file = this_dep.path("src/start_nushift.zig"),
         .target = target,
         .optimize = optimize,
     });
-    exe.addModule("main", main_module);
-    exe.addModule("os_nushift", os_nushift_module);
-    exe.strip = strip;
+    exe.root_module.addImport("main", main_module);
+    exe.root_module.addImport("os_nushift", this_dep.module("os_nushift"));
+    exe.root_module.strip = strip;
     if (exe_callback) |present_exe_callback| {
-        present_exe_callback(b, exe);
+        present_exe_callback(b, exe, main_module);
     }
     b.installArtifact(exe);
 
@@ -68,7 +71,7 @@ pub fn build(
     run_step.dependOn(&run_cmd.step);
 
     const exe_tests = b.addTest(.{
-        .root_source_file = .{ .path = main_path },
+        .root_source_file = b.path(main_path),
         .target = target,
         .optimize = optimize,
     });

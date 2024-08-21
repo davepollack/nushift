@@ -7,6 +7,9 @@
         "build.zig.zon",
     },
     .dependencies = .{
+        .nulib = .{
+            .path = "../../nulib",
+        },
         .qoi = .{
             .url = "https://github.com/MasterQ32/zig-qoi/archive/871d233a78ce6b7de849ba0c9dff473577d6323d.tar.gz",
             .hash = "12205d9e944b83088e9605b0eafc27ef9fd40a0a110ab7eece20761a4864178e5f2d",

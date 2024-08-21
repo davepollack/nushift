@@ -5,8 +5,8 @@
 // https://www.boost.org/LICENSE_1_0.txt)
 
 const std = @import("std");
-const build_nushift = @import("./build_nushift.zig");
+const nulib = @import("nulib");
 
 pub fn build(b: *std.Build) void {
-    build_nushift.build(b, "rollback-test", "src/main.zig", true, null);
+    nulib.build_nushift(b, "rollback-test", "src/main.zig", null);
 }
