@@ -38,7 +38,14 @@ pub fn build_nushift(
     // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall.
     const optimize = b.standardOptimizeOption(.{});
 
-    const strip = b.option(bool, "strip", "Strip debug info") orelse true;
+    const strip = b.option(bool, "strip", "Strip debug info (default: true)") orelse true;
+
+    const stack_end = std.fmt.parseInt(usize, b.option([]const u8, "stack_end", "Stack end address (default: 0x80000000)") orelse "0x80000000", 0) catch @panic("Could not parse stack_end option");
+    const stack_number_of_4_kib_pages = b.option(usize, "stack_number_of_4_kib_pages", "Stack size in number of 4 KiB pages (default: 64)") orelse 64;
+
+    const stack_options = b.addOptions();
+    stack_options.addOption(usize, "stack_end", stack_end);
+    stack_options.addOption(usize, "stack_number_of_4_kib_pages", stack_number_of_4_kib_pages);
 
     const this_dep = b.dependencyFromBuildZig(@This(), .{});
 
@@ -55,6 +62,7 @@ pub fn build_nushift(
     });
     exe.root_module.addImport("main", main_module);
     exe.root_module.addImport("os_nushift", this_dep.module("os_nushift"));
+    exe.root_module.addOptions("stack_options", stack_options);
     exe.root_module.strip = strip;
     if (exe_callback) |present_exe_callback| {
         present_exe_callback(b, exe, main_module);
