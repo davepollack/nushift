@@ -42,7 +42,7 @@ pub fn main() usize {
 }
 
 fn mainImpl() (writing.FBSWriteError || os_nushift.SyscallError || GfxOutput.Error || qoi.DecodeError || Allocator.Error)!usize {
-    var title_outputs_tasks = blk: {
+    var title_task, var gfx_get_outputs_task = blk: {
         var title_task = try TitleTask.init();
         errdefer title_task.deinit();
 
@@ -52,8 +52,8 @@ fn mainImpl() (writing.FBSWriteError || os_nushift.SyscallError || GfxOutput.Err
         break :blk .{ title_task, gfx_get_outputs_task };
     };
 
-    const title_task_id = try title_outputs_tasks[0].titlePublish();
-    const gfx_get_outputs_task_id = try title_outputs_tasks[1].gfxGetOutputs();
+    const title_task_id = try title_task.titlePublish();
+    const gfx_get_outputs_task_id = try gfx_get_outputs_task.gfxGetOutputs();
 
     // If an error occurs between publishing and the end of
     // block_on_deferred_tasks, you can't deinit the tasks because the resources
@@ -62,7 +62,7 @@ fn mainImpl() (writing.FBSWriteError || os_nushift.SyscallError || GfxOutput.Err
 
     try blockOnDeferredTasks(&.{ title_task_id, gfx_get_outputs_task_id });
 
-    title_outputs_tasks[0].deinit();
+    title_task.deinit();
     // Do not deinit the outputs task yet, since we need to get the output
     // information and keep the gfx_cap_id
 
@@ -71,21 +71,21 @@ fn mainImpl() (writing.FBSWriteError || os_nushift.SyscallError || GfxOutput.Err
 
     // For some reason specifying .always_inline for this extracted logic is
     // needed, otherwise the binary size blows up by 70% :'(
-    const gfx_output_0 = try @call(.always_inline, getGfxOutput0, .{&title_outputs_tasks[1]});
+    const gfx_output_0 = try @call(.always_inline, getGfxOutput0, .{&gfx_get_outputs_task});
     const margin = getMargin(gfx_output_0.size_px[0], image_and_allocator.image);
 
-    var a11y_present_tasks = blk: {
+    var a11y_tree_task, var gfx_cpu_present_task = blk: {
         var a11y_tree_task = try AccessibilityTreeTask.init(image_and_allocator.allocator(), margin.left, image_and_allocator.image);
         errdefer a11y_tree_task.deinit();
 
-        var gfx_cpu_present_task = try GfxCpuPresentTask.init(image_and_allocator.allocator(), title_outputs_tasks[1].gfx_cap_id, gfx_output_0.id, gfx_output_0.size_px[0], gfx_output_0.size_px[1], margin.left, margin.right, image_and_allocator.image);
+        var gfx_cpu_present_task = try GfxCpuPresentTask.init(image_and_allocator.allocator(), gfx_get_outputs_task.gfx_cap_id, gfx_output_0.id, gfx_output_0.size_px[0], gfx_output_0.size_px[1], margin.left, margin.right, image_and_allocator.image);
         errdefer gfx_cpu_present_task.deinit();
 
         break :blk .{ a11y_tree_task, gfx_cpu_present_task };
     };
 
-    const a11y_tree_publish_task_id = try a11y_present_tasks[0].accessibilityTreePublish();
-    const gfx_cpu_present_task_id = try a11y_present_tasks[1].gfxCpuPresent();
+    const a11y_tree_publish_task_id = try a11y_tree_task.accessibilityTreePublish();
+    const gfx_cpu_present_task_id = try gfx_cpu_present_task.gfxCpuPresent();
 
     // If an error occurs between publishing and the end of
     // block_on_deferred_tasks, you can't deinit the tasks because the resources
@@ -94,10 +94,10 @@ fn mainImpl() (writing.FBSWriteError || os_nushift.SyscallError || GfxOutput.Err
 
     try blockOnDeferredTasks(&.{ a11y_tree_publish_task_id, gfx_cpu_present_task_id });
 
-    a11y_present_tasks[1].deinit();
-    a11y_present_tasks[0].deinit();
+    gfx_cpu_present_task.deinit();
+    a11y_tree_task.deinit();
 
-    title_outputs_tasks[1].deinit();
+    gfx_get_outputs_task.deinit();
 
     return 0;
 }
