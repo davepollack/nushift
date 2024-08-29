@@ -69,9 +69,7 @@ fn mainImpl() (writing.FBSWriteError || os_nushift.SyscallError || GfxOutput.Err
     var image_and_allocator = try ImageAndAllocator.init();
     defer image_and_allocator.deinit();
 
-    // For some reason specifying .always_inline for this extracted logic is
-    // needed, otherwise the binary size blows up by 70% :'(
-    const gfx_output_0 = try @call(.always_inline, getGfxOutput0, .{&gfx_get_outputs_task});
+    const gfx_output_0 = try getGfxOutput0(&gfx_get_outputs_task);
     const margin = getMargin(gfx_output_0.size_px[0], image_and_allocator.image);
 
     var a11y_tree_task, var gfx_cpu_present_task = blk: {
