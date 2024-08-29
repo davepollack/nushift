@@ -26,7 +26,7 @@ pub fn writeF64Seq(writer: FBSWriter, seq: []const f64) FBSWriteError!void {
 }
 
 pub fn writeF64(writer: FBSWriter, value: f64) FBSWriteError!void {
-    try writer.writeInt(u64, @as(u64, @bitCast(value)), .little);
+    try writer.writeInt(u64, @bitCast(value), .little);
 }
 
 pub fn writeStr(writer: FBSWriter, str: []const u8) FBSWriteError!void {
