@@ -28,7 +28,7 @@ use super::elf_loader::Loader;
 use super::nushift_subsystem::NushiftSubsystem;
 use super::protected_memory::{ProtectedMemory, ProtectedMemoryError};
 use super::register_ipc::{SyscallEnter, SyscallReturn, RETURN_VAL_REGISTER_INDEX, ERROR_RETURN_VAL_REGISTER_INDEX};
-use super::shm_space::{ShmSpace, acquisitions_and_page_table::PageTableError};
+use super::shm_space::{ShmSpace, acquisitions_and_page_table::PageTableError, SV39_BITS};
 
 const SYSCALL_NUM_REGISTER: usize = A0;
 const FIRST_ARG_REGISTER: usize = A1;
@@ -49,6 +49,8 @@ pub struct ProcessControlBlock<R> {
     syscall_enter: Sender<SyscallEnter<R>>,
     syscall_return: Receiver<SyscallReturn<R>>,
     locked_subsystem: Arc<Mutex<NushiftSubsystem>>,
+    load_reserved_address: Option<R>,
+    load_reserved_address_sentinel: R,
 }
 
 enum Machine<R> {
@@ -76,13 +78,15 @@ where
             syscall_enter,
             syscall_return,
             locked_subsystem,
+            load_reserved_address: None,
+            load_reserved_address_sentinel: R::from_u64(u64::MAX),
         }
     }
 
     pub fn load_machine(&mut self, image: Vec<u8>) -> Result<(), ProcessControlBlockError> {
         let mut core_machine = DefaultCoreMachine::<R, StubMemory<R>>::new(
-            ckb_vm::ISA_IMC,
-            ckb_vm::machine::VERSION1,
+            ckb_vm::ISA_IMC | ckb_vm::ISA_A,
+            ckb_vm::machine::VERSION2,
             u64::MAX,
         );
 
@@ -108,7 +112,6 @@ where
             return RunMachineNotLoadedSnafu.fail();
         }
 
-        // TODO: The decoder is based on PC being in the first 4 MiB, which is an issue.
         let mut decoder = build_decoder::<R>(self.isa(), self.version());
 
         self.set_running()?;
@@ -278,6 +281,14 @@ where
 {
     type REG = R;
 
+    fn new() -> Self {
+        unimplemented!()
+    }
+
+    fn new_with_memory(_memory_size: usize) -> Self {
+        unimplemented!()
+    }
+
     fn init_pages(
         &mut self,
         _addr: u64,
@@ -301,11 +312,24 @@ where
         unimplemented!()
     }
 
+    fn memory_size(&self) -> usize {
+        (1u64 << SV39_BITS).try_into().unwrap_or_else(|_| {
+            tracing::warn!("Running Nushift on a 32-bit or lower host platform. \
+                Executable code above 2^32 may not work, but it should and this \
+                limitation should ideally be resolved in the future");
+            usize::MAX
+        })
+    }
+
     fn store_byte(&mut self, _addr: u64, _size: u64, _value: u8) -> Result<(), CKBVMError> {
         unimplemented!()
     }
 
     fn store_bytes(&mut self, _addr: u64, _value: &[u8]) -> Result<(), CKBVMError> {
+        unimplemented!()
+    }
+
+    fn load_bytes(&mut self, _addr: u64, _size: u64) -> Result<Bytes, CKBVMError> {
         unimplemented!()
     }
 
@@ -347,6 +371,23 @@ where
 
     fn store64(&mut self, addr: &Self::REG, value: &Self::REG) -> Result<(), CKBVMError> {
         store_impl(self, addr, value, ProtectedMemory::store64, R::to_u64)
+    }
+
+    fn lr(&self) -> &Self::REG {
+        // Why does this trait definition force us to return a value for the
+        // load-reserved address??
+        self.load_reserved_address.as_ref().unwrap_or(&self.load_reserved_address_sentinel)
+    }
+
+    fn set_lr(&mut self, value: &Self::REG) {
+        // Same, why doesn't this trait definition allow clearing the
+        // load-reserved address? It actually just calls this method with the
+        // max value... oh well.
+        if value.eq(&self.load_reserved_address_sentinel).to_u8() == R::one().to_u8() {
+            self.load_reserved_address = None;
+        } else {
+            self.load_reserved_address = Some(value.clone());
+        }
     }
 }
 
@@ -395,6 +436,14 @@ struct StubMemory<R>(PhantomData<R>);
 impl<R: Register> Memory for StubMemory<R> {
     type REG = R;
 
+    fn new() -> Self {
+        Self(PhantomData)
+    }
+
+    fn new_with_memory(_memory_size: usize) -> Self {
+        Self(PhantomData)
+    }
+
     fn init_pages(
         &mut self,
         _addr: u64,
@@ -418,11 +467,19 @@ impl<R: Register> Memory for StubMemory<R> {
         unimplemented!()
     }
 
+    fn memory_size(&self) -> usize {
+        unimplemented!()
+    }
+
     fn store_byte(&mut self, _addr: u64, _size: u64, _value: u8) -> Result<(), CKBVMError> {
         unimplemented!()
     }
 
     fn store_bytes(&mut self, _addr: u64, _value: &[u8]) -> Result<(), CKBVMError> {
+        unimplemented!()
+    }
+
+    fn load_bytes(&mut self, _addr: u64, _size: u64) -> Result<Bytes, CKBVMError> {
         unimplemented!()
     }
 
@@ -463,6 +520,14 @@ impl<R: Register> Memory for StubMemory<R> {
     }
 
     fn store64(&mut self, _addr: &Self::REG, _value: &Self::REG) -> Result<(), CKBVMError> {
+        unimplemented!()
+    }
+
+    fn lr(&self) -> &Self::REG {
+        unimplemented!()
+    }
+
+    fn set_lr(&mut self, _value: &Self::REG) {
         unimplemented!()
     }
 }

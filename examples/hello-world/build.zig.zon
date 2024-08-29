@@ -1,10 +1,18 @@
 .{
     .name = "hello-world",
     .version = "0.1.0",
+    .paths = .{
+        "src",
+        "build.zig",
+        "build.zig.zon",
+    },
     .dependencies = .{
+        .nulib = .{
+            .path = "../../nulib",
+        },
         .qoi = .{
-            .url = "https://github.com/MasterQ32/zig-qoi/archive/524efec9e9522f8e2b72e9d67b36d5d5e69a7679.tar.gz",
-            .hash = "1220aaf1c8c832c6f828b6834da249843e1d109ebf5c3df6854de8e5c24048617790",
+            .url = "https://github.com/MasterQ32/zig-qoi/archive/871d233a78ce6b7de849ba0c9dff473577d6323d.tar.gz",
+            .hash = "12205d9e944b83088e9605b0eafc27ef9fd40a0a110ab7eece20761a4864178e5f2d",
         },
     },
 }

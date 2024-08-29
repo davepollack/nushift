@@ -8,10 +8,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const os_nushift = @import("os_nushift");
 const main = @import("main");
-
-// The stack. 256 KiB, but you can change it if you want.
-const STACK_END: usize = 0x80000000;
-const STACK_NUMBER_OF_4_KIB_PAGES: usize = 64;
+const stack_options = @import("stack_options");
 
 export fn _start() callconv(.Naked) noreturn {
     // Since Zig 0.11.0, this has to be inline assembly code rather than Zig
@@ -26,8 +23,8 @@ export fn _start() callconv(.Naked) noreturn {
           [ret_t0] "={t0}" (t0_output),
         : [syscall_number] "{a0}" (os_nushift.Syscall.shm_new_and_acquire),
           [shm_type] "{a1}" (os_nushift.ShmType.four_kib),
-          [length] "{a2}" (STACK_NUMBER_OF_4_KIB_PAGES),
-          [address] "{a3}" (STACK_END),
+          [length] "{a2}" (stack_options.stack_number_of_4_kib_pages),
+          [address] "{a3}" (stack_options.stack_end),
         : "memory", "t0", "a0", "a1", "a2", "a3"
     );
 
@@ -55,7 +52,7 @@ export fn _start() callconv(.Naked) noreturn {
     // Set SP to base
     asm volatile (""
         :
-        : [sp_val] "{sp}" (STACK_END + (4096 * STACK_NUMBER_OF_4_KIB_PAGES)),
+        : [sp_val] "{sp}" (stack_options.stack_end + (4096 * stack_options.stack_number_of_4_kib_pages)),
         : "sp"
     );
 
