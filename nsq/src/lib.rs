@@ -6,18 +6,36 @@ use std::io;
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::Arc;
 
+use hex_literal::hex;
 use itertools::Itertools;
 use quinn::{AsyncUdpSocket, ClientConfig, ConnectError, Connection, ConnectionError, Endpoint, EndpointConfig, Runtime, ServerConfig, VarInt};
 use snafu::prelude::*;
 use snafu_cli_debug::SnafuCliDebug;
 
-use crate::quinn_noise::config::{NoiseConfig, NoiseHandshakeTokenKey, NoiseHmacKey};
-use crate::quinn_noise::NSQ_QUIC_VERSION;
+use crate::quinn_config::NoiseConfig;
+use crate::quinn_integrity_keys::{NoiseHandshakeTokenKey, NoiseHmacKey};
 
-mod quinn_noise;
+mod fixed_buffer;
+mod quinn_config;
+mod quinn_integrity_keys;
+mod quinn_session;
 mod snow_x448_resolver;
 
 pub use quinn;
+
+// TODO: Register range with QUIC WG.
+const NSQ_QUIC_VERSION: u32 = 0x6e737100; // "nsq" + 0[0-f]
+
+/// Derived by calling HKDF-Expand (*not* TLS 1.3 HKDF-Expand-Label), with
+/// 0xd9c9943e6101fd200021506bcc02814c73030f25c79d71ce876eca876e6fca8e (retry
+/// secret from RFC 9001) as PRK, 32 as length, "quic key" as info, and SHA-256
+/// as the HMAC hash function
+const RETRY_KEY: [u8; 32] = hex!("3337597c92ceb8fa6351d223fad8a795140f8976c25b9589f65c95740b1cd08b");
+/// Derived by calling HKDF-Expand (*not* TLS 1.3 HKDF-Expand-Label), with
+/// 0xd9c9943e6101fd200021506bcc02814c73030f25c79d71ce876eca876e6fca8e (retry
+/// secret from RFC 9001) as PRK, 12 as length, "quic iv" as info, and SHA-256
+/// as the HMAC hash function
+const RETRY_NONCE: [u8; 12] = hex!("433b6818e1af1874007a4df3");
 
 pub struct NsqEndpointConfig(EndpointConfig);
 

@@ -25,7 +25,8 @@ use quinn_proto::{
 use sha2::Sha256;
 use snow::{Error as SnowError, HandshakeState};
 
-use super::{fixed_buffer::FixedBuffer, NSQ_QUIC_VERSION, RETRY_KEY, RETRY_NONCE};
+use crate::{NSQ_QUIC_VERSION, RETRY_KEY, RETRY_NONCE};
+use crate::fixed_buffer::FixedBuffer;
 
 const RFC_9001_INITIAL_SALT: [u8; 20] = hex!("38762cf7f55934b34d179ae6a4c80cadccbb7f0a");
 const CLIENT_INITIAL_INFO: &[u8] = b"client in";
