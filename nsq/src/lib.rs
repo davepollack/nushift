@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::any::Any;
-use std::future::Future;
 use std::io;
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::Arc;
@@ -255,12 +254,7 @@ impl NsqClient {
 pub trait LocalTofuStore {
     type IsTrustedKeyError: Any;
 
-    fn is_trusted_key(
-        &mut self,
-        addr: SocketAddr,
-        server_name: &str,
-        remote_static_key: &[u8],
-    ) -> impl Future<Output = Result<bool, Self::IsTrustedKeyError>>;
+    async fn is_trusted_key(&mut self, addr: SocketAddr, server_name: &str, remote_static_key: &[u8]) -> Result<bool, Self::IsTrustedKeyError>;
 }
 
 #[derive(Snafu, SnafuCliDebug)]
