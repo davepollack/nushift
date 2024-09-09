@@ -314,8 +314,8 @@ where
 
     fn memory_size(&self) -> usize {
         (1u64 << SV39_BITS).try_into().unwrap_or_else(|_| {
-            tracing::warn!("Running Nushift on a 32-bit or lower host platform. \
-                Executable code above 2^32 may not work, but it should and this \
+            tracing::warn!("You are running Nushift on a 32-bit or lower host platform. \
+                Nushift app executable code above 2^32 may not work, but it should and this \
                 limitation should ideally be resolved in the future");
             usize::MAX
         })
