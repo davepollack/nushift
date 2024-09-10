@@ -7,7 +7,7 @@ use std::sync::{Mutex, Arc};
 use druid::{Data, Env, LocalizedString};
 use druid::im::{self, Vector};
 use nushift_core::{Hypervisor, GfxOutput};
-use reusable_id_pool::{ArcId, ReusableIdPool};
+use reusable_id_pool::ArcId;
 
 use super::scale_and_size::ScaleAndSize;
 use super::tab_data::TabData;
@@ -44,12 +44,9 @@ trait HypervisorDependency {
     fn close_tab(&mut self, hypervisor: &mut Hypervisor, tab_id: &ArcId);
 }
 
-struct RealImpl;
-struct MockImpl {
-    pool: ReusableIdPool,
-}
+struct RealHypervisor;
 
-impl HypervisorDependency for RealImpl {
+impl HypervisorDependency for RealHypervisor {
     fn add_new_tab(&mut self, hypervisor: &mut Hypervisor, initial_gfx_output: GfxOutput) -> ArcId {
         hypervisor.add_new_tab(initial_gfx_output)
     }
@@ -59,23 +56,13 @@ impl HypervisorDependency for RealImpl {
     }
 }
 
-impl HypervisorDependency for MockImpl {
-    fn add_new_tab(&mut self, _hypervisor: &mut Hypervisor, _initial_gfx_output: GfxOutput) -> ArcId {
-        self.pool.allocate()
-    }
-
-    fn close_tab(&mut self, _hypervisor: &mut Hypervisor, _tab_id: &ArcId) {
-        // Intentionally empty
-    }
-}
-
 impl RootData {
     /// Before calling add_new_tab, self.scale_and_size MUST be initialised or
     /// this will panic. It must also be initialised before calling any future
     /// method that restores tabs, for example, or a future version that by
     /// default starts with one tab open.
     pub fn add_new_tab(&mut self, env: &Env) -> ArcId {
-        self.add_new_tab_impl(&mut RealImpl, env)
+        self.add_new_tab_impl(&mut RealHypervisor, env)
     }
 
     fn add_new_tab_impl<H: HypervisorDependency>(&mut self, hy_dep: &mut H, env: &Env) -> ArcId {
@@ -114,7 +101,7 @@ impl RootData {
 
     pub fn close_selected_tab(&mut self) {
         match self.currently_selected_tab_id.as_ref().map(ArcId::clone) {
-            Some(ref tab_id) => self.close_tab_impl(&mut RealImpl, tab_id),
+            Some(ref tab_id) => self.close_tab_impl(&mut RealHypervisor, tab_id),
             None => {}
         }
     }
@@ -125,7 +112,7 @@ impl RootData {
 
     pub fn process_tab_iter_close_requests(&mut self) {
         for tab_id in self.close_tab_requests.split_off(0) {
-            self.close_tab_impl(&mut RealImpl, &tab_id);
+            self.close_tab_impl(&mut RealHypervisor, &tab_id);
         }
     }
 
@@ -178,6 +165,20 @@ pub mod tests {
     use druid::im::{vector, hashmap};
     use reusable_id_pool::ReusableIdPool;
 
+    struct MockHypervisor {
+        pool: ReusableIdPool,
+    }
+
+    impl HypervisorDependency for MockHypervisor {
+        fn add_new_tab(&mut self, _hypervisor: &mut Hypervisor, _initial_gfx_output: GfxOutput) -> ArcId {
+            self.pool.allocate()
+        }
+
+        fn close_tab(&mut self, _hypervisor: &mut Hypervisor, _tab_id: &ArcId) {
+            // Intentionally empty
+        }
+    }
+
     pub fn mock() -> RootData {
         let hypervisor = Arc::new(Mutex::new(Hypervisor::new(|_| Ok(()))));
         RootData {
@@ -190,16 +191,16 @@ pub mod tests {
         }
     }
 
-    fn mock_impl() -> MockImpl {
-        MockImpl { pool: ReusableIdPool::new() }
+    fn mock_hypervisor() -> MockHypervisor {
+        MockHypervisor { pool: ReusableIdPool::new() }
     }
 
     #[test]
     fn add_new_tab_adds_new_and_sets_currently_selected() {
         let mut root_data = mock();
-        let mut mock_impl = mock_impl();
+        let mut mock_hypervisor = mock_hypervisor();
 
-        let newly_added_tab_id = root_data.add_new_tab_impl(&mut mock_impl, &Env::empty());
+        let newly_added_tab_id = root_data.add_new_tab_impl(&mut mock_hypervisor, &Env::empty());
 
         assert_eq!(1, root_data.tabs.len());
         assert!(root_data.get_tab_by_index(0).expect("Should exist").id == newly_added_tab_id);
@@ -210,10 +211,10 @@ pub mod tests {
     #[test]
     fn select_tab_selects_tab() {
         let mut root_data = mock();
-        let mut mock_impl = mock_impl();
+        let mut mock_hypervisor = mock_hypervisor();
 
-        let tab1 = root_data.add_new_tab_impl(&mut mock_impl, &Env::empty());
-        let tab2 = root_data.add_new_tab_impl(&mut mock_impl, &Env::empty());
+        let tab1 = root_data.add_new_tab_impl(&mut mock_hypervisor, &Env::empty());
+        let tab2 = root_data.add_new_tab_impl(&mut mock_hypervisor, &Env::empty());
 
         assert!(root_data.currently_selected_tab_id.as_ref().unwrap() == &tab2);
 
@@ -225,11 +226,11 @@ pub mod tests {
     #[test]
     fn close_tab_should_remove_from_tabs_vector() {
         let mut root_data = mock();
-        let mut mock_impl = mock_impl();
+        let mut mock_hypervisor = mock_hypervisor();
 
-        let tab1 = root_data.add_new_tab_impl(&mut mock_impl, &Env::empty());
+        let tab1 = root_data.add_new_tab_impl(&mut mock_hypervisor, &Env::empty());
 
-        root_data.close_tab_impl(&mut mock_impl, &tab1);
+        root_data.close_tab_impl(&mut mock_hypervisor, &tab1);
 
         assert!(root_data.tabs.is_empty());
     }
@@ -237,11 +238,11 @@ pub mod tests {
     #[test]
     fn close_tab_should_set_currently_selected_to_none_if_no_tabs_left() {
         let mut root_data = mock();
-        let mut mock_impl = mock_impl();
+        let mut mock_hypervisor = mock_hypervisor();
 
-        let tab1 = root_data.add_new_tab_impl(&mut mock_impl, &Env::empty());
+        let tab1 = root_data.add_new_tab_impl(&mut mock_hypervisor, &Env::empty());
 
-        root_data.close_tab_impl(&mut mock_impl, &tab1);
+        root_data.close_tab_impl(&mut mock_hypervisor, &tab1);
 
         assert!(root_data.currently_selected_tab_id.is_none());
     }
@@ -249,13 +250,13 @@ pub mod tests {
     #[test]
     fn close_tab_should_set_currently_selected_to_next_tab_if_first_tab_was_closed() {
         let mut root_data = mock();
-        let mut mock_impl = mock_impl();
+        let mut mock_hypervisor = mock_hypervisor();
 
-        let tab1 = root_data.add_new_tab_impl(&mut mock_impl, &Env::empty());
-        let tab2 = root_data.add_new_tab_impl(&mut mock_impl, &Env::empty());
+        let tab1 = root_data.add_new_tab_impl(&mut mock_hypervisor, &Env::empty());
+        let tab2 = root_data.add_new_tab_impl(&mut mock_hypervisor, &Env::empty());
         root_data.select_tab(&tab1);
 
-        root_data.close_tab_impl(&mut mock_impl, &tab1);
+        root_data.close_tab_impl(&mut mock_hypervisor, &tab1);
 
         assert!(root_data.currently_selected_tab_id.as_ref().unwrap() == &tab2);
     }
@@ -263,12 +264,12 @@ pub mod tests {
     #[test]
     fn close_tab_should_set_currently_selected_to_previous_tab_if_tab_other_than_first_was_closed() {
         let mut root_data = mock();
-        let mut mock_impl = mock_impl();
+        let mut mock_hypervisor = mock_hypervisor();
 
-        let tab1 = root_data.add_new_tab_impl(&mut mock_impl, &Env::empty());
-        let tab2 = root_data.add_new_tab_impl(&mut mock_impl, &Env::empty());
+        let tab1 = root_data.add_new_tab_impl(&mut mock_hypervisor, &Env::empty());
+        let tab2 = root_data.add_new_tab_impl(&mut mock_hypervisor, &Env::empty());
 
-        root_data.close_tab_impl(&mut mock_impl, &tab2);
+        root_data.close_tab_impl(&mut mock_hypervisor, &tab2);
 
         assert!(root_data.currently_selected_tab_id.as_ref().unwrap() == &tab1);
     }
@@ -276,12 +277,12 @@ pub mod tests {
     #[test]
     fn close_tab_should_not_set_currently_selected_if_not_currently_selected_tab_was_closed() {
         let mut root_data = mock();
-        let mut mock_impl = mock_impl();
+        let mut mock_hypervisor = mock_hypervisor();
 
-        let tab1 = root_data.add_new_tab_impl(&mut mock_impl, &Env::empty());
-        let tab2 = root_data.add_new_tab_impl(&mut mock_impl, &Env::empty());
+        let tab1 = root_data.add_new_tab_impl(&mut mock_hypervisor, &Env::empty());
+        let tab2 = root_data.add_new_tab_impl(&mut mock_hypervisor, &Env::empty());
 
-        root_data.close_tab_impl(&mut mock_impl, &tab1);
+        root_data.close_tab_impl(&mut mock_hypervisor, &tab1);
 
         assert!(root_data.currently_selected_tab_id.as_ref().unwrap() == &tab2);
     }
@@ -289,14 +290,14 @@ pub mod tests {
     #[test]
     fn close_tab_should_do_nothing_if_other_id_is_passed_in() {
         let mut root_data = mock();
-        let mut mock_impl = mock_impl();
+        let mut mock_hypervisor = mock_hypervisor();
 
-        let _tab1 = root_data.add_new_tab_impl(&mut mock_impl, &Env::empty());
-        let tab2 = root_data.add_new_tab_impl(&mut mock_impl, &Env::empty());
+        let _tab1 = root_data.add_new_tab_impl(&mut mock_hypervisor, &Env::empty());
+        let tab2 = root_data.add_new_tab_impl(&mut mock_hypervisor, &Env::empty());
         let reusable_id_pool = ReusableIdPool::new();
         let other_id = reusable_id_pool.allocate();
 
-        root_data.close_tab_impl(&mut mock_impl, &other_id);
+        root_data.close_tab_impl(&mut mock_hypervisor, &other_id);
 
         assert_eq!(2, root_data.tabs.len());
         assert!(root_data.currently_selected_tab_id.is_some());

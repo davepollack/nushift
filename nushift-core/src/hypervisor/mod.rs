@@ -27,7 +27,6 @@ trait TabLoader {
 }
 
 struct RealLoader;
-struct MockLoader;
 
 impl TabLoader for RealLoader {
     fn load(tab: &mut Tab, hypervisor_event_handler: &HypervisorEventHandler) {
@@ -36,12 +35,6 @@ impl TabLoader for RealLoader {
             Ok(binary_blob) => tab.load_and_run(binary_blob, Arc::clone(hypervisor_event_handler)),
             Err(err) => tracing::error!("Hardcoded binary blob path error: {err:?}"),
         }
-    }
-}
-
-impl TabLoader for MockLoader {
-    fn load(_tab: &mut Tab, _hypervisor_event_handler: &HypervisorEventHandler) {
-        // Intentionally empty. This is a mock.
     }
 }
 
@@ -104,6 +97,14 @@ impl Hypervisor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct MockLoader;
+
+    impl TabLoader for MockLoader {
+        fn load(_tab: &mut Tab, _hypervisor_event_handler: &HypervisorEventHandler) {
+            // Intentionally empty. This is a mock.
+        }
+    }
 
     #[test]
     fn hypervisor_new_creates_new() {
