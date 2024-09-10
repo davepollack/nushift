@@ -124,7 +124,7 @@ impl<T: Data> HoverBackground<T> {
 
         let (new_state, should_request_anim_frame) = match self.transition_state {
             TransitionState::Transitioning(t, TransitionDirection::Forward) => {
-                let new_t = (1.0 as f64).min(t + (interval_seconds / self.params.duration));
+                let new_t = 1.0_f64.min(t + (interval_seconds / self.params.duration));
                 if new_t >= 1.0 {
                     (TransitionState::Stopped(true), false)
                 } else {
@@ -132,7 +132,7 @@ impl<T: Data> HoverBackground<T> {
                 }
             }
             TransitionState::Transitioning(t, TransitionDirection::Backward) => {
-                let new_t = (0.0 as f64).max(t - (interval_seconds / self.params.duration));
+                let new_t = 0.0_f64.max(t - (interval_seconds / self.params.duration));
                 if new_t <= 0.0 {
                     (TransitionState::Stopped(false), false)
                 } else {

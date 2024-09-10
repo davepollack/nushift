@@ -107,11 +107,11 @@ impl Widget<RootData> for ClientArea {
 
     fn update(&mut self, ctx: &mut UpdateCtx, old_data: &RootData, data: &RootData, env: &Env) {
         let old_framebuffer_currently_selected_tab = data.currently_selected_tab_id.as_ref()
-            .and_then(|tab_id| old_data.get_tab_by_id(&tab_id))
+            .and_then(|tab_id| old_data.get_tab_by_id(tab_id))
             .map(|tab_data| &tab_data.client_framebuffer);
 
         let new_framebuffer_currently_selected_tab = data.currently_selected_tab_id.as_ref()
-            .and_then(|tab_id| data.get_tab_by_id(&tab_id))
+            .and_then(|tab_id| data.get_tab_by_id(tab_id))
             .map(|tab_data| &tab_data.client_framebuffer);
 
         let currently_selected_tab_framebuffer_same = match (old_framebuffer_currently_selected_tab, new_framebuffer_currently_selected_tab) {
