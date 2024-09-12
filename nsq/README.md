@@ -20,6 +20,41 @@ XXhfs is the pattern being used at the moment.
 
 Finally, a curve with higher security margins was chosen. Therefore, the final Noise protocol name is `Noise_XXhfs_448+Kyber1024_ChaChaPoly_BLAKE2b`.
 
-## TODO
+## Handshake phase
 
-More documentation...
+Here is a diagram outlining the messages in the handshake phase:
+
+```mermaid
+sequenceDiagram
+    rect rgb(191, 223, 255)
+        Note over Client,Server: QUIC Initial packet space
+        Client->>Server: Noise message length (2 bytes)<br/>Noise: e, e1, payload: QUIC Transport Parameters
+    end
+
+    rect rgb(231, 209, 255)
+        Note over Client,Server: QUIC Handshake packet space
+        Server->>Client: Noise message length (2 bytes)<br />Noise: e, ee, ekem1, s, es, payload: QUIC Transport Parameters
+        Client->>Server: Noise message length (2 bytes)<br />Noise: s, se, payload: Empty
+    end
+
+    rect rgb(255, 209, 184)
+        Note over Client,Server: QUIC Application data packet space
+        Client<<-->>Server: Transport phase traffic
+    end
+```
+
+In the messages, the Noise message length is included because the post-quantum keys and ciphertexts make the messages so huge (1700-2000 bytes per post-quantum message) as to not fit in a single UDP datagram anymore. And QUIC does not give us the ability to otherwise signify the end of a message within a stream beyond the stream abstraction it does give us.
+
+### Initial keys
+
+The keys used for the QUIC packet protection layer in the QUIC Initial packet space are derived as in [RFC 9001](https://www.rfc-editor.org/rfc/rfc9001.html#initial-secrets), except, instead of [HKDF-Expand-Label from TLS 1.3](https://www.rfc-editor.org/rfc/rfc8446.html#section-7.1) being used, only HKDF-Expand is used, with the strings "client in"/"server in" simply forming the `info` for HKDF-Expand rather than the `label` for HKDF-Expand-Label. The reason being, it is not relevant for us to use the string "tls13" which is in the definition of HKDF-Expand-Label, and also avoids other complexity that HKDF-Expand-Label introduces, namely the encoding of multiple fields and length encodings of those fields, of a struct into `info`.
+
+The QUIC Transport Parameters in this first message are effectively unencrypted as is the case in TLS 1.3.
+
+### Handshake keys
+
+TODO
+
+## Transport phase
+
+TODO
