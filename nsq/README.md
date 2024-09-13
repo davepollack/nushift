@@ -53,7 +53,11 @@ The QUIC Transport Parameters in this first message are effectively unencrypted 
 
 ### Handshake keys
 
-TODO
+Ideally, I don't want to use the Handshake packet space, and just rely on Noise's protection. However, it is needed for `quinn` to work, and specifically, even the second message needs to be in this space for `quinn` to work (not only the last message).
+
+So, we derive "keys" after the first message from calling `Split()` on the Noise state. This is in contrast to TLS 1.3, where Handshake keys are derived after the DH exchange and thus do provide protection. I.e., in TLS 1.3 the second UDP datagram contains an Initial QUIC packet with just the server ephemeral key and a Handshake QUIC packet with the remainder of the data which is protected. We cannot do this approach because the `snow` Noise library does not allow partially processing a Noise message.
+
+Like TLS 1.3, the server QUIC Transport Parameters here are protected, due to Noise's protection.
 
 ## Transport phase
 
