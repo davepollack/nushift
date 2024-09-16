@@ -61,4 +61,18 @@ Like TLS 1.3, the server QUIC Transport Parameters here are protected, due to No
 
 ## Transport phase
 
+As Noise specifies, the secrets for the transport phase are derived by calling `Split()` on the Noise state after all handshake messages have been processed. The QUIC packet protection layer, using ChaCha20-Poly1305, then performs the function of encrypting and decrypting transport messages in a similar way to the Noise specification for transport messages. However, the exact parameters used for the encryption and decryption operations are different, and are detailed below.
+
+## Packet protection
+
+The QUIC packet protection layer applies at all of the Initial, Handshake and Application data (transport phase) stages. We use ChaCha20-Poly1305 for this layer, with a key, nonce and associated data as below.
+
+The key is derived further from the secret that was derived as described in the earlier sections. Like as described in the Initial Keys section, the key for packet protection is also derived using only HKDF-Expand, not TLS 1.3's HKDF-Expand-Label. The string "quic key" is provided directly as the `info` for HKDF-Expand, and the input PRK is the secret derived as described earlier either for the Initial, Handshake or Application data stages.
+
+The nonce is the QUIC packet number, like how an explicit nonce is suggested by the Noise specification for out-of-order protocols. Specifically, per the Noise specification for ChaChaPoly cipher functions, the 96-bit nonce is formed from 32 bits of zeros followed by a little-endian encoding of the 64-bit nonce (QUIC packet number). This is unlike TLS 1.3, where a key-derived IV (using the label "quic iv") is also mixed into the nonce, the purpose of which is to defend against multitarget attacks. Noise, WireGuard and other Noise-over-QUIC proposals do not do this. Presumably, this is because Noise forces a key size of 256 bits, which has previously been suggested as an alternative to defend against multitarget attacks rather than using a session-specific IV with a 128-bit key.
+
+The associated data is the QUIC unprotected header, as in RFC 9001.
+
+## Header protection
+
 TODO
