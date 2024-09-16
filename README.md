@@ -461,7 +461,7 @@ A Hello World connection is working, but nsq is not integrated into the Nushift 
 
 TODO. The planned storage system will not be a filesystem API, which has been the cause of many security vulnerabilities. The storage concepts will interact with each other in a more secure and better way than filesystem APIs.
 
-## Networking
+## Client networking
 
 TODO. The networking story of browsers is one of the weakest parts of browsers. Apps should be able to use more networking functionality than they can in browsers.
 
