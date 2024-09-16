@@ -75,4 +75,4 @@ The associated data is the QUIC unprotected header, as in RFC 9001.
 
 ## Header protection
 
-TODO
+Header protection is applied in almost the same way as RFC 9001, using its ChaCha20-based header protection and the raw ChaCha20 function, except, the header protection key `hp_key` is derived from the encryption-level secret using only HKDF-Expand, not TLS 1.3's HKDF-Expand-Label, for the same reasons described in the Initial secrets section, with the string "quic hp" provided directly as the `info` for HKDF-Expand.
