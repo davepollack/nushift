@@ -445,6 +445,18 @@ The value provided for the `PresentBufferFormat` enum was unrecognised.
 
 The requested graphics capability has been used to create child capabilities (for example, CPU present buffer capabilities) that have not been destroyed, and therefore this graphics capability cannot be destroyed. Please destroy the child capabilities first.
 
+## nsq://
+
+A client/server network protocol for serving Nushift apps.
+
+It should be as easy to start a secure server serving Nushift programs as it is to start an SSH server.
+
+This requirement is the reason for creating a new protocol.
+
+[See more in nsq's README.md](nsq/README.md).
+
+A Hello World connection is working, but nsq is not integrated into the Nushift GUI yet.
+
 ## Storage
 
 TODO. The planned storage system will not be a filesystem API, which has been the cause of many security vulnerabilities. The storage concepts will interact with each other in a more secure and better way than filesystem APIs.
@@ -452,12 +464,6 @@ TODO. The planned storage system will not be a filesystem API, which has been th
 ## Networking
 
 TODO. The networking story of browsers is one of the weakest parts of browsers. Apps should be able to use more networking functionality than they can in browsers.
-
-## nsq://
-
-TODO!
-
-It should be as easy to start a secure server serving Nushift programs as it is to start an SSH server.
 
 ## Licence
 
