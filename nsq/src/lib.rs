@@ -11,6 +11,7 @@ use itertools::Itertools;
 use quinn::{AsyncUdpSocket, ClientConfig, ConnectError, Connection, ConnectionError, Endpoint, EndpointConfig, Runtime, ServerConfig, VarInt};
 use snafu::prelude::*;
 use snafu_cli_debug::SnafuCliDebug;
+use socket2::{Domain, Protocol, Socket, Type};
 
 use crate::quinn_config::NoiseConfig;
 use crate::quinn_integrity_keys::{NoiseHandshakeTokenKey, NoiseHmacKey};
@@ -98,6 +99,25 @@ impl NsqServer {
         Self::new_with_socket(local_static_secret, socket, runtime)
     }
 
+    /// Use a single socket that can communicate with both IPv4 and IPv6 peers.
+    ///
+    /// This is supported on Windows, macOS and Linux. It is not the default on
+    /// Windows and macOS, but is on most Linux distributions and the
+    /// non-customised Linux kernel, so on the latter systems, `new_v6` is the
+    /// same as this.
+    ///
+    /// If you explicitly want a *not* dual-stack socket on those Linux systems,
+    /// use the `new_with_socket` method directly.
+    pub fn new_dual_stack<LS>(local_static_secret: LS, runtime: Arc<dyn Runtime>) -> io::Result<Self>
+    where
+        LS: AsRef<[u8]> + Send + Sync + 'static,
+    {
+        let socket = Socket::new(Domain::IPV6, Type::DGRAM, Some(Protocol::UDP))?;
+        socket.set_only_v6(false)?;
+        socket.bind(&"[::]:45777".parse::<SocketAddr>().expect("Should parse").into())?;
+        Self::new_with_socket(local_static_secret, socket.into(), runtime)
+    }
+
     pub fn new_with_socket<LS>(local_static_secret: LS, socket: UdpSocket, runtime: Arc<dyn Runtime>) -> io::Result<Self>
     where
         LS: AsRef<[u8]> + Send + Sync + 'static,
@@ -169,6 +189,25 @@ impl NsqClient {
     {
         let socket = UdpSocket::bind("[::]:0")?;
         Self::new_with_socket(local_static_secret, socket, runtime)
+    }
+
+    /// Use a single socket that can communicate with both IPv4 and IPv6 peers.
+    ///
+    /// This is supported on Windows, macOS and Linux. It is not the default on
+    /// Windows and macOS, but is on most Linux distributions and the
+    /// non-customised Linux kernel, so on the latter systems, `new_v6` is the
+    /// same as this.
+    ///
+    /// If you explicitly want a *not* dual-stack socket on those Linux systems,
+    /// use the `new_with_socket` method directly.
+    pub fn new_dual_stack<LS>(local_static_secret: LS, runtime: Arc<dyn Runtime>) -> io::Result<Self>
+    where
+        LS: AsRef<[u8]> + Send + Sync + 'static,
+    {
+        let socket = Socket::new(Domain::IPV6, Type::DGRAM, Some(Protocol::UDP))?;
+        socket.set_only_v6(false)?;
+        socket.bind(&"[::]:0".parse::<SocketAddr>().expect("Should parse").into())?;
+        Self::new_with_socket(local_static_secret, socket.into(), runtime)
     }
 
     pub fn new_with_socket<LS>(local_static_secret: LS, socket: UdpSocket, runtime: Arc<dyn Runtime>) -> io::Result<Self>

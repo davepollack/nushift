@@ -1671,6 +1671,7 @@ dependencies = [
  "snafu",
  "snafu-cli-debug",
  "snow",
+ "socket2",
  "tracing-subscriber",
  "trait-variant",
  "x448",
